@@ -8,7 +8,13 @@ maintenance and cleanup must remain usable when Grabber is not installed.
 
 ## Current application
 
-The working baseline is still the legacy Tkinter application:
+The first PySide6 shell is available:
+
+```powershell
+.\Lancer-BooruFlow.bat
+```
+
+The Tkinter fallback remains available during migration:
 
 ```powershell
 .\Lancer-Artist-by-Tag-GUI.bat
@@ -16,6 +22,7 @@ The working baseline is still the legacy Tkinter application:
 
 The new `src/booruflow` package is an incremental PySide6 migration. It does
 not replace the working interface until feature parity has been verified.
+
 ## Repository layout
 
 - `legacy`: working Tkinter application and compatibility modules.

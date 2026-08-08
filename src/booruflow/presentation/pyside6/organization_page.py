@@ -87,7 +87,9 @@ class OrganizationPage(QWidget):
             for tag in sorted(map(str, node.get("__tags__", [])), key=str.casefold): self._add_item(item, tag, tag, path, "tag")
             if node.get("__tag__"): self._add_item(item, str(node["__tag__"]), str(node["__tag__"]), path, "tag")
             for key, child in sorted(node.items(), key=lambda pair: str(pair[0]).casefold()):
-                if not str(key).startswith("__"): self._add_item(item, str(key), child, path + (str(key),), "category")
+                if not str(key).startswith("__"):
+                    kind = "tag" if isinstance(child, dict) and not child else "category"
+                    self._add_item(item, str(key), child, path + (str(key),), kind)
         if item.checkState(0) == Qt.CheckState.Checked:
             self.tree.blockSignals(True)
             for index in range(item.childCount()): item.child(index).setCheckState(0, Qt.CheckState.Checked)

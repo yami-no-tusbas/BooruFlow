@@ -45,7 +45,7 @@ class PySide6WorkflowTests(unittest.TestCase):
         from PySide6.QtCore import Qt
         from booruflow.presentation.pyside6.organization_page import OrganizationPage
 
-        document = {"boards": {"gelbooru": {"Animals": {"__tags__": ["cat", "dog"]}}}}
+        document = {"boards": {"gelbooru": {"Animals": {"cat": {}, "dog": {}}}}}
         page = OrganizationPage(self.catalog(), document)
         captured = []
         page.review_tags_requested.connect(captured.append)

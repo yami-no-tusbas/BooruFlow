@@ -7,8 +7,21 @@ from booruflow.application.taxonomy import TaxonomyRepository, iter_tag_paths
 
 class TaxonomyApplicationTests(unittest.TestCase):
     def test_iter_tag_paths_supports_manual_and_imported_nodes(self) -> None:
-        tree = {"Animals": {"__tags__": ["cat"], "Dog": {"__tag__": "dog"}}}
-        self.assertEqual(set(iter_tag_paths(tree)), {("cat", ("Animals",)), ("dog", ("Animals", "Dog"))})
+        tree = {
+            "Animals": {
+                "__tags__": ["cat"],
+                "Dog": {"__tag__": "dog"},
+                "legacy_empty_leaf": {},
+            }
+        }
+        self.assertEqual(
+            set(iter_tag_paths(tree)),
+            {
+                ("cat", ("Animals",)),
+                ("dog", ("Animals", "Dog")),
+                ("legacy_empty_leaf", ("Animals", "legacy_empty_leaf")),
+            },
+        )
 
     def test_save_creates_a_dated_backup_and_synchronizes_databases(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

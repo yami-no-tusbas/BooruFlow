@@ -30,7 +30,13 @@ def iter_tag_paths(node, path: tuple[str, ...] = ()):
             yield str(tag), path
         for key, child in node.items():
             if not str(key).startswith("__"):
-                yield from iter_tag_paths(child, path + (str(key),))
+                child_path = path + (str(key),)
+                if isinstance(child, dict) and not child:
+                    # Historical catalogues stored canonical leaf tags as
+                    # ``{"tag_name": {}}`` before the explicit __tag__ marker.
+                    yield str(key), child_path
+                else:
+                    yield from iter_tag_paths(child, child_path)
 
 
 class TaxonomyRepository:

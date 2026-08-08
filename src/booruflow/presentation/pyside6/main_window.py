@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
 from booruflow.application.capabilities import ApplicationCapabilities
 from booruflow.application.ports import SettingsRepository
 from booruflow.application.review import ReviewRequest, build_review_commands
-from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.infrastructure.localization import LanguageCatalog, translate_legacy_log
 from booruflow.presentation.pyside6.icons import navigation_icon
 from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.pages import DashboardPage, PlaceholderPage
@@ -209,7 +209,7 @@ class MainWindow(QMainWindow):
     def _review_output(self, chunk: str) -> None:
         for line in chunk.splitlines():
             if line.strip():
-                self.log(line)
+                self.log(translate_legacy_log(line, self.catalog.code))
 
     def _review_finished(self, success: bool, outputs: list[str]) -> None:
         self.review_page.set_running(False)

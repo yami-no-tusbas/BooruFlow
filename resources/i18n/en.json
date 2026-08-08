@@ -46,6 +46,7 @@
   "options.gelbooru_database": "Gelbooru database:",
   "options.e621_database": "e621 database:",
   "options.grabber_folder": "Grabber folder:",
+  "options.output_folder": "Results folder:",
   "options.browse": "Browse…",
   "options.choose_folder": "Choose folder",
   "options.choose_database": "Choose database",

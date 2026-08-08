@@ -126,12 +126,15 @@ class OptionsPage(QWidget):
         self.gelbooru_database_label = QLabel()
         self.e621_database_label = QLabel()
         self.grabber_directory_label = QLabel()
+        self.output_root_label = QLabel()
         self.gelbooru_database = PathRow(catalog)
         self.e621_database = PathRow(catalog)
         self.grabber_directory = PathRow(catalog, directory=True)
+        self.output_root = PathRow(catalog, directory=True)
         path_form.addRow(self.gelbooru_database_label, self.gelbooru_database)
         path_form.addRow(self.e621_database_label, self.e621_database)
         path_form.addRow(self.grabber_directory_label, self.grabber_directory)
+        path_form.addRow(self.output_root_label, self.output_root)
         layout.addWidget(self.paths_group)
         self.note = QLabel()
         self.note.setWordWrap(True)
@@ -162,6 +165,7 @@ class OptionsPage(QWidget):
         self.gelbooru_database.edit.setText(str(settings.get("gelbooru_database", "")))
         self.e621_database.edit.setText(str(settings.get("e621_database", "")))
         self.grabber_directory.edit.setText(str(settings.get("grabber_directory", "")))
+        self.output_root.edit.setText(str(settings.get("output_root", "")))
 
     def _capture_credentials(self, site: str) -> None:
         self._credentials[site] = {
@@ -188,6 +192,7 @@ class OptionsPage(QWidget):
             "gelbooru_database": self.gelbooru_database.edit.text().strip(),
             "e621_database": self.e621_database.edit.text().strip(),
             "grabber_directory": self.grabber_directory.edit.text().strip(),
+            "output_root": self.output_root.edit.text().strip(),
         }
         self.save_requested.emit(settings, self._credentials)
 
@@ -205,8 +210,10 @@ class OptionsPage(QWidget):
         self.gelbooru_database_label.setText(text("options.gelbooru_database"))
         self.e621_database_label.setText(text("options.e621_database"))
         self.grabber_directory_label.setText(text("options.grabber_folder"))
+        self.output_root_label.setText(text("options.output_folder"))
         self.gelbooru_database.retranslate()
         self.e621_database.retranslate()
         self.grabber_directory.retranslate()
+        self.output_root.retranslate()
         self.note.setText(text("options.note"))
         self.save_button.setText(text("options.save"))

@@ -198,12 +198,12 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument(
         "--user-id",
-        default=os.getenv("GELBOORU_USER_ID", "358070"),
+        default=os.getenv("GELBOORU_USER_ID", ""),
         help="User ID Gelbooru, ou variable GELBOORU_USER_ID",
     )
     parser.add_argument(
         "--api-key",
-        default=os.getenv("GELBOORU_API_KEY", "358df02abf5a7fec138c3efac83840c93724e4973eff4ea52c395670abbba984"),
+        default=os.getenv("GELBOORU_API_KEY", ""),
         help="Clé API Gelbooru, ou variable GELBOORU_API_KEY",
     )
     parser.add_argument("--entity-type", choices=ENTITY_TYPES, default="artists")

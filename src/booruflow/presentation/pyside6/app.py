@@ -45,6 +45,7 @@ def initial_settings(root: Path) -> dict[str, object]:
             )
         ),
         "grabber_directory": str(legacy.get("grabber", "")),
+        "output_root": str(root / "var" / "results"),
     }
 
 
@@ -72,6 +73,8 @@ def create_application(argv: list[str] | None = None) -> tuple[QApplication, Mai
         catalog,
         settings_repository=settings_repository,
         credentials_repository=credentials_repository,
+        project_root=root,
+        python_executable=sys.executable,
     )
     return app, window
 

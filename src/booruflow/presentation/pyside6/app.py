@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from booruflow.application import resolve_capabilities
 from booruflow.infrastructure.grabber import GrabberInstallation
+from booruflow.infrastructure.settings import JsonSettingsRepository
 from booruflow.presentation.pyside6.main_window import MainWindow
 
 
@@ -18,14 +19,32 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def configured_grabber(root: Path) -> Path | None:
-    settings = root / "config" / "artist_by_tag_gui_settings.json"
+def read_json(path: Path) -> dict[str, object]:
     try:
-        data = json.loads(settings.read_text(encoding="utf-8-sig"))
-        value = str(data.get("grabber", "")).strip()
-        return Path(value) if value else None
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        return data if isinstance(data, dict) else {}
     except (OSError, ValueError, TypeError):
-        return None
+        return {}
+
+
+def initial_settings(root: Path) -> dict[str, object]:
+    legacy = read_json(root / "config" / "artist_by_tag_gui_settings.json")
+    return {
+        "language": "en",
+        "gelbooru_database": str(
+            legacy.get(
+                "local_gel_db",
+                root / "data" / "databases" / "g_tags_260712_blacklist.db",
+            )
+        ),
+        "e621_database": str(
+            legacy.get(
+                "local_e621_db",
+                root / "data" / "databases" / "e621_tags.db",
+            )
+        ),
+        "grabber_directory": str(legacy.get("grabber", "")),
+    }
 
 
 def create_application(argv: list[str] | None = None) -> tuple[QApplication, MainWindow]:
@@ -33,8 +52,21 @@ def create_application(argv: list[str] | None = None) -> tuple[QApplication, Mai
     QCoreApplication.setOrganizationName("BooruFlow")
     QCoreApplication.setApplicationName("BooruFlow")
     root = project_root()
-    capabilities = resolve_capabilities(GrabberInstallation(configured_grabber(root)))
-    window = MainWindow(capabilities)
+    config = root / "config"
+    settings_repository = JsonSettingsRepository(config / "booruflow_settings.json")
+    credentials_repository = JsonSettingsRepository(config / "booruflow_credentials.json")
+    settings = settings_repository.load()
+    if not settings:
+        settings = initial_settings(root)
+        settings_repository.save(settings)
+    grabber_value = str(settings.get("grabber_directory", "")).strip()
+    grabber = Path(grabber_value) if grabber_value else None
+    capabilities = resolve_capabilities(GrabberInstallation(grabber))
+    window = MainWindow(
+        capabilities,
+        settings_repository=settings_repository,
+        credentials_repository=credentials_repository,
+    )
     return app, window
 
 

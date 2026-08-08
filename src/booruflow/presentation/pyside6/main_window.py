@@ -4,9 +4,8 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (
-    QHBoxLayout,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -21,39 +20,48 @@ from PySide6.QtWidgets import (
 )
 
 from booruflow.application.capabilities import ApplicationCapabilities
+from booruflow.application.ports import SettingsRepository
+from booruflow.presentation.pyside6.icons import navigation_icon
+from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.pages import DashboardPage, PlaceholderPage
 
 
 class MainWindow(QMainWindow):
     NAVIGATION = (
-        ("Home", "⌂"),
-        ("Review", "✓"),
-        ("Tagging", "#"),
-        ("Organization", "≡"),
-        ("Cleanup", "⌫"),
-        ("Options", "⚙"),
-        ("Grabber", "↗"),
+        "Home",
+        "Review",
+        "Tagging",
+        "Organization",
+        "Cleanup",
+        "Options",
+        "Grabber",
     )
 
     def __init__(
         self,
         capabilities: ApplicationCapabilities,
         parent: QWidget | None = None,
+        settings_repository: SettingsRepository | None = None,
+        credentials_repository: SettingsRepository | None = None,
     ) -> None:
         super().__init__(parent)
         self.capabilities = capabilities
+        self.settings_repository = settings_repository
+        self.credentials_repository = credentials_repository
         self.setWindowTitle("BooruFlow")
         self.resize(1120, 760)
         self.setMinimumSize(860, 600)
 
         self.navigation = QListWidget()
         self.navigation.setObjectName("mainNavigation")
-        self.navigation.setFixedWidth(210)
+        self.navigation.setFixedWidth(230)
+        self.navigation.setIconSize(QSize(28, 28))
         self.navigation.setSpacing(2)
-        for label, symbol in self.NAVIGATION:
-            item = QListWidgetItem(f"  {symbol}   {label}")
+        for label in self.NAVIGATION:
+            item = QListWidgetItem(navigation_icon(label), label)
             item.setData(Qt.ItemDataRole.UserRole, label)
-            item.setSizeHint(item.sizeHint().expandedTo(self.navigation.iconSize()))
+            item.setSizeHint(QSize(210, 44))
+            item.setToolTip(label)
             self.navigation.addItem(item)
 
         self.pages = QStackedWidget()
@@ -67,14 +75,23 @@ class MainWindow(QMainWindow):
             PlaceholderPage("Tagging", "Manual browser-assisted tagging review will be migrated here.")
         )
         self.pages.addWidget(
-            PlaceholderPage("Organization", "Taxonomy browsing, editing and source updates will live here.")
+            PlaceholderPage(
+                "Organization",
+                "Taxonomy browsing, editing and source updates will live here.",
+            )
         )
         self.pages.addWidget(
-            PlaceholderPage("Cleanup", "Folder drop, audit progress and recoverable actions will live here.")
+            PlaceholderPage(
+                "Cleanup",
+                "Folder drop, audit progress and recoverable actions will live here.",
+            )
         )
-        self.pages.addWidget(
-            PlaceholderPage("Options", "Language, site credentials, databases and updates will live here.")
+        options = OptionsPage(
+            settings_repository.load() if settings_repository else {},
+            credentials_repository.load() if credentials_repository else {},
         )
+        options.save_requested.connect(self._save_options)
+        self.pages.addWidget(options)
         self.pages.addWidget(
             PlaceholderPage(
                 "Grabber",
@@ -134,6 +151,21 @@ class MainWindow(QMainWindow):
         self.pages.setCurrentIndex(index)
         label = self.navigation.item(index).data(Qt.ItemDataRole.UserRole)
         self.status_label.setText(f"{label} — Ready.")
+
+    def _save_options(self, settings: dict, credentials: dict) -> None:
+        try:
+            if self.settings_repository:
+                self.settings_repository.save(settings)
+            if self.credentials_repository:
+                self.credentials_repository.save(credentials)
+        except OSError as exc:
+            self.status_label.setText("Options — Save failed.")
+            self.log(f"Could not save options: {exc}")
+            self.log_view.show()
+            self.log_button.setText("Hide log")
+            return
+        self.status_label.setText("Options — Saved.")
+        self.log("Options saved. Restart BooruFlow to refresh external tool availability.")
 
     def toggle_log(self) -> None:
         visible = not self.log_view.isVisible()

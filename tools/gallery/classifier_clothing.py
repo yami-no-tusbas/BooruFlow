@@ -5,7 +5,7 @@ import json
 from collections import defaultdict
 from pathlib import Path
 
-from creer_listes_telechargement import collect_all_taxonomy_tags, collect_empty_leaf_tags, load_general_tags
+from tools.gallery.creer_listes_telechargement import collect_all_taxonomy_tags, collect_empty_leaf_tags, load_general_tags
 
 
 OUTPUT = Path("listes_telechargement/12_clothing")

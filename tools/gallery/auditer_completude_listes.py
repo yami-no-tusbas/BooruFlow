@@ -3,7 +3,7 @@ from __future__ import annotations
 import csv
 from pathlib import Path
 
-from creer_listes_telechargement import existing_gallery_tags, load_general_tags
+from tools.gallery.creer_listes_telechargement import existing_gallery_tags, load_general_tags
 
 
 ROOT = Path("listes_telechargement")

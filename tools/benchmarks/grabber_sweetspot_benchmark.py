@@ -20,12 +20,12 @@ from datetime import datetime
 from pathlib import Path
 
 from artist_by_tag_gui import build_tab, find_grabber_credentials
-from grabber_load_benchmark import LoadMeasurement, monitor_load
+from tools.benchmarks.grabber_load_benchmark import LoadMeasurement, monitor_load
 from gelbooru_artistes_par_tags_ignore import fetch_counts_parallel
 
-APP_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_GRABBER = Path(r"D:\0ZGrabber_blacklist")
-DEFAULT_LOCAL_DB = APP_DIR / "g_tags_260712_blacklist.db"
+DEFAULT_LOCAL_DB = PROJECT_ROOT / "g_tags_260712_blacklist.db"
 RATING_FILTER = "rating:general"
 
 

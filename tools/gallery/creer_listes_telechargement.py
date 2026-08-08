@@ -6,7 +6,7 @@ import sqlite3
 from collections import defaultdict
 from pathlib import Path
 
-from exporter_listings_galerie import DATABASE, PRIMARY_TREES, RESERVE, SECONDARY_TREES
+from tools.gallery.exporter_listings_galerie import DATABASE, PRIMARY_TREES, RESERVE, SECONDARY_TREES
 
 
 # Kept local instead of importing the enrichment script, so this utility can

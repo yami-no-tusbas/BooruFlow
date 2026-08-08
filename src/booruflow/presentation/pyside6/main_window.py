@@ -35,7 +35,7 @@ from booruflow.presentation.pyside6.grabber_page import GrabberPage
 from booruflow.presentation.pyside6.organization_controller import TaxonomySaveWorker, WikiImportWorker
 from booruflow.presentation.pyside6.organization_page import OrganizationPage
 from booruflow.presentation.pyside6.options_page import OptionsPage
-from booruflow.presentation.pyside6.pages import DashboardPage, PlaceholderPage
+from booruflow.presentation.pyside6.pages import DashboardPage
 from booruflow.presentation.pyside6.review_controller import (
     ReviewCountWorker,
     ReviewAutocompleteWorker,

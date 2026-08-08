@@ -48,11 +48,12 @@ from booruflow.presentation.pyside6.review_controller import (
 from booruflow.presentation.pyside6.review_page import ReviewPage
 from booruflow.presentation.pyside6.tagging_controller import TaggingWorker
 from booruflow.presentation.pyside6.tagging_page import TaggingPage
+from booruflow.presentation.pyside6.wiki_page import WikiPage
 
 
 class MainWindow(QMainWindow):
     NAVIGATION_KEYS = (
-        "home", "review", "tagging", "organization", "cleanup", "options", "grabber"
+        "home", "review", "tagging", "organization", "wiki", "cleanup", "options", "grabber"
     )
 
     def __init__(
@@ -132,7 +133,15 @@ class MainWindow(QMainWindow):
         self.organization_page.update_requested.connect(self._update_taxonomy)
         self.organization_page.review_tags_requested.connect(self._review_organization_tags)
         self.organization_page.tag_details_requested.connect(self._load_tag_details)
+        self.organization_page.wiki_draft_requested.connect(self._prepare_wiki)
         self.pages.addWidget(self.organization_page)
+        database_value = str(settings.get("gelbooru_database", ""))
+        self.wiki_page = WikiPage(
+            catalog, self.project_root / "var" / "wiki_drafts",
+            Path(database_value) if database_value else None,
+        )
+        self.wiki_page.organization_tag_requested.connect(self._open_organization_tag)
+        self.pages.addWidget(self.wiki_page)
         self.cleanup_page = CleanupPage(catalog)
         self.cleanup_page.scan_requested.connect(self._start_cleanup)
         self.cleanup_page.stop_requested.connect(self._stop_cleanup)
@@ -202,6 +211,17 @@ class MainWindow(QMainWindow):
     def navigate_to(self, index: int) -> None:
         if 0 <= index < self.pages.count():
             self.navigation.setCurrentRow(index)
+
+    def navigate_to_key(self, key: str) -> None:
+        if key in self.NAVIGATION_KEYS: self.navigate_to(self.NAVIGATION_KEYS.index(key))
+
+    def _prepare_wiki(self, tag: str) -> None:
+        self.wiki_page.set_tag(tag)
+        self.navigate_to_key("wiki")
+
+    def _open_organization_tag(self, tag: str) -> None:
+        self.navigate_to_key("organization")
+        self.organization_page._navigate_to_tag(tag)
 
     def _navigation_changed(self, index: int) -> None:
         if index >= 0:
@@ -356,7 +376,7 @@ class MainWindow(QMainWindow):
 
     def _review_results_to_grabber(self, entries: tuple[tuple[str, str], ...]) -> None:
         self.grabber_page.tags.setPlainText("\n".join(f"{site}\t{tag}" for site, tag in entries))
-        self.navigate_to(6)
+        self.navigate_to_key("grabber")
         self.log(self.catalog.text("review.sent_grabber", count=len(entries)))
 
     def _count_queries(self, queries: tuple[str, ...]) -> None:

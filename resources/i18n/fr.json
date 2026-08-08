@@ -5,6 +5,7 @@
   "nav.review": "Révision",
   "nav.tagging": "Tagging",
   "nav.organization": "Organisation",
+  "nav.wiki": "Wiki",
   "nav.cleanup": "Nettoyage",
   "nav.options": "Options",
   "nav.grabber": "Grabber",
@@ -20,6 +21,7 @@
   "log.options_failed": "Impossible d’enregistrer les options : {error}",
   "home.subtitle": "Rechercher, réviser, organiser et maintenir les métadonnées Booru depuis un même espace.",
   "home.open": "Ouvrir",
+  "home.wiki": "Préparer des brouillons wiki Gelbooru validés depuis des modèles réutilisables.",
   "home.review": "Trouver et réviser des tags par catégorie ou depuis une liste TXT.",
   "home.tagging": "Examiner les posts insuffisamment tagués sans envoi automatique.",
   "home.organization": "Maintenir la taxonomie locale et ses sources.",
@@ -189,6 +191,7 @@
   ,"organization.child_tags_prompt": "Un tag enfant par ligne (les virgules et points-virgules sont aussi acceptés) :"
   ,"organization.tags_added": "{count} tag(s) enfant(s) ajouté(s). Appuie sur Enregistrer pour les conserver."
   ,"organization.set_wiki": "Associer une page wiki…"
+  ,"organization.prepare_wiki": "Préparer une entrée wiki…"
   ,"organization.wiki_prompt": "URL du wiki Gelbooru/e621 ou identifiant numérique (laisser vide pour retirer) :"
   ,"organization.wiki_set": "Page wiki associée à ce nœud. Appuie sur Enregistrer pour la conserver."
   ,"organization.wiki_removed": "Association avec la page wiki retirée. Appuie sur Enregistrer pour conserver."
@@ -226,4 +229,41 @@
   ,"organization.updating": "Téléchargement et analyse des sources wiki officielles…"
   ,"organization.update_confirm": "Import analysé : {total} tags uniques, {added} ajout(s), {removed} retrait(s). L’appliquer ? Une sauvegarde datée sera créée avant."
   ,"organization.cancelled": "Mise à jour wiki analysée puis annulée."
+  ,"wiki.tag": "Tag du wiki :"
+  ,"wiki.tag_placeholder": "Aulick_(Azur_Lane)"
+  ,"wiki.template": "Modèle :"
+  ,"wiki.apply_template": "Appliquer le modèle"
+  ,"wiki.replace_confirm": "Remplacer la source actuelle par le modèle sélectionné ?"
+  ,"wiki.template_character": "Personnage"
+  ,"wiki.template_copyright": "Copyright"
+  ,"wiki.template_artist": "Artiste"
+  ,"wiki.template_general": "Général"
+  ,"wiki.source": "Source Gelbooru"
+  ,"wiki.preview": "Aperçu local — vérifier le rendu final sur Gelbooru"
+  ,"wiki.tool_bold": "Gras"
+  ,"wiki.tool_italic": "Italique"
+  ,"wiki.tool_tag_link": "Tag wiki"
+  ,"wiki.tool_search_link": "Recherche de tag"
+  ,"wiki.tool_post": "Post"
+  ,"wiki.tool_quote": "Citation"
+  ,"wiki.tool_spoiler": "Spoiler"
+  ,"wiki.tool_external": "Liens externes"
+  ,"wiki.tool_see_also": "Voir aussi"
+  ,"wiki.validation_ok": "La syntaxe source semble valide pour Gelbooru."
+  ,"wiki.issue_alias": "Syntaxe d’alias Danbooru incompatible : [[{value}]]. Retirer | et son libellé."
+  ,"wiki.issue_spaces": "Les liens wiki exigent des underscores : [[{value}]]."
+  ,"wiki.issue_search_spaces": "Les recherches de tags exigent des underscores : {{{{{value}}}}}."
+  ,"wiki.issue_heading": "Les titres h1–h6 de Danbooru sont incompatibles ; utiliser [b]Titre :[/b]."
+  ,"wiki.issue_unbalanced": "Balise [{value}] non équilibrée."
+  ,"wiki.issue_missing": "Tag absent de la base Gelbooru locale sélectionnée : {value}."
+  ,"wiki.tag_required": "Indiquer le tag du wiki avant d’enregistrer le brouillon."
+  ,"wiki.load": "Charger un brouillon…"
+  ,"wiki.save": "Enregistrer le brouillon"
+  ,"wiki.copy": "Copier la source"
+  ,"wiki.open_create": "Copier et ouvrir la création Gelbooru"
+  ,"wiki.saved": "Brouillon enregistré localement : {path}"
+  ,"wiki.save_failed": "Impossible d’enregistrer le brouillon : {error}"
+  ,"wiki.load_failed": "Impossible de charger le brouillon : {error}"
+  ,"wiki.copied": "Source Gelbooru copiée dans le presse-papiers."
+  ,"wiki.opened_create": "Source copiée ; la page de création Gelbooru a été ouverte dans le navigateur."
 }

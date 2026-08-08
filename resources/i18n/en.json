@@ -5,6 +5,7 @@
   "nav.review": "Review",
   "nav.tagging": "Tagging",
   "nav.organization": "Organization",
+  "nav.wiki": "Wiki",
   "nav.cleanup": "Cleanup",
   "nav.options": "Options",
   "nav.grabber": "Grabber",
@@ -23,6 +24,7 @@
   "home.review": "Find and review tags by category or text list.",
   "home.tagging": "Inspect under-tagged posts without automatic submission.",
   "home.organization": "Maintain the local tag taxonomy and its sources.",
+  "home.wiki": "Prepare validated Gelbooru wiki drafts from reusable templates.",
   "home.cleanup": "Audit existing folders before recoverable cleanup.",
   "home.options": "Configure sites, databases, language and credentials.",
   "home.grabber": "Generate and resume Grabber batches when the optional tool is available.",
@@ -189,6 +191,7 @@
   ,"organization.child_tags_prompt": "One child tag per line (commas and semicolons are also accepted):"
   ,"organization.tags_added": "{count} child tag(s) added. Press Save to persist them."
   ,"organization.set_wiki": "Set wiki page…"
+  ,"organization.prepare_wiki": "Prepare a wiki entry…"
   ,"organization.wiki_prompt": "Gelbooru/e621 wiki URL or numeric page ID (leave empty to remove):"
   ,"organization.wiki_set": "Wiki page associated with this node. Press Save to persist it."
   ,"organization.wiki_removed": "Wiki page association removed. Press Save to persist it."
@@ -226,4 +229,41 @@
   ,"organization.updating": "Downloading and analyzing authoritative wiki sources…"
   ,"organization.update_confirm": "Import analyzed: {total} unique tags, {added} addition(s), {removed} removal(s). Apply it? A dated backup will be created first."
   ,"organization.cancelled": "Wiki update analyzed, then cancelled."
+  ,"wiki.tag": "Wiki tag:"
+  ,"wiki.tag_placeholder": "Aulick_(Azur_Lane)"
+  ,"wiki.template": "Template:"
+  ,"wiki.apply_template": "Apply template"
+  ,"wiki.replace_confirm": "Replace the current source with the selected template?"
+  ,"wiki.template_character": "Character"
+  ,"wiki.template_copyright": "Copyright"
+  ,"wiki.template_artist": "Artist"
+  ,"wiki.template_general": "General"
+  ,"wiki.source": "Gelbooru source"
+  ,"wiki.preview": "Local preview — confirm final rendering on Gelbooru"
+  ,"wiki.tool_bold": "Bold"
+  ,"wiki.tool_italic": "Italic"
+  ,"wiki.tool_tag_link": "Wiki tag"
+  ,"wiki.tool_search_link": "Tag search"
+  ,"wiki.tool_post": "Post"
+  ,"wiki.tool_quote": "Quote"
+  ,"wiki.tool_spoiler": "Spoiler"
+  ,"wiki.tool_external": "External links"
+  ,"wiki.tool_see_also": "See also"
+  ,"wiki.validation_ok": "Source syntax looks valid for Gelbooru."
+  ,"wiki.issue_alias": "Unsupported Danbooru alias syntax: [[{value}]]. Remove the | and its label."
+  ,"wiki.issue_spaces": "Wiki links require underscores: [[{value}]]."
+  ,"wiki.issue_search_spaces": "Tag-search links require underscores: {{{{{value}}}}}."
+  ,"wiki.issue_heading": "Danbooru h1–h6 headings are unsupported; use [b]Heading:[/b]."
+  ,"wiki.issue_unbalanced": "Unbalanced [{value}] tag."
+  ,"wiki.issue_missing": "Tag not found in the selected local Gelbooru database: {value}."
+  ,"wiki.tag_required": "Enter the wiki tag before saving the draft."
+  ,"wiki.load": "Load draft…"
+  ,"wiki.save": "Save draft"
+  ,"wiki.copy": "Copy source"
+  ,"wiki.open_create": "Copy and open Gelbooru Create"
+  ,"wiki.saved": "Draft saved locally: {path}"
+  ,"wiki.save_failed": "Could not save the draft: {error}"
+  ,"wiki.load_failed": "Could not load the draft: {error}"
+  ,"wiki.copied": "Gelbooru source copied to the clipboard."
+  ,"wiki.opened_create": "Source copied; Gelbooru's creation page was opened in the browser."
 }

@@ -95,11 +95,14 @@ def _gelbooru_meta_tags(database_path: Path | None) -> set[str]:
     result = set(GELBOORU_META_FALLBACK)
     if not database_path or not database_path.is_file():
         return result
+    connection = None
     try:
-        with sqlite3.connect(f"file:{database_path.as_posix()}?mode=ro", uri=True) as connection:
-            result.update(str(row[0]) for row in connection.execute("SELECT name FROM tags WHERE category = 5"))
+        connection = sqlite3.connect(f"file:{database_path.as_posix()}?mode=ro", uri=True)
+        result.update(str(row[0]) for row in connection.execute("SELECT name FROM tags WHERE category = 5"))
     except sqlite3.Error:
         pass
+    finally:
+        if connection is not None: connection.close()
     return result
 
 

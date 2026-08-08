@@ -13,6 +13,7 @@ NAVIGATION_COLORS = {
     "review": "#10B981",
     "tagging": "#F59E0B",
     "organization": "#8B5CF6",
+    "wiki": "#EC4899",
     "cleanup": "#EF4444",
     "options": "#64748B",
     "grabber": "#06B6D4",
@@ -59,6 +60,13 @@ def _cleanup(painter: QPainter) -> None:
     painter.drawLine(QPointF(17, 13), QPointF(17, 20))
 
 
+def _wiki(painter: QPainter) -> None:
+    painter.drawRoundedRect(QRectF(8, 6, 14, 18), 2, 2)
+    painter.drawLine(QPointF(11, 11), QPointF(19, 11))
+    painter.drawLine(QPointF(11, 15), QPointF(19, 15))
+    painter.drawLine(QPointF(11, 19), QPointF(16, 19))
+
+
 def _options(painter: QPainter) -> None:
     for y, knob in ((9, 12), (15, 19), (21, 10)):
         painter.drawLine(QPointF(7, y), QPointF(23, y))
@@ -76,6 +84,7 @@ _DRAWERS: dict[str, Callable[[QPainter], None]] = {
     "review": _review,
     "tagging": _tagging,
     "organization": _organization,
+    "wiki": _wiki,
     "cleanup": _cleanup,
     "options": _options,
     "grabber": _grabber,

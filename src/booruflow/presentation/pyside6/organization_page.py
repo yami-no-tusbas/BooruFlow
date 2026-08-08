@@ -42,6 +42,7 @@ class OrganizationPage(QWidget):
     update_requested = Signal()
     review_tags_requested = Signal(tuple)
     tag_details_requested = Signal(str, str, str)
+    wiki_draft_requested = Signal(str)
 
     def __init__(self, catalog: LanguageCatalog, document: dict) -> None:
         super().__init__(); self.catalog = catalog; self.document = document
@@ -237,6 +238,7 @@ class OrganizationPage(QWidget):
         add_category = menu.addAction(self.catalog.text("organization.add_child_category"))
         add_children = menu.addAction(self.catalog.text("organization.add_child_tags"))
         wiki = menu.addAction(self.catalog.text("organization.set_wiki"))
+        prepare_wiki = menu.addAction(self.catalog.text("organization.prepare_wiki"))
         menu.addSeparator()
         rename = menu.addAction(self.catalog.text("organization.rename"))
         delete = menu.addAction(self.catalog.text("organization.delete"))
@@ -244,6 +246,7 @@ class OrganizationPage(QWidget):
         if selected is add_category: self._add_category()
         elif selected is add_children: self._add_tags_to_item(item)
         elif selected is wiki: self._set_wiki(item)
+        elif selected is prepare_wiki: self.wiki_draft_requested.emit(str(item.data(0, ROLE_TAG) or tuple(item.data(0, ROLE_PATH))[-1]))
         elif selected is rename: self._rename()
         elif selected is delete: self._delete()
 

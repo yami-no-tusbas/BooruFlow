@@ -31,8 +31,9 @@ class PySide6ShellTests(unittest.TestCase):
 
     def test_main_window_exposes_top_level_navigation(self) -> None:
         window = self.window()
-        self.assertEqual(window.navigation.count(), 7)
-        self.assertEqual(window.pages.count(), 7)
+        self.assertEqual(window.navigation.count(), 8)
+        self.assertEqual(window.pages.count(), 8)
+        self.assertEqual(window.navigation.item(4).data(256), "wiki")
         self.assertEqual(window.navigation.currentRow(), 0)
         window.close()
 
@@ -54,4 +55,12 @@ class PySide6ShellTests(unittest.TestCase):
         self.assertEqual(window.navigation.item(0).text(), "Accueil")
         self.assertEqual(window.clear_log_button.text(), "Effacer le journal")
         self.assertIn("Prêt", window.status_label.text())
+        window.close()
+
+    def test_organization_can_prepare_a_wiki_draft(self) -> None:
+        window = self.window()
+        window._prepare_wiki("Aulick_(Azur_Lane)")
+        self.assertEqual(window.navigation.currentRow(), window.NAVIGATION_KEYS.index("wiki"))
+        self.assertEqual(window.wiki_page.tag.text(), "Aulick_(Azur_Lane)")
+        self.assertIn("[b]Description:[/b]", window.wiki_page.source.toPlainText())
         window.close()

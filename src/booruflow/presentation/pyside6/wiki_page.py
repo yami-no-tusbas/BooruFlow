@@ -1,0 +1,152 @@
+"""Assisted Gelbooru wiki draft editor."""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import urllib.parse
+from datetime import datetime, timezone
+from pathlib import Path
+
+from PySide6.QtCore import QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices
+from PySide6.QtWidgets import (
+    QApplication, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QSplitter, QTextBrowser,
+    QVBoxLayout, QWidget,
+)
+
+from booruflow.application.wiki import TEMPLATES, missing_local_tags, referenced_tags, render_wiki_preview, validate_wiki_source
+from booruflow.infrastructure.localization import LanguageCatalog
+
+
+class WikiPage(QWidget):
+    organization_tag_requested = Signal(str)
+
+    def __init__(self, catalog: LanguageCatalog, drafts_directory: Path, tag_database_path: Path | None = None) -> None:
+        super().__init__(); self.catalog = catalog; self.drafts_directory = drafts_directory; self.tag_database_path = tag_database_path
+        layout = QVBoxLayout(self); layout.setContentsMargins(28, 20, 28, 24); layout.setSpacing(10)
+        self.title = QLabel(); self.title.setStyleSheet("font-size: 22px; font-weight: 600;"); layout.addWidget(self.title)
+        setup = QHBoxLayout(); self.tag_label = QLabel(); self.tag = QLineEdit(); self.template_label = QLabel(); self.template = QComboBox()
+        for key in TEMPLATES: self.template.addItem("", key)
+        self.apply_template = QPushButton(); setup.addWidget(self.tag_label); setup.addWidget(self.tag, 1); setup.addWidget(self.template_label); setup.addWidget(self.template); setup.addWidget(self.apply_template); layout.addLayout(setup)
+        toolbar = QGridLayout(); self.tool_buttons: dict[str, QPushButton] = {}
+        for index, key in enumerate(("bold", "italic", "tag_link", "search_link", "post", "quote", "spoiler", "external", "see_also")):
+            button = QPushButton(); button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+            self.tool_buttons[key] = button; toolbar.addWidget(button, index // 4, index % 4)
+        layout.addLayout(toolbar)
+        splitter = QSplitter(); source_box = QWidget(); source_layout = QVBoxLayout(source_box); source_layout.setContentsMargins(0, 0, 0, 0)
+        self.source_label = QLabel(); self.source = QPlainTextEdit(); self.source.setTabChangesFocus(True); source_layout.addWidget(self.source_label); source_layout.addWidget(self.source)
+        preview_box = QWidget(); preview_layout = QVBoxLayout(preview_box); preview_layout.setContentsMargins(0, 0, 0, 0)
+        self.preview_label = QLabel(); self.preview = QTextBrowser(); self.preview.setOpenLinks(False); self.preview.anchorClicked.connect(self._open_preview_link); preview_layout.addWidget(self.preview_label); preview_layout.addWidget(self.preview)
+        splitter.addWidget(source_box); splitter.addWidget(preview_box); splitter.setStretchFactor(0, 1); splitter.setStretchFactor(1, 1); splitter.setSizes([500, 500]); layout.addWidget(splitter, 1)
+        self.validation = QLabel(); self.validation.setWordWrap(True); self.validation.setContentsMargins(8, 6, 8, 6); layout.addWidget(self.validation)
+        actions = QHBoxLayout(); self.load = QPushButton(); self.save = QPushButton(); self.copy = QPushButton(); self.open_create = QPushButton()
+        actions.addWidget(self.load); actions.addWidget(self.save); actions.addStretch(1); actions.addWidget(self.copy); actions.addWidget(self.open_create); layout.addLayout(actions)
+        self.preview_timer = QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(180); self.preview_timer.timeout.connect(self._refresh)
+        self.autosave_timer = QTimer(self); self.autosave_timer.setSingleShot(True); self.autosave_timer.setInterval(900); self.autosave_timer.timeout.connect(lambda: self._save_draft(silent=True))
+        self.source.textChanged.connect(self._changed); self.tag.textChanged.connect(self._changed)
+        self.apply_template.clicked.connect(self._apply_template); self.load.clicked.connect(self._load_draft); self.save.clicked.connect(self._save_draft); self.copy.clicked.connect(self._copy_source); self.open_create.clicked.connect(self._open_create)
+        self.tool_buttons["bold"].clicked.connect(lambda: self._wrap("[b]", "[/b]")); self.tool_buttons["italic"].clicked.connect(lambda: self._wrap("[i]", "[/i]"))
+        self.tool_buttons["tag_link"].clicked.connect(lambda: self._wrap("[[", "]]", "tag_name")); self.tool_buttons["search_link"].clicked.connect(lambda: self._wrap("{{", "}}", "tag_name"))
+        self.tool_buttons["post"].clicked.connect(lambda: self._wrap("[post]", "[/post]", "123456")); self.tool_buttons["quote"].clicked.connect(lambda: self._wrap("[quote]", "[/quote]")); self.tool_buttons["spoiler"].clicked.connect(lambda: self._wrap("[spoiler]", "[/spoiler]"))
+        self.tool_buttons["external"].clicked.connect(lambda: self._insert_section("[b]External links:[/b]\nhttps://example.com/")); self.tool_buttons["see_also"].clicked.connect(lambda: self._insert_section("[b]See also:[/b]\n* [[related_tag]]"))
+        self.retranslate(); self._refresh()
+
+    def set_tag(self, tag: str, template: str = "character") -> None:
+        tag = tag.strip()
+        if self.tag.text().strip() == tag and self.source.toPlainText().strip():
+            self.tag.setFocus(); return
+        if self.tag.text().strip() and self.tag.text().strip() != tag: self._save_draft(silent=True)
+        path = self._draft_path_for_tag(tag)
+        if path.is_file():
+            self._load_draft_path(path); return
+        self.source.clear(); self.tag.setText(tag); index = self.template.findData(template)
+        if index >= 0: self.template.setCurrentIndex(index)
+        self._apply_template(force=True)
+        self.tag.setFocus()
+
+    def _changed(self) -> None:
+        self.preview_timer.start()
+        if self.tag.text().strip() and self.source.toPlainText().strip(): self.autosave_timer.start()
+
+    def _refresh(self) -> None:
+        source = self.source.toPlainText(); self.preview.setHtml(render_wiki_preview(source))
+        issues = validate_wiki_source(source)
+        issues.extend(("missing", tag) for tag in missing_local_tags(self.tag_database_path, referenced_tags(source)))
+        if not issues:
+            self.validation.setText(self.catalog.text("wiki.validation_ok")); self.validation.setStyleSheet("color:#16803b;")
+            return
+        messages = [self.catalog.text(f"wiki.issue_{code}", value=value) for code, value in issues]
+        self.validation.setText("\n".join(f"• {message}" for message in messages)); self.validation.setStyleSheet("color:#b42318;")
+
+    def _wrap(self, before: str, after: str, placeholder: str = "text") -> None:
+        cursor = self.source.textCursor(); selected = cursor.selectedText() or placeholder
+        cursor.insertText(before + selected + after); self.source.setTextCursor(cursor); self.source.setFocus()
+
+    def _insert_section(self, text: str) -> None:
+        cursor = self.source.textCursor()
+        prefix = "\n\n" if self.source.toPlainText().strip() else ""
+        cursor.movePosition(cursor.MoveOperation.End); cursor.insertText(prefix + text); self.source.setTextCursor(cursor); self.source.setFocus()
+
+    def _apply_template(self, _checked: bool = False, force: bool = False) -> None:
+        if self.source.toPlainText().strip() and not force:
+            answer = QMessageBox.question(self, self.catalog.text("wiki.apply_template"), self.catalog.text("wiki.replace_confirm"))
+            if answer != QMessageBox.StandardButton.Yes: return
+        self.source.setPlainText(TEMPLATES[str(self.template.currentData())])
+
+    def _draft_path(self) -> Path | None:
+        tag = self.tag.text().strip()
+        if not tag: return None
+        return self._draft_path_for_tag(tag)
+
+    def _draft_path_for_tag(self, tag: str) -> Path:
+        safe = re.sub(r"[^A-Za-z0-9_.()+-]+", "_", tag).strip("._") or "untitled"
+        return self.drafts_directory / f"{safe}.json"
+
+    def _save_draft(self, _checked: bool = False, silent: bool = False) -> None:
+        path = self._draft_path()
+        if path is None:
+            if not silent: self.validation.setText(self.catalog.text("wiki.tag_required"))
+            return
+        data = {"tag": self.tag.text().strip(), "template": str(self.template.currentData()), "source": self.source.toPlainText(), "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True); temporary = path.with_suffix(".tmp")
+            temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"); os.replace(temporary, path)
+            if not silent: self.validation.setText(self.catalog.text("wiki.saved", path=path))
+        except OSError as exc:
+            self.validation.setText(self.catalog.text("wiki.save_failed", error=exc))
+
+    def _load_draft(self) -> None:
+        path, _filter = QFileDialog.getOpenFileName(self, self.catalog.text("wiki.load"), str(self.drafts_directory), "Wiki drafts (*.json);;All files (*)")
+        if not path: return
+        self._load_draft_path(Path(path))
+
+    def _load_draft_path(self, path: Path) -> None:
+        try:
+            data = json.loads(path.read_text(encoding="utf-8-sig")); self.tag.setText(str(data.get("tag", "")))
+            index = self.template.findData(str(data.get("template", "character")))
+            if index >= 0: self.template.setCurrentIndex(index)
+            self.source.setPlainText(str(data.get("source", "")))
+        except (OSError, ValueError, TypeError) as exc:
+            self.validation.setText(self.catalog.text("wiki.load_failed", error=exc))
+
+    def _copy_source(self) -> None:
+        QApplication.clipboard().setText(self.source.toPlainText()); self.validation.setText(self.catalog.text("wiki.copied"))
+
+    def _open_create(self) -> None:
+        QApplication.clipboard().setText(self.source.toPlainText())
+        QDesktopServices.openUrl(QUrl("https://gelbooru.com/index.php?page=wiki&s=create"))
+        self.validation.setText(self.catalog.text("wiki.opened_create"))
+
+    def _open_preview_link(self, url: QUrl) -> None:
+        if url.scheme() == "booruflow-tag": self.organization_tag_requested.emit(urllib.parse.unquote(url.path()))
+        else: QDesktopServices.openUrl(url)
+
+    def retranslate(self) -> None:
+        text = self.catalog.text; self.title.setText(text("nav.wiki")); self.tag_label.setText(text("wiki.tag")); self.tag.setPlaceholderText(text("wiki.tag_placeholder")); self.template_label.setText(text("wiki.template")); self.apply_template.setText(text("wiki.apply_template")); self.source_label.setText(text("wiki.source")); self.preview_label.setText(text("wiki.preview")); self.load.setText(text("wiki.load")); self.save.setText(text("wiki.save")); self.copy.setText(text("wiki.copy")); self.open_create.setText(text("wiki.open_create"))
+        for key in TEMPLATES:
+            index = self.template.findData(key)
+            if index >= 0: self.template.setItemText(index, text(f"wiki.template_{key}"))
+        for key, button in self.tool_buttons.items(): button.setText(text(f"wiki.tool_{key}"))

@@ -53,6 +53,12 @@
   "options.database_filter": "Bases SQLite (*.db *.sqlite);;Tous les fichiers (*)",
   "options.note": "Les identifiants restent dans le dossier config local et sont exclus de Git.",
   "options.save": "Enregistrer les options",
+  "options.update_database": "Mettre à jour",
+  "options.database_running": "Mise à jour de la base {site}… Les détails sont dans le journal.",
+  "options.database_start": "Démarrage de la mise à jour {site} : {path}",
+  "options.database_already_running": "Une mise à jour de base est déjà en cours.",
+  "options.database_finished": "Mise à jour de la base {site} terminée et validée.",
+  "options.database_failed": "Mise à jour {site} interrompue avec le code {code}. Consulte le journal.",
 "review.search_group": "1 — Générer la liste à examiner",
   "review.site": "Site :",
   "review.entity": "Type d’entité :",
@@ -165,4 +171,25 @@
   ,"grabber.next": "Lot terminé ; lancement automatique du suivant."
   ,"grabber.session_complete": "Session Grabber terminée."
   ,"grabber.previous_done": "Lot précédent restauré."
+  ,"organization.board": "Site :"
+  ,"organization.search": "Rechercher un tag…"
+  ,"organization.search_button": "Rechercher"
+  ,"organization.update": "Mettre à jour depuis les wikis"
+  ,"organization.add_category": "Ajouter une catégorie"
+  ,"organization.add_tags": "Ajouter des tags"
+  ,"organization.rename": "Renommer"
+  ,"organization.delete": "Supprimer"
+  ,"organization.save": "Enregistrer"
+  ,"organization.name": "Nom :"
+  ,"organization.tags_prompt": "Un tag par ligne :"
+  ,"organization.confirm_delete": "Supprimer « {name} » de la taxonomie locale ?"
+  ,"organization.ready": "Sélectionne une branche pour la parcourir ou la modifier. Les changements ne sont écrits qu’avec Enregistrer."
+  ,"organization.search_count": "{count} résultat(s) correspondant(s) affiché(s)."
+  ,"organization.saving": "Enregistrement du JSON, de la sauvegarde et des index SQLite…"
+  ,"organization.saved": "Taxonomie enregistrée et index SQLite synchronisés."
+  ,"organization.backup": "Sauvegarde de la taxonomie : {path}"
+  ,"organization.failed": "Échec de l’opération sur la taxonomie : {error}"
+  ,"organization.updating": "Téléchargement et analyse des sources wiki officielles…"
+  ,"organization.update_confirm": "Import analysé : {total} tags uniques, {added} ajout(s), {removed} retrait(s). L’appliquer ? Une sauvegarde datée sera créée avant."
+  ,"organization.cancelled": "Mise à jour wiki analysée puis annulée."
 }

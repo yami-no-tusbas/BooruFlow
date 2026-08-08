@@ -23,6 +23,7 @@ from booruflow.infrastructure.localization import LanguageCatalog
 
 
 class PathRow(QWidget):
+    action_requested = Signal()
     def __init__(
         self,
         catalog: LanguageCatalog,
@@ -35,11 +36,15 @@ class PathRow(QWidget):
         self.directory = directory
         self.edit = QLineEdit()
         self.button = QPushButton()
+        self.action = QPushButton()
+        self.action.hide()
         self.button.clicked.connect(self.browse)
+        self.action.clicked.connect(self.action_requested.emit)
         layout = QHBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.edit, 1)
         layout.addWidget(self.button)
+        layout.addWidget(self.action)
         self.retranslate()
 
     def retranslate(self) -> None:
@@ -66,6 +71,7 @@ class PathRow(QWidget):
 class OptionsPage(QWidget):
     save_requested = Signal(dict, dict)
     language_changed = Signal(str)
+    database_update_requested = Signal(str, str)
 
     def __init__(
         self,
@@ -131,6 +137,14 @@ class OptionsPage(QWidget):
         self.e621_database = PathRow(catalog)
         self.grabber_directory = PathRow(catalog, directory=True)
         self.output_root = PathRow(catalog, directory=True)
+        self.gelbooru_database.action.show()
+        self.e621_database.action.show()
+        self.gelbooru_database.action_requested.connect(
+            lambda: self.database_update_requested.emit("gelbooru", self.gelbooru_database.edit.text().strip())
+        )
+        self.e621_database.action_requested.connect(
+            lambda: self.database_update_requested.emit("e621", self.e621_database.edit.text().strip())
+        )
         path_form.addRow(self.gelbooru_database_label, self.gelbooru_database)
         path_form.addRow(self.e621_database_label, self.e621_database)
         path_form.addRow(self.grabber_directory_label, self.grabber_directory)
@@ -139,6 +153,9 @@ class OptionsPage(QWidget):
         self.note = QLabel()
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
+        self.database_status = QLabel()
+        self.database_status.setWordWrap(True)
+        layout.addWidget(self.database_status)
         buttons = QHBoxLayout()
         buttons.addStretch(1)
         self.save_button = QPushButton()
@@ -215,5 +232,14 @@ class OptionsPage(QWidget):
         self.e621_database.retranslate()
         self.grabber_directory.retranslate()
         self.output_root.retranslate()
+        self.gelbooru_database.action.setText(text("options.update_database"))
+        self.e621_database.action.setText(text("options.update_database"))
         self.note.setText(text("options.note"))
         self.save_button.setText(text("options.save"))
+
+    def set_database_running(self, running: bool, site: str = "") -> None:
+        self.gelbooru_database.action.setEnabled(not running)
+        self.e621_database.action.setEnabled(not running)
+        self.database_status.setText(
+            self.catalog.text("options.database_running", site=site) if running else ""
+        )

@@ -26,11 +26,14 @@ from booruflow.application.capabilities import ApplicationCapabilities
 from booruflow.application.ports import SettingsRepository
 from booruflow.application.review import ReviewRequest, build_review_commands
 from booruflow.application.grabber_batches import GrabberSessionStore
+from booruflow.application.taxonomy import TaxonomyRepository
 from booruflow.infrastructure.localization import LanguageCatalog, translate_legacy_log
 from booruflow.presentation.pyside6.icons import navigation_icon
 from booruflow.presentation.pyside6.cleanup_controller import CleanupRecycleWorker, CleanupScanWorker
 from booruflow.presentation.pyside6.cleanup_page import CleanupPage
 from booruflow.presentation.pyside6.grabber_page import GrabberPage
+from booruflow.presentation.pyside6.organization_controller import TaxonomySaveWorker, WikiImportWorker
+from booruflow.presentation.pyside6.organization_page import OrganizationPage
 from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.pages import DashboardPage, PlaceholderPage
 from booruflow.presentation.pyside6.review_controller import (
@@ -71,6 +74,16 @@ class MainWindow(QMainWindow):
         self.cleanup_matches: list = []
         self.cleanup_report = ""
         self.grabber_state: dict | None = None
+        self.taxonomy_repository = TaxonomyRepository(
+            self.project_root / "data" / "taxonomy" / "tag_organization.json",
+            self.project_root / "data" / "databases",
+        )
+        self.taxonomy_worker: TaxonomySaveWorker | WikiImportWorker | None = None
+        self.database_process = QProcess(self)
+        self.database_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self.database_process.readyReadStandardOutput.connect(self._database_output)
+        self.database_process.finished.connect(self._database_finished)
+        self.database_site = ""
         settings = settings_repository.load() if settings_repository else {}
         credentials = credentials_repository.load() if credentials_repository else {}
         self.resize(1120, 760)
@@ -99,7 +112,10 @@ class MainWindow(QMainWindow):
         self.tagging_page.start_requested.connect(self._start_tagging)
         self.tagging_page.stop_requested.connect(self._stop_tagging)
         self.pages.addWidget(self.tagging_page)
-        self.pages.addWidget(PlaceholderPage(catalog, "organization", "page.organization"))
+        self.organization_page = OrganizationPage(catalog, self.taxonomy_repository.load())
+        self.organization_page.save_requested.connect(self._save_taxonomy)
+        self.organization_page.update_requested.connect(self._update_taxonomy)
+        self.pages.addWidget(self.organization_page)
         self.cleanup_page = CleanupPage(catalog)
         self.cleanup_page.scan_requested.connect(self._start_cleanup)
         self.cleanup_page.stop_requested.connect(self._stop_cleanup)
@@ -108,6 +124,8 @@ class MainWindow(QMainWindow):
         options = OptionsPage(catalog, settings, credentials)
         options.save_requested.connect(self._save_options)
         options.language_changed.connect(self.change_language)
+        options.database_update_requested.connect(self._update_database)
+        self.options_page = options
         self.pages.addWidget(options)
         self.grabber_page = GrabberPage(catalog, settings, capabilities.grabber.available)
         self.grabber_page.create_requested.connect(self._create_grabber_session)
@@ -477,6 +495,106 @@ class MainWindow(QMainWindow):
             self.grabber_state = store.previous(self.grabber_state)
             self.grabber_page.show_session(self.grabber_state)
             self.log(self.catalog.text("grabber.previous_done"))
+
+    def _save_taxonomy(self, document: dict) -> None:
+        if self.taxonomy_worker and self.taxonomy_worker.isRunning():
+            return
+        self.organization_page.set_busy(True)
+        self.organization_page.state.setText(self.catalog.text("organization.saving"))
+        self.taxonomy_worker = TaxonomySaveWorker(self.taxonomy_repository, document)
+        self.taxonomy_worker.completed.connect(self._taxonomy_saved)
+        self.taxonomy_worker.start()
+
+    def _taxonomy_saved(self, backup: str, error: str) -> None:
+        self.organization_page.set_busy(False)
+        if error:
+            self.organization_page.state.setText(self.catalog.text("organization.failed", error=error))
+            self.log(self.catalog.text("organization.failed", error=error))
+        else:
+            self.organization_page.state.setText(self.catalog.text("organization.saved"))
+            self.log(self.catalog.text("organization.backup", path=backup))
+        if self.taxonomy_worker:
+            self.taxonomy_worker.deleteLater(); self.taxonomy_worker = None
+
+    def _update_taxonomy(self) -> None:
+        if self.taxonomy_worker and self.taxonomy_worker.isRunning():
+            return
+        self.organization_page.set_busy(True)
+        self.organization_page.state.setText(self.catalog.text("organization.updating"))
+        worker = WikiImportWorker(self.taxonomy_repository, self.organization_page.document)
+        worker.progress.connect(lambda value: self.organization_page.state.setText(str(value)))
+        worker.progress.connect(lambda value: self.log(str(value)))
+        worker.completed.connect(self._taxonomy_update_ready)
+        self.taxonomy_worker = worker
+        worker.start()
+
+    def _taxonomy_update_ready(self, preview: dict, summary: dict, error: str) -> None:
+        if error:
+            self.organization_page.set_busy(False)
+            self.organization_page.state.setText(self.catalog.text("organization.failed", error=error))
+            self.log(self.catalog.text("organization.failed", error=error))
+            if self.taxonomy_worker: self.taxonomy_worker.deleteLater(); self.taxonomy_worker = None
+            return
+        answer = QMessageBox.question(
+            self,
+            self.catalog.text("organization.update"),
+            self.catalog.text(
+                "organization.update_confirm", total=summary.get("total", 0),
+                added=summary.get("added", 0), removed=summary.get("removed", 0),
+            ),
+        )
+        if self.taxonomy_worker: self.taxonomy_worker.deleteLater(); self.taxonomy_worker = None
+        if answer != QMessageBox.StandardButton.Yes:
+            self.organization_page.set_busy(False)
+            self.organization_page.state.setText(self.catalog.text("organization.cancelled"))
+            return
+        self.organization_page.document = preview
+        self.organization_page.reload()
+        self._save_taxonomy(preview)
+
+    def _update_database(self, site: str, destination: str) -> None:
+        if self.database_process.state() != QProcess.ProcessState.NotRunning:
+            self.log(self.catalog.text("options.database_already_running")); return
+        path = Path(destination)
+        if not destination:
+            path = self.project_root / "data" / "databases" / ("gelbooru_tags.db" if site == "gelbooru" else "e621_tags.db")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        environment = self.database_process.processEnvironment()
+        if environment.isEmpty():
+            from PySide6.QtCore import QProcessEnvironment
+            environment = QProcessEnvironment.systemEnvironment()
+        environment.insert("PYTHONIOENCODING", "utf-8")
+        if site == "gelbooru":
+            gel = self._credentials().get("gelbooru", {})
+            if not isinstance(gel, dict) or not gel.get("user_id") or not gel.get("api_key"):
+                self.options_page.database_status.setText(self.catalog.text("review.credentials_missing")); return
+            environment.insert("GELBOORU_USER_ID", str(gel["user_id"]))
+            environment.insert("GELBOORU_API_KEY", str(gel["api_key"]))
+            environment.insert("GELBOORU_TAG_DB", str(path))
+            arguments = ("-u", str(self.project_root / "legacy" / "gelbooru_tags_updater.py"))
+        else:
+            arguments = (
+                "-u", str(self.project_root / "legacy" / "e621_tags_importer.py"),
+                "--db", str(path), "--cache-dir", str(self.project_root / "var" / "cache" / "e621_exports"),
+            )
+        self.database_site = site
+        self.database_process.setProcessEnvironment(environment)
+        self.database_process.setWorkingDirectory(str(self.project_root))
+        self.options_page.set_database_running(True, site)
+        self.log(self.catalog.text("options.database_start", site=site, path=path))
+        self.database_process.start(self.python_executable, list(arguments))
+
+    def _database_output(self) -> None:
+        chunk = bytes(self.database_process.readAllStandardOutput()).decode("utf-8", errors="replace")
+        for line in chunk.splitlines():
+            if line.strip(): self.log(translate_legacy_log(line, self.catalog.code))
+
+    def _database_finished(self, code: int, _status: QProcess.ExitStatus) -> None:
+        self._database_output()
+        self.options_page.set_database_running(False)
+        key = "options.database_finished" if code == 0 else "options.database_failed"
+        message = self.catalog.text(key, site=self.database_site, code=code)
+        self.options_page.database_status.setText(message); self.log(message)
 
     def _save_options(self, settings: dict, credentials: dict) -> None:
         try:

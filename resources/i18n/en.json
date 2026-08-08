@@ -53,6 +53,12 @@
   "options.database_filter": "SQLite databases (*.db *.sqlite);;All files (*)",
   "options.note": "Credentials are stored only in the local config folder and are excluded from Git.",
   "options.save": "Save options",
+  "options.update_database": "Update",
+  "options.database_running": "Updating {site} database… Details are shown in the journal.",
+  "options.database_start": "Starting {site} database update: {path}",
+  "options.database_already_running": "A database update is already running.",
+  "options.database_finished": "{site} database update completed and validated.",
+  "options.database_failed": "{site} database update stopped with code {code}. See the journal.",
 "review.search_group": "1 — Build the list to review",
   "review.site": "Site:",
   "review.entity": "Entity type:",
@@ -165,4 +171,25 @@
   ,"grabber.next": "Batch completed; launching the next one automatically."
   ,"grabber.session_complete": "Grabber session completed."
   ,"grabber.previous_done": "Previous batch restored."
+  ,"organization.board": "Site:"
+  ,"organization.search": "Find a tag…"
+  ,"organization.search_button": "Search"
+  ,"organization.update": "Update from wikis"
+  ,"organization.add_category": "Add category"
+  ,"organization.add_tags": "Add tags"
+  ,"organization.rename": "Rename"
+  ,"organization.delete": "Delete"
+  ,"organization.save": "Save"
+  ,"organization.name": "Name:"
+  ,"organization.tags_prompt": "One tag per line:"
+  ,"organization.confirm_delete": "Delete “{name}” from the local taxonomy?"
+  ,"organization.ready": "Select a branch to browse or edit it. Changes are written only when Save is pressed."
+  ,"organization.search_count": "{count} matching result(s) shown."
+  ,"organization.saving": "Saving JSON, backup and SQLite indexes…"
+  ,"organization.saved": "Taxonomy saved and SQLite indexes synchronized."
+  ,"organization.backup": "Taxonomy backup: {path}"
+  ,"organization.failed": "Taxonomy operation failed: {error}"
+  ,"organization.updating": "Downloading and analyzing authoritative wiki sources…"
+  ,"organization.update_confirm": "Import analyzed: {total} unique tags, {added} addition(s), {removed} removal(s). Apply it? A dated backup will be created first."
+  ,"organization.cancelled": "Wiki update analyzed, then cancelled."
 }

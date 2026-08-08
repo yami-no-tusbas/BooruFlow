@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QProcess, QSize, Qt
 from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
@@ -25,10 +25,12 @@ from PySide6.QtWidgets import (
 from booruflow.application.capabilities import ApplicationCapabilities
 from booruflow.application.ports import SettingsRepository
 from booruflow.application.review import ReviewRequest, build_review_commands
+from booruflow.application.grabber_batches import GrabberSessionStore
 from booruflow.infrastructure.localization import LanguageCatalog, translate_legacy_log
 from booruflow.presentation.pyside6.icons import navigation_icon
 from booruflow.presentation.pyside6.cleanup_controller import CleanupRecycleWorker, CleanupScanWorker
 from booruflow.presentation.pyside6.cleanup_page import CleanupPage
+from booruflow.presentation.pyside6.grabber_page import GrabberPage
 from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.pages import DashboardPage, PlaceholderPage
 from booruflow.presentation.pyside6.review_controller import (
@@ -68,6 +70,7 @@ class MainWindow(QMainWindow):
         self.recycle_worker: CleanupRecycleWorker | None = None
         self.cleanup_matches: list = []
         self.cleanup_report = ""
+        self.grabber_state: dict | None = None
         settings = settings_repository.load() if settings_repository else {}
         credentials = credentials_repository.load() if credentials_repository else {}
         self.resize(1120, 760)
@@ -106,9 +109,14 @@ class MainWindow(QMainWindow):
         options.save_requested.connect(self._save_options)
         options.language_changed.connect(self.change_language)
         self.pages.addWidget(options)
-        self.pages.addWidget(
-            PlaceholderPage(catalog, "grabber", "page.grabber", availability=capabilities.grabber)
-        )
+        self.grabber_page = GrabberPage(catalog, settings, capabilities.grabber.available)
+        self.grabber_page.create_requested.connect(self._create_grabber_session)
+        self.grabber_page.load_requested.connect(self._load_grabber_session)
+        self.grabber_page.launch_requested.connect(self._launch_grabber)
+        self.grabber_page.previous_requested.connect(self._previous_grabber_batch)
+        self.pages.addWidget(self.grabber_page)
+        self.grabber_process = QProcess(self)
+        self.grabber_process.finished.connect(self._grabber_finished)
 
         self.review_controller = ReviewProcessController(self)
         self.review_controller.output.connect(self._review_output)
@@ -151,6 +159,7 @@ class MainWindow(QMainWindow):
         self.navigation.currentRowChanged.connect(self._navigation_changed)
         self.navigation.setCurrentRow(0)
         self.retranslate()
+        self._load_grabber_session(silent=True)
         self.log(self.catalog.text("log.started"))
         if not capabilities.grabber.available:
             self.log(self.catalog.text("log.grabber_unavailable", reason=capabilities.grabber.reason))
@@ -384,6 +393,90 @@ class MainWindow(QMainWindow):
         if self.recycle_worker:
             self.recycle_worker.deleteLater()
             self.recycle_worker = None
+
+    def _grabber_store(self) -> GrabberSessionStore | None:
+        settings = self.settings_repository.load() if self.settings_repository else {}
+        directory = Path(str(settings.get("grabber_directory", "")).strip())
+        if not (directory / "Grabber.exe").is_file():
+            self.grabber_page.state.setText(self.catalog.text("grabber.missing", path=directory))
+            return None
+        return GrabberSessionStore(directory)
+
+    @staticmethod
+    def _tag_file(path: Path) -> set[str]:
+        try:
+            return {line.strip() for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines() if line.strip()}
+        except OSError:
+            return set()
+
+    def _create_grabber_session(self, request) -> None:
+        store = self._grabber_store()
+        if not store:
+            return
+        gel = self._credentials().get("gelbooru", {})
+        needs_gel = any(site == "gelbooru" for site, _tag in request.entries)
+        if needs_gel and (not isinstance(gel, dict) or not gel.get("user_id") or not gel.get("api_key")):
+            self.grabber_page.state.setText(self.catalog.text("review.credentials_missing")); return
+        unavailable = self._tag_file(store.directory / "blacklist.txt") | self._tag_file(store.directory / "ignore.txt")
+        try:
+            self.grabber_state, skipped = store.create(
+                request,
+                str(gel.get("user_id", "")) if isinstance(gel, dict) else "",
+                str(gel.get("api_key", "")) if isinstance(gel, dict) else "",
+                unavailable,
+            )
+        except (OSError, ValueError) as exc:
+            self.grabber_page.state.setText(self.catalog.text("grabber.invalid", error=exc)); return
+        self.grabber_page.show_session(self.grabber_state)
+        self.log(self.catalog.text("grabber.created", batches=len(self.grabber_state["files"]), tags=self.grabber_state["total_tags"], skipped=skipped))
+
+    def _load_grabber_session(self, silent: bool = False) -> None:
+        store = self._grabber_store()
+        if not store:
+            return
+        self.grabber_state = store.load()
+        self.grabber_page.show_session(self.grabber_state)
+        if self.grabber_state and not silent:
+            self.log(self.catalog.text("grabber.loaded", path=self.grabber_state.get("session_dir", "")))
+
+    def _launch_grabber(self) -> None:
+        store = self._grabber_store()
+        if not store or not self.grabber_state or self.grabber_process.state() != QProcess.ProcessState.NotRunning:
+            return
+        try:
+            store.activate(self.grabber_state)
+        except OSError as exc:
+            self.grabber_page.state.setText(self.catalog.text("grabber.invalid", error=exc)); return
+        self.grabber_process.setWorkingDirectory(str(store.directory))
+        self.grabber_process.start(str(store.directory / "Grabber.exe"), [])
+        self.grabber_page.state.setText(self.catalog.text("grabber.running"))
+        self.log(self.catalog.text("grabber.started", batch=int(self.grabber_state.get("current", 0)) + 1))
+
+    def _grabber_finished(self, exit_code: int, _status: QProcess.ExitStatus) -> None:
+        store = self._grabber_store()
+        if not store or not self.grabber_state:
+            return
+        if exit_code != 0:
+            self.grabber_page.state.setText(self.catalog.text("grabber.failed", code=exit_code)); return
+        try:
+            self.grabber_state, remaining = store.finish_current_if_empty(self.grabber_state)
+        except (OSError, ValueError, TypeError) as exc:
+            self.grabber_page.state.setText(self.catalog.text("grabber.invalid", error=exc)); return
+        self.grabber_page.show_session(self.grabber_state)
+        if remaining:
+            self.log(self.catalog.text("grabber.paused", count=remaining))
+        elif int(self.grabber_state.get("current", 0)) < len(self.grabber_state.get("files", [])):
+            self.log(self.catalog.text("grabber.next"))
+            self._launch_grabber()
+        else:
+            self.log(self.catalog.text("grabber.session_complete"))
+
+    def _previous_grabber_batch(self) -> None:
+        store = self._grabber_store()
+        if store and self.grabber_state:
+            self.grabber_state = store.previous(self.grabber_state)
+            self.grabber_page.show_session(self.grabber_state)
+            self.log(self.catalog.text("grabber.previous_done"))
 
     def _save_options(self, settings: dict, credentials: dict) -> None:
         try:

@@ -1,9 +1,11 @@
 import importlib.util
 import os
 import unittest
+from pathlib import Path
 
 
 PYSIDE6_AVAILABLE = importlib.util.find_spec("PySide6") is not None
+LANGUAGES = Path(__file__).resolve().parents[2] / "resources" / "i18n"
 
 
 @unittest.skipUnless(PYSIDE6_AVAILABLE, "PySide6 is not installed")
@@ -15,23 +17,27 @@ class PySide6ShellTests(unittest.TestCase):
 
         cls.app = QApplication.instance() or QApplication([])
 
-    def test_main_window_exposes_top_level_navigation(self) -> None:
+    @staticmethod
+    def window(available: bool = False):
         from booruflow.application.capabilities import ApplicationCapabilities
         from booruflow.domain import ToolAvailability
+        from booruflow.infrastructure.localization import LanguageCatalog
         from booruflow.presentation.pyside6.main_window import MainWindow
 
-        window = MainWindow(ApplicationCapabilities(ToolAvailability(False, "not configured")))
+        return MainWindow(
+            ApplicationCapabilities(ToolAvailability(available, "not configured" if not available else "")),
+            LanguageCatalog(LANGUAGES),
+        )
+
+    def test_main_window_exposes_top_level_navigation(self) -> None:
+        window = self.window()
         self.assertEqual(window.navigation.count(), 7)
         self.assertEqual(window.pages.count(), 7)
         self.assertEqual(window.navigation.currentRow(), 0)
         window.close()
 
     def test_log_can_be_toggled_and_cleared(self) -> None:
-        from booruflow.application.capabilities import ApplicationCapabilities
-        from booruflow.domain import ToolAvailability
-        from booruflow.presentation.pyside6.main_window import MainWindow
-
-        window = MainWindow(ApplicationCapabilities(ToolAvailability(True)))
+        window = self.window(True)
         window.show()
         self.app.processEvents()
         self.assertFalse(window.log_view.isVisible())
@@ -40,4 +46,12 @@ class PySide6ShellTests(unittest.TestCase):
         self.assertTrue(window.log_view.isVisible())
         window.clear_log_button.click()
         self.assertEqual(window.log_view.toPlainText(), "")
+        window.close()
+
+    def test_language_change_retranslates_existing_widgets(self) -> None:
+        window = self.window()
+        window.change_language("fr")
+        self.assertEqual(window.navigation.item(0).text(), "Accueil")
+        self.assertEqual(window.clear_log_button.text(), "Effacer le journal")
+        self.assertIn("Prêt", window.status_label.text())
         window.close()

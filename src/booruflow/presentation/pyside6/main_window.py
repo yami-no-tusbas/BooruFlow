@@ -1,4 +1,4 @@
-"""Main window and top-level navigation for BooruFlow."""
+"""Main window and localized top-level navigation for BooruFlow."""
 
 from __future__ import annotations
 
@@ -21,81 +21,62 @@ from PySide6.QtWidgets import (
 
 from booruflow.application.capabilities import ApplicationCapabilities
 from booruflow.application.ports import SettingsRepository
+from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.presentation.pyside6.icons import navigation_icon
 from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.pages import DashboardPage, PlaceholderPage
 
 
 class MainWindow(QMainWindow):
-    NAVIGATION = (
-        "Home",
-        "Review",
-        "Tagging",
-        "Organization",
-        "Cleanup",
-        "Options",
-        "Grabber",
-    )
+    NAVIGATION_KEYS = ("home", "review", "tagging", "organization", "cleanup", "options", "grabber")
 
     def __init__(
         self,
         capabilities: ApplicationCapabilities,
+        catalog: LanguageCatalog,
         parent: QWidget | None = None,
         settings_repository: SettingsRepository | None = None,
         credentials_repository: SettingsRepository | None = None,
     ) -> None:
         super().__init__(parent)
         self.capabilities = capabilities
+        self.catalog = catalog
         self.settings_repository = settings_repository
         self.credentials_repository = credentials_repository
-        self.setWindowTitle("BooruFlow")
         self.resize(1120, 760)
         self.setMinimumSize(860, 600)
 
         self.navigation = QListWidget()
-        self.navigation.setObjectName("mainNavigation")
         self.navigation.setFixedWidth(230)
-        self.navigation.setIconSize(QSize(28, 28))
+        self.navigation.setIconSize(QSize(30, 30))
         self.navigation.setSpacing(2)
-        for label in self.NAVIGATION:
-            item = QListWidgetItem(navigation_icon(label), label)
-            item.setData(Qt.ItemDataRole.UserRole, label)
-            item.setSizeHint(QSize(210, 44))
-            item.setToolTip(label)
+        for key in self.NAVIGATION_KEYS:
+            item = QListWidgetItem(navigation_icon(key), "")
+            item.setData(Qt.ItemDataRole.UserRole, key)
+            item.setSizeHint(QSize(210, 46))
             self.navigation.addItem(item)
 
         self.pages = QStackedWidget()
-        dashboard = DashboardPage(capabilities.grabber)
+        dashboard = DashboardPage(catalog, capabilities.grabber)
         dashboard.navigate_requested.connect(self.navigate_to)
         self.pages.addWidget(dashboard)
-        self.pages.addWidget(
-            PlaceholderPage("Review", "Category review and TXT-list review will be consolidated here.")
-        )
-        self.pages.addWidget(
-            PlaceholderPage("Tagging", "Manual browser-assisted tagging review will be migrated here.")
-        )
-        self.pages.addWidget(
-            PlaceholderPage(
-                "Organization",
-                "Taxonomy browsing, editing and source updates will live here.",
-            )
-        )
-        self.pages.addWidget(
-            PlaceholderPage(
-                "Cleanup",
-                "Folder drop, audit progress and recoverable actions will live here.",
-            )
-        )
+        self.pages.addWidget(PlaceholderPage(catalog, "review", "page.review"))
+        self.pages.addWidget(PlaceholderPage(catalog, "tagging", "page.tagging"))
+        self.pages.addWidget(PlaceholderPage(catalog, "organization", "page.organization"))
+        self.pages.addWidget(PlaceholderPage(catalog, "cleanup", "page.cleanup"))
         options = OptionsPage(
+            catalog,
             settings_repository.load() if settings_repository else {},
             credentials_repository.load() if credentials_repository else {},
         )
         options.save_requested.connect(self._save_options)
+        options.language_changed.connect(self.change_language)
         self.pages.addWidget(options)
         self.pages.addWidget(
             PlaceholderPage(
-                "Grabber",
-                "This section is optional. The rest of BooruFlow remains usable without Grabber.",
+                catalog,
+                "grabber",
+                "page.grabber",
                 availability=capabilities.grabber,
             )
         )
@@ -107,13 +88,11 @@ class MainWindow(QMainWindow):
         workspace.setStretchFactor(1, 1)
 
         self.log_view = QPlainTextEdit()
-        self.log_view.setObjectName("applicationLog")
         self.log_view.setReadOnly(True)
         self.log_view.setMaximumBlockCount(2_000)
         self.log_view.setMinimumHeight(120)
         self.log_view.setMaximumHeight(190)
         self.log_view.hide()
-
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(8, 8, 8, 4)
@@ -125,21 +104,22 @@ class MainWindow(QMainWindow):
         status_bar = QStatusBar()
         status_bar.setContentsMargins(8, 3, 8, 3)
         self.setStatusBar(status_bar)
-        self.status_label = QLabel("Ready.")
+        self.status_label = QLabel()
         self.status_label.setContentsMargins(4, 2, 12, 2)
         status_bar.addWidget(self.status_label, 1)
-        self.log_button = QPushButton("Show log")
+        self.log_button = QPushButton()
         self.log_button.clicked.connect(self.toggle_log)
-        self.clear_log_button = QPushButton("Clear log")
+        self.clear_log_button = QPushButton()
         self.clear_log_button.clicked.connect(self.log_view.clear)
         status_bar.addPermanentWidget(self.log_button)
         status_bar.addPermanentWidget(self.clear_log_button)
 
         self.navigation.currentRowChanged.connect(self._navigation_changed)
         self.navigation.setCurrentRow(0)
-        self.log("BooruFlow PySide6 shell started.")
+        self.retranslate()
+        self.log(self.catalog.text("log.started"))
         if not capabilities.grabber.available:
-            self.log(f"Optional Grabber integration unavailable: {capabilities.grabber.reason}")
+            self.log(self.catalog.text("log.grabber_unavailable", reason=capabilities.grabber.reason))
 
     def navigate_to(self, index: int) -> None:
         if 0 <= index < self.pages.count():
@@ -149,8 +129,35 @@ class MainWindow(QMainWindow):
         if index < 0:
             return
         self.pages.setCurrentIndex(index)
-        label = self.navigation.item(index).data(Qt.ItemDataRole.UserRole)
-        self.status_label.setText(f"{label} — Ready.")
+        self._update_status()
+
+    def _update_status(self) -> None:
+        index = self.navigation.currentRow()
+        key = self.NAVIGATION_KEYS[index if index >= 0 else 0]
+        self.status_label.setText(
+            self.catalog.text("status.ready", page=self.catalog.text(f"nav.{key}"))
+        )
+
+    def change_language(self, code: str) -> None:
+        if self.catalog.set_language(code) != code:
+            return
+        self.retranslate()
+
+    def retranslate(self) -> None:
+        self.setWindowTitle(self.catalog.text("app.title"))
+        for index, key in enumerate(self.NAVIGATION_KEYS):
+            label = self.catalog.text(f"nav.{key}")
+            self.navigation.item(index).setText(label)
+            self.navigation.item(index).setToolTip(label)
+        for index in range(self.pages.count()):
+            page = self.pages.widget(index)
+            if hasattr(page, "retranslate"):
+                page.retranslate()
+        self.log_button.setText(
+            self.catalog.text("log.hide") if self.log_view.isVisible() else self.catalog.text("log.show")
+        )
+        self.clear_log_button.setText(self.catalog.text("log.clear"))
+        self._update_status()
 
     def _save_options(self, settings: dict, credentials: dict) -> None:
         try:
@@ -159,18 +166,18 @@ class MainWindow(QMainWindow):
             if self.credentials_repository:
                 self.credentials_repository.save(credentials)
         except OSError as exc:
-            self.status_label.setText("Options — Save failed.")
-            self.log(f"Could not save options: {exc}")
+            self.status_label.setText(self.catalog.text("status.save_failed"))
+            self.log(self.catalog.text("log.options_failed", error=exc))
             self.log_view.show()
-            self.log_button.setText("Hide log")
+            self.log_button.setText(self.catalog.text("log.hide"))
             return
-        self.status_label.setText("Options — Saved.")
-        self.log("Options saved. Restart BooruFlow to refresh external tool availability.")
+        self.status_label.setText(self.catalog.text("status.saved"))
+        self.log(self.catalog.text("log.options_saved"))
 
     def toggle_log(self) -> None:
         visible = not self.log_view.isVisible()
         self.log_view.setVisible(visible)
-        self.log_button.setText("Hide log" if visible else "Show log")
+        self.log_button.setText(self.catalog.text("log.hide" if visible else "log.show"))
 
     def log(self, message: str) -> None:
         self.log_view.appendPlainText(f"[{datetime.now():%H:%M:%S}] {message}")

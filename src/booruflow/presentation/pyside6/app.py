@@ -11,6 +11,7 @@ from PySide6.QtWidgets import QApplication
 
 from booruflow.application import resolve_capabilities
 from booruflow.infrastructure.grabber import GrabberInstallation
+from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.settings import JsonSettingsRepository
 from booruflow.presentation.pyside6.main_window import MainWindow
 
@@ -62,8 +63,13 @@ def create_application(argv: list[str] | None = None) -> tuple[QApplication, Mai
     grabber_value = str(settings.get("grabber_directory", "")).strip()
     grabber = Path(grabber_value) if grabber_value else None
     capabilities = resolve_capabilities(GrabberInstallation(grabber))
+    catalog = LanguageCatalog(
+        root / "resources" / "i18n",
+        str(settings.get("language", "en")),
+    )
     window = MainWindow(
         capabilities,
+        catalog,
         settings_repository=settings_repository,
         credentials_repository=credentials_repository,
     )

@@ -1,4 +1,4 @@
-from artist_by_tag_gui import App
+from legacy.artist_by_tag_gui import App
 
 
 class _Status:

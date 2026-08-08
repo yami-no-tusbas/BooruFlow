@@ -1,6 +1,6 @@
-import wiki_tag_importer as importer
+from legacy import wiki_tag_importer as importer
 
-from wiki_tag_importer import (
+from legacy.wiki_tag_importer import (
     _clean_heading,
     analyze_pasted_tag_list,
     merge_catalogues,

@@ -18,9 +18,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Any
 
-from booru_cache import BooruCache
-from entity_types import ENTITY_TYPES, entity_type
-from gelbooru_artistes_par_tags_ignore import (
+from legacy.booru_cache import BooruCache
+from legacy.entity_types import ENTITY_TYPES, entity_type
+from legacy.gelbooru_artistes_par_tags_ignore import (
     load_blacklisted_artists,
     load_ignore_file,
     normalize_query,

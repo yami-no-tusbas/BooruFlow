@@ -45,8 +45,8 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-from booru_cache import BooruCache
-from entity_types import ENTITY_TYPES, entity_type
+from legacy.booru_cache import BooruCache
+from legacy.entity_types import ENTITY_TYPES, entity_type
 
 API_URL = "https://gelbooru.com/index.php"
 DEFAULT_USER_AGENT = "ArtistTagScanner/1.0 (personal Gelbooru library tool)"

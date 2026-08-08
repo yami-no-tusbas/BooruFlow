@@ -1,6 +1,6 @@
 from tools.benchmarks.grabber_load_benchmark import LoadMeasurement, best_measurement, parsed_tab_keys
 from tools.benchmarks.grabber_sweetspot_benchmark import configuration_grid
-from artist_by_tag_gui import remaining_review_tabs
+from legacy.artist_by_tag_gui import remaining_review_tabs
 
 
 def test_parsed_tab_keys_deduplicates_html_api_pair():

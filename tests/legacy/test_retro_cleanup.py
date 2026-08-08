@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from retro_cleanup import match_file, parse_blacklist
+from legacy.retro_cleanup import match_file, parse_blacklist
 
 
 MD5 = "0123456789abcdef0123456789abcdef"

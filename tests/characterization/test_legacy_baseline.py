@@ -1,6 +1,6 @@
-﻿import unittest
+import unittest
 
-from artist_by_tag_gui import compose_search_tags, remaining_review_tabs, unique_lines
+from legacy.artist_by_tag_gui import compose_search_tags, remaining_review_tabs, unique_lines
 
 
 class LegacyBaselineTests(unittest.TestCase):

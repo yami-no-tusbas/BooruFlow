@@ -1,6 +1,6 @@
 import unittest
 
-from artist_by_tag_gui import (
+from legacy.artist_by_tag_gui import (
     gelbooru_post_tags,
     gelbooru_posts_from_payload,
     tagging_priority,

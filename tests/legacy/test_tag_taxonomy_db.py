@@ -1,4 +1,4 @@
-from tag_taxonomy_db import TaxonomyDatabase
+from legacy.tag_taxonomy_db import TaxonomyDatabase
 
 
 def test_relational_memberships_allow_the_same_tag_in_multiple_branches(tmp_path):

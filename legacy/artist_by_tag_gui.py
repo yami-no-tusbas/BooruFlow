@@ -29,9 +29,9 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 from urllib.parse import parse_qs, urlparse
 
-from entity_types import ENTITY_TYPES, entity_type
-from gelbooru_artistes_par_tags_ignore import fetch_result_count
-from retro_cleanup import (
+from legacy.entity_types import ENTITY_TYPES, entity_type
+from legacy.gelbooru_artistes_par_tags_ignore import fetch_result_count
+from legacy.retro_cleanup import (
     Match as CleanupMatch,
     iter_image_files,
     match_file as cleanup_match_file,
@@ -39,7 +39,7 @@ from retro_cleanup import (
     send_to_recycle_bin,
     write_report as write_cleanup_report,
 )
-from wiki_tag_importer import (
+from legacy.wiki_tag_importer import (
     analyze_pasted_tag_list,
     gelbooru_page_tree,
     import_catalogues,
@@ -48,7 +48,7 @@ from wiki_tag_importer import (
     parse_pasted_tag_list,
     tag_definition,
 )
-from tag_taxonomy_db import TaxonomyDatabase
+from legacy.tag_taxonomy_db import TaxonomyDatabase
 
 try:
     from PIL import Image, ImageTk
@@ -56,10 +56,15 @@ except ImportError:  # L'application reste utilisable sans dépendance optionnel
     Image = None
     ImageTk = None
 
-APP_DIR = Path(__file__).resolve().parent
-SCANNER = APP_DIR / "gelbooru_artistes_par_tags_ignore.py"
-DEFAULT_DB = APP_DIR / "g_tags_260712_blacklist.db"
-DEFAULT_OUTPUT = APP_DIR / "resultats_artistes_gelbooru"
+LEGACY_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = LEGACY_DIR.parent
+APP_DIR = PROJECT_ROOT
+DATA_DIR = PROJECT_ROOT / "data"
+CONFIG_DIR = PROJECT_ROOT / "config"
+VAR_DIR = PROJECT_ROOT / "var"
+SCANNER = LEGACY_DIR / "gelbooru_artistes_par_tags_ignore.py"
+DEFAULT_DB = DATA_DIR / "databases" / "g_tags_260712_blacklist.db"
+DEFAULT_OUTPUT = VAR_DIR / "results" / "resultats_artistes_gelbooru"
 DEFAULT_GRABBER = Path(r"D:\0ZGrabber_blacklist")
 STATE_NAME = "artist_by_tag_session.json"
 SESSION_DIR_NAME = "sessions_tabs"
@@ -321,14 +326,14 @@ class App:
         root.geometry("1080x860")
         root.minsize(900, 700)
 
-        self.settings_path = APP_DIR / GUI_SETTINGS_NAME
+        self.settings_path = CONFIG_DIR / GUI_SETTINGS_NAME
 
-        self.tag_organization_path = APP_DIR / TAG_ORGANIZATION_NAME
+        self.tag_organization_path = DATA_DIR / "taxonomy" / TAG_ORGANIZATION_NAME
         saved = self._read_settings()
         self.tag_organization = self._load_tag_organization()
         self.organizer_undo_history: list[tuple[str, bytes]] = []
         self.taxonomy_databases = {
-            board: TaxonomyDatabase(APP_DIR / f"tag_organization_{board}.sqlite", board)
+            board: TaxonomyDatabase(DATA_DIR / "databases" / f"tag_organization_{board}.sqlite", board)
             for board in ("gelbooru", "e621")
         }
         self._sync_taxonomy_databases()
@@ -397,7 +402,7 @@ class App:
             value=str(saved.get("local_gel_db", DEFAULT_DB))
         )
         self.local_e621_db_var = StringVar(
-            value=str(saved.get("local_e621_db", APP_DIR / "e621_tags.db"))
+            value=str(saved.get("local_e621_db", DATA_DIR / "databases" / "e621_tags.db"))
         )
         self.database_status_var = StringVar(value="Aucune mise à jour en cours.")
         self.search_gelbooru_var = BooleanVar(
@@ -3325,7 +3330,7 @@ class App:
             jobs.append(
                 (
                     "Gelbooru",
-                    [python_exe, "-u", str(APP_DIR / "gelbooru_tags_updater.py")],
+                    [python_exe, "-u", str(LEGACY_DIR / "gelbooru_tags_updater.py")],
                     gel_env,
                 )
             )
@@ -3336,11 +3341,11 @@ class App:
                     [
                         sys.executable,
                         "-u",
-                        str(APP_DIR / "e621_tags_importer.py"),
+                        str(LEGACY_DIR / "e621_tags_importer.py"),
                         "--db",
                         self.local_e621_db_var.get(),
                         "--cache-dir",
-                        str(APP_DIR / "e621_exports"),
+                        str(DATA_DIR / "imports" / "e621_exports"),
                     ],
                     child_env.copy(),
                 )
@@ -3852,7 +3857,7 @@ class App:
         if self.search_e621_var.get():
             e621_output = output_root / self.entity_type_var.get() / "e621"
             command = [
-                sys.executable, "-u", str(APP_DIR / "e621_artistes_par_tags.py"),
+                sys.executable, "-u", str(LEGACY_DIR / "e621_artistes_par_tags.py"),
                 str(e621_db), *queries, *common, "--sortie", str(e621_output),
             ]
             commands.append(("e621", command, e621_output))

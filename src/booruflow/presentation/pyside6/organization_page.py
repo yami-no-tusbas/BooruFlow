@@ -11,7 +11,7 @@ from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
-    QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
+    QMenu, QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
     QTreeWidgetItemIterator, QTextBrowser, QToolButton,
     QGridLayout, QVBoxLayout, QWidget,
 )
@@ -56,6 +56,7 @@ class OrganizationPage(QWidget):
         layout.addLayout(top)
         splitter = QSplitter()
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
+        self.tree.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.results = QListWidget(); self.results.setMaximumHeight(180); self.results.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
         right = QWidget(); right_layout = QVBoxLayout(right); right_layout.setContentsMargins(0, 0, 0, 0)
         self.search_results_label = QLabel(); right_layout.addWidget(self.search_results_label); right_layout.addWidget(self.results)
@@ -80,7 +81,10 @@ class OrganizationPage(QWidget):
         self.tree.itemExpanded.connect(self._populate)
         self.tree.itemChanged.connect(self._tree_checked)
         self.tree.currentItemChanged.connect(self._inspect_item)
+        self.tree.customContextMenuRequested.connect(self._show_tree_menu)
         self.search_button.clicked.connect(self._search)
+        self.search.returnPressed.connect(self._search)
+        self.results.itemClicked.connect(self._open_result)
         self.results.itemActivated.connect(self._open_result)
         self.add_category.clicked.connect(self._add_category)
         self.add_tags.clicked.connect(self._add_tags)
@@ -109,7 +113,9 @@ class OrganizationPage(QWidget):
         if empty_legacy_tag: item.setToolTip(0, self.catalog.text("organization.empty_entry"))
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
         item.setCheckState(0, Qt.CheckState.Unchecked)
-        has_children = bool(node) if isinstance(node, list) else any(not str(key).startswith("__") for key in node) if isinstance(node, dict) else False
+        has_children = bool(node) if isinstance(node, list) else (
+            bool(node.get("__tags__")) or any(not str(key).startswith("__") for key in node)
+        ) if isinstance(node, dict) else False
         if has_children: QTreeWidgetItem(item, [""])
 
     def _populate(self, item: QTreeWidgetItem) -> None:
@@ -153,13 +159,22 @@ class OrganizationPage(QWidget):
 
     def _selected_container(self) -> tuple[dict, tuple[str, ...]]:
         item = self.tree.currentItem(); path = tuple(item.data(0, ROLE_PATH)) if item else ()
-        if item and item.data(0, ROLE_KIND) == "tag": path = path
         node = self._board_root()
+        if item and item.data(0, ROLE_KIND) == "tag" and not isinstance(item.data(0, ROLE_NODE), dict):
+            parent = node
+            for key in path[:-1]: parent = parent[key]
+            tag = str(item.data(0, ROLE_TAG) or path[-1])
+            values = parent.get("__tags__", [])
+            if tag in values: values.remove(tag)
+            node = parent.setdefault(tag, {"__tag__": tag})
+            return node, path
         for key in path:
             child = node.get(key)
             if not isinstance(child, dict):
                 node[key] = {"__tags__": list(child) if isinstance(child, list) else []}
             node = node[key]
+        if item and item.data(0, ROLE_KIND) == "tag":
+            node.setdefault("__tag__", str(item.data(0, ROLE_TAG) or path[-1]))
         return node, path
 
     def _add_category(self) -> None:
@@ -167,12 +182,51 @@ class OrganizationPage(QWidget):
         if ok and value.strip(): node.setdefault(value.strip(), {}); self.reload()
 
     def _add_tags(self) -> None:
-        node, _ = self._selected_container(); value, ok = QInputDialog.getMultiLineText(self, self.catalog.text("organization.add_tags"), self.catalog.text("organization.tags_prompt"))
-        if ok:
-            tags = node.setdefault("__tags__", [])
-            for tag in value.replace(";", "\n").splitlines():
-                if tag.strip() and tag.strip() not in tags: tags.append(tag.strip())
-            self.reload()
+        self._add_tags_to_item(self.tree.currentItem())
+
+    @staticmethod
+    def _insert_child_tags(node: dict, value: str) -> int:
+        added = 0
+        for raw_tag in value.replace(";", "\n").replace(",", "\n").splitlines():
+            tag = raw_tag.strip()
+            if not tag or tag in node: continue
+            node[tag] = {"__tag__": tag}; added += 1
+        return added
+
+    def _add_tags_to_item(self, item: QTreeWidgetItem | None) -> None:
+        if item is not None: self.tree.setCurrentItem(item)
+        node, path = self._selected_container()
+        value, ok = QInputDialog.getMultiLineText(
+            self, self.catalog.text("organization.add_child_tags"),
+            self.catalog.text("organization.child_tags_prompt"),
+        )
+        if not ok: return
+        added = self._insert_child_tags(node, value)
+        self.reload(); self._select_path(path)
+        self.state.setText(self.catalog.text("organization.tags_added", count=added))
+
+    def _show_tree_menu(self, position) -> None:
+        item = self.tree.itemAt(position)
+        if item is None: return
+        self.tree.setCurrentItem(item)
+        menu = QMenu(self)
+        add_children = menu.addAction(self.catalog.text("organization.add_child_tags"))
+        selected = menu.exec(self.tree.viewport().mapToGlobal(position))
+        if selected is add_children: self._add_tags_to_item(item)
+
+    def _select_path(self, path: tuple[str, ...]) -> QTreeWidgetItem | None:
+        current = self.tree.invisibleRootItem()
+        for key in path:
+            self.tree.expandItem(current)
+            found = next((
+                current.child(index) for index in range(current.childCount())
+                if current.child(index).text(0) == key
+                or str(current.child(index).data(0, ROLE_TAG) or "") == key
+            ), None)
+            if found is None: return None
+            self._populate(found); self.tree.expandItem(found); current = found
+        if current is not self.tree.invisibleRootItem(): self.tree.setCurrentItem(current)
+        return current
 
     def _import_tree(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, self.catalog.text("organization.import"), "", "Text (*.txt *.md);;All files (*)")
@@ -255,6 +309,7 @@ class OrganizationPage(QWidget):
                 self.results.addItem(f"{tag}  —  {' / '.join(path)}")
                 result = self.results.item(self.results.count() - 1)
                 result.setData(ROLE_PATH, path)
+                result.setData(ROLE_TAG, tag)
                 result.setFlags(result.flags() | Qt.ItemFlag.ItemIsUserCheckable)
                 result.setCheckState(Qt.CheckState.Unchecked)
                 if self.results.count() >= 500: break
@@ -268,7 +323,15 @@ class OrganizationPage(QWidget):
                 if current.child(i).text(0) == key or str(current.child(i).data(0, ROLE_TAG) or "") == key
             ), None)
             if not found: break
-            self.tree.expandItem(found); current = found
+            self._populate(found); self.tree.expandItem(found); current = found
+        wanted_tag = str(item.data(ROLE_TAG) or "")
+        if wanted_tag and str(current.data(0, ROLE_TAG) or "").casefold() != wanted_tag.casefold():
+            self._populate(current); self.tree.expandItem(current)
+            child = next((
+                current.child(index) for index in range(current.childCount())
+                if str(current.child(index).data(0, ROLE_TAG) or "").casefold() == wanted_tag.casefold()
+            ), None)
+            if child is not None: current = child
         already_current = self.tree.currentItem() is current
         self.tree.setCurrentItem(current)
         if already_current:

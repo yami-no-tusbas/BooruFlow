@@ -3,6 +3,7 @@ import os
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 PYSIDE6_AVAILABLE = importlib.util.find_spec("PySide6") is not None
@@ -65,6 +66,36 @@ class PySide6WorkflowTests(unittest.TestCase):
         leaf = branch.child(0)
         self.assertEqual(leaf.text(0), "battlecruiser *")
         self.assertEqual(leaf.data(0, ROLE_TAG), "battlecruiser")
+        page.close()
+
+    def test_search_result_opens_a_tag_stored_in_legacy_tags_list(self) -> None:
+        from booruflow.presentation.pyside6.organization_page import OrganizationPage
+
+        document = {"boards": {"gelbooru": {"Animals": {"__tags__": ["cat"]}}}}
+        page = OrganizationPage(self.catalog(), document)
+        page.search.setText("cat")
+        page._search()
+        self.assertEqual(page.results.count(), 1)
+        page._open_result(page.results.item(0))
+        self.assertEqual(page.details_title.text(), "cat")
+        page.close()
+
+    def test_tag_list_adds_real_children_to_selected_node(self) -> None:
+        from booruflow.presentation.pyside6.organization_page import OrganizationPage
+
+        document = {"boards": {"gelbooru": {"Medical": {"injury": {}}}}}
+        page = OrganizationPage(self.catalog(), document)
+        medical = page.tree.topLevelItem(0); page.tree.expandItem(medical); self.app.processEvents()
+        injury = medical.child(0)
+        with patch(
+            "booruflow.presentation.pyside6.organization_page.QInputDialog.getMultiLineText",
+            return_value=("wound\nbruise, scar", True),
+        ):
+            page._add_tags_to_item(injury)
+        node = document["boards"]["gelbooru"]["Medical"]["injury"]
+        self.assertEqual(node["__tag__"], "injury")
+        self.assertEqual(set(node) - {"__tag__"}, {"wound", "bruise", "scar"})
+        self.assertEqual(node["wound"]["__tag__"], "wound")
         page.close()
 
     def test_recurring_tags_can_be_checked_for_review_and_opened(self) -> None:

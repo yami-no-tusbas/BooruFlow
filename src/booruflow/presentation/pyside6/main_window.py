@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QPlainTextEdit,
     QPushButton,
+    QMessageBox,
     QSplitter,
     QStackedWidget,
     QStatusBar,
@@ -26,6 +27,8 @@ from booruflow.application.ports import SettingsRepository
 from booruflow.application.review import ReviewRequest, build_review_commands
 from booruflow.infrastructure.localization import LanguageCatalog, translate_legacy_log
 from booruflow.presentation.pyside6.icons import navigation_icon
+from booruflow.presentation.pyside6.cleanup_controller import CleanupRecycleWorker, CleanupScanWorker
+from booruflow.presentation.pyside6.cleanup_page import CleanupPage
 from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.pages import DashboardPage, PlaceholderPage
 from booruflow.presentation.pyside6.review_controller import (
@@ -33,6 +36,8 @@ from booruflow.presentation.pyside6.review_controller import (
     ReviewProcessController,
 )
 from booruflow.presentation.pyside6.review_page import ReviewPage
+from booruflow.presentation.pyside6.tagging_controller import TaggingWorker
+from booruflow.presentation.pyside6.tagging_page import TaggingPage
 
 
 class MainWindow(QMainWindow):
@@ -58,6 +63,11 @@ class MainWindow(QMainWindow):
         self.project_root = project_root or Path.cwd()
         self.python_executable = python_executable or sys.executable
         self.count_worker: ReviewCountWorker | None = None
+        self.tagging_worker: TaggingWorker | None = None
+        self.cleanup_worker: CleanupScanWorker | None = None
+        self.recycle_worker: CleanupRecycleWorker | None = None
+        self.cleanup_matches: list = []
+        self.cleanup_report = ""
         settings = settings_repository.load() if settings_repository else {}
         credentials = credentials_repository.load() if credentials_repository else {}
         self.resize(1120, 760)
@@ -82,9 +92,16 @@ class MainWindow(QMainWindow):
         self.review_page.stop_requested.connect(self._stop_review)
         self.review_page.count_requested.connect(self._count_queries)
         self.pages.addWidget(self.review_page)
-        self.pages.addWidget(PlaceholderPage(catalog, "tagging", "page.tagging"))
+        self.tagging_page = TaggingPage(catalog, settings)
+        self.tagging_page.start_requested.connect(self._start_tagging)
+        self.tagging_page.stop_requested.connect(self._stop_tagging)
+        self.pages.addWidget(self.tagging_page)
         self.pages.addWidget(PlaceholderPage(catalog, "organization", "page.organization"))
-        self.pages.addWidget(PlaceholderPage(catalog, "cleanup", "page.cleanup"))
+        self.cleanup_page = CleanupPage(catalog)
+        self.cleanup_page.scan_requested.connect(self._start_cleanup)
+        self.cleanup_page.stop_requested.connect(self._stop_cleanup)
+        self.cleanup_page.recycle_requested.connect(self._recycle_cleanup)
+        self.pages.addWidget(self.cleanup_page)
         options = OptionsPage(catalog, settings, credentials)
         options.save_requested.connect(self._save_options)
         options.language_changed.connect(self.change_language)
@@ -246,6 +263,127 @@ class MainWindow(QMainWindow):
         if self.count_worker:
             self.count_worker.deleteLater()
             self.count_worker = None
+
+    def _start_tagging(self, request) -> None:
+        gel = self._credentials().get("gelbooru", {})
+        if not isinstance(gel, dict) or not gel.get("user_id") or not gel.get("api_key"):
+            self.tagging_page.state.setText(self.catalog.text("review.credentials_missing"))
+            return
+        self.tagging_page.set_running(True)
+        self.log(self.catalog.text("tagging.log_start", query=request.query))
+        self.tagging_worker = TaggingWorker(request, str(gel["user_id"]), str(gel["api_key"]))
+        self.tagging_worker.progress.connect(self.tagging_page.set_progress)
+        self.tagging_worker.completed.connect(self._tagging_finished)
+        self.tagging_worker.start()
+
+    def _stop_tagging(self) -> None:
+        if self.tagging_worker:
+            self.tagging_worker.requestInterruption()
+            self.tagging_page.state.setText(self.catalog.text("tagging.stopping"))
+
+    def _tagging_finished(
+        self, posts: list, examined: int, next_page: int, reached_end: bool, error: str, stopped: bool
+    ) -> None:
+        self.tagging_page.set_running(False)
+        self.tagging_page.spins["start"].setValue(max(1, next_page))
+        self.tagging_page.show_results(posts)
+        if error:
+            self.tagging_page.state.setText(self.catalog.text("tagging.failed", error=error))
+            self.log(self.catalog.text("tagging.failed", error=error))
+        elif stopped:
+            self.tagging_page.state.setText(self.catalog.text("tagging.stopped", examined=examined))
+        elif reached_end and not posts:
+            self.tagging_page.state.setText(self.catalog.text("tagging.end", examined=examined))
+        else:
+            self.tagging_page.state.setText(
+                self.catalog.text("tagging.finished", examined=examined, retained=len(posts))
+            )
+        if self.tagging_worker:
+            self.tagging_worker.deleteLater()
+            self.tagging_worker = None
+
+    def _cleanup_paths(self) -> tuple[Path, Path]:
+        settings = self.settings_repository.load() if self.settings_repository else {}
+        grabber = Path(str(settings.get("grabber_directory", "")))
+        output = Path(str(settings.get("output_root", self.project_root / "var" / "results")))
+        return grabber / "blacklist.txt", output
+
+    def _start_cleanup(self, roots: tuple[Path, ...]) -> None:
+        blacklist, output = self._cleanup_paths()
+        if not blacklist.is_file():
+            self.cleanup_page.state.setText(self.catalog.text("cleanup.blacklist_missing", path=blacklist))
+            self.log(self.catalog.text("cleanup.blacklist_missing", path=blacklist))
+            return
+        self.cleanup_page.set_running(True)
+        self.cleanup_matches = []
+        self.log(self.catalog.text("cleanup.log_start", count=len(roots)))
+        self.cleanup_worker = CleanupScanWorker(roots, blacklist, output)
+        self.cleanup_worker.progress.connect(self.cleanup_page.set_progress)
+        self.cleanup_worker.completed.connect(self._cleanup_finished)
+        self.cleanup_worker.start()
+
+    def _stop_cleanup(self) -> None:
+        if self.cleanup_worker:
+            self.cleanup_worker.requestInterruption()
+            self.cleanup_page.state.setText(self.catalog.text("cleanup.stopping"))
+
+    def _cleanup_finished(
+        self, files: int, matches: list, report: str, ignored_compound: int,
+        ignored_non_tag: int, error: str,
+    ) -> None:
+        self.cleanup_page.set_running(False)
+        if error:
+            self.cleanup_page.state.setText(self.catalog.text("cleanup.failed", error=error))
+            self.log(self.catalog.text("cleanup.failed", error=error))
+        else:
+            self.cleanup_matches = matches
+            self.cleanup_report = report
+            self.cleanup_page.show_matches(matches)
+            unique = len({match.path for match in matches})
+            self.cleanup_page.state.setText(
+                self.catalog.text("cleanup.finished", files=files, matches=unique)
+            )
+            self.log(self.catalog.text(
+                "cleanup.report", path=report, compound=ignored_compound, non_tag=ignored_non_tag
+            ))
+        if self.cleanup_worker:
+            self.cleanup_worker.deleteLater()
+            self.cleanup_worker = None
+
+    def _recycle_cleanup(self) -> None:
+        paths = tuple(sorted({match.path for match in self.cleanup_matches}))
+        if not paths:
+            return
+        size = sum(path.stat().st_size for path in paths if path.is_file())
+        answer = QMessageBox.question(
+            self,
+            self.catalog.text("cleanup.confirm_title"),
+            self.catalog.text(
+                "cleanup.confirm", count=len(paths), size=size / (1024 * 1024), report=self.cleanup_report
+            ),
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            self.log(self.catalog.text("cleanup.cancelled"))
+            return
+        self.cleanup_page.scan_button.setEnabled(False)
+        self.cleanup_page.recycle_button.setEnabled(False)
+        self.cleanup_page.state.setText(self.catalog.text("cleanup.recycling", count=len(paths)))
+        self.recycle_worker = CleanupRecycleWorker(paths)
+        self.recycle_worker.completed.connect(self._recycle_finished)
+        self.recycle_worker.start()
+
+    def _recycle_finished(self, success: bool, message: str) -> None:
+        self.log(message)
+        self.cleanup_page.scan_button.setEnabled(True)
+        self.cleanup_page.recycle_button.setEnabled(not success)
+        self.cleanup_page.state.setText(
+            self.catalog.text("cleanup.recycle_done" if success else "cleanup.recycle_failed")
+        )
+        if success:
+            self.cleanup_matches = []
+        if self.recycle_worker:
+            self.recycle_worker.deleteLater()
+            self.recycle_worker = None
 
     def _save_options(self, settings: dict, credentials: dict) -> None:
         try:

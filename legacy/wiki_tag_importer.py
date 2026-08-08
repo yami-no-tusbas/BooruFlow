@@ -412,7 +412,7 @@ def parse_gelbooru_group(source: str) -> tuple[dict, str]:
         last_at_depth[depth] = node
         for deeper in [value for value in last_at_depth if value > depth]:
             del last_at_depth[deeper]
-    definition = "\n".join(parser.text[:12])
+    definition = "\n".join(parser.text)
     return tree, definition
 
 
@@ -1095,10 +1095,12 @@ def merge_catalogues(document: dict, imported: dict) -> dict[str, int]:
     }
 
 
-def tag_definition(board: str, tag: str) -> tuple[str, str]:
+def tag_definition_details(board: str, tag: str) -> tuple[str, str, list[str]]:
     if board == "e621":
         page = _e621_page(tag)
-        body = str(page.get("body", ""))
+        raw_body = str(page.get("body", ""))
+        referenced_tags = list(dict.fromkeys(_wiki_links(raw_body)))
+        body = raw_body
         body = re.sub(r"\[\[[^]|]+\|([^]]+)]]", r"\1", body)
         body = re.sub(r"\[\[([^]]+)]]", r"\1", body)
         body = re.sub(r"\[/?[^]]+]", "", body)
@@ -1119,9 +1121,17 @@ def tag_definition(board: str, tag: str) -> tuple[str, str]:
                 relation_lines.append(f"{heading}: {', '.join(values)}")
         if relation_lines:
             body = f"{body}\n\n" + "\n".join(relation_lines)
-        return body[:6000], f"https://e621.net/wiki_pages/{page['id']}"
+        return body[:6000], f"https://e621.net/wiki_pages/{page['id']}", referenced_tags
     url = "https://gelbooru.com/index.php?" + urllib.parse.urlencode(
         {"page": "wiki", "s": "list", "search": tag}
     )
-    _tags, definition = parse_gelbooru_group(_get(url))
-    return definition[:6000], url
+    source = _get(url)
+    _tags, definition = parse_gelbooru_group(source)
+    parser = _GelbooruWikiParser(); parser.feed(source); parser.close()
+    referenced_tags = list(dict.fromkeys(parser.links))
+    return definition[:6000], url, referenced_tags
+
+
+def tag_definition(board: str, tag: str) -> tuple[str, str]:
+    definition, url, _referenced_tags = tag_definition_details(board, tag)
+    return definition, url

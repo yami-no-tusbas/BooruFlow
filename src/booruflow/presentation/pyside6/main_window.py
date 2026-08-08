@@ -633,6 +633,8 @@ class MainWindow(QMainWindow):
     def _load_tag_details(self, board: str, tag: str) -> None:
         self.tag_details_generation += 1
         gel = self._credentials().get("gelbooru", {})
+        settings = self.settings_repository.load() if self.settings_repository else {}
+        database_value = str(settings.get(f"{board}_database", ""))
         worker = TagDetailsWorker(
             self.tag_details_generation,
             board,
@@ -640,6 +642,7 @@ class MainWindow(QMainWindow):
             self.project_root / "var" / "cache" / "tag_details.json",
             str(gel.get("user_id", "")) if isinstance(gel, dict) else "",
             str(gel.get("api_key", "")) if isinstance(gel, dict) else "",
+            Path(database_value) if database_value else None,
         )
         self.tag_details_workers.append(worker)
         worker.completed.connect(self._tag_details_ready)

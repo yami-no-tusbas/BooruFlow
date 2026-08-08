@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import html
+import urllib.parse
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QUrl, Signal
@@ -22,6 +24,17 @@ ROLE_NODE = Qt.ItemDataRole.UserRole
 ROLE_PATH = Qt.ItemDataRole.UserRole + 1
 ROLE_KIND = Qt.ItemDataRole.UserRole + 2
 ROLE_TAG = Qt.ItemDataRole.UserRole + 3
+
+
+class NavigableTagList(QListWidget):
+    tag_clicked = Signal(object)
+
+    def mouseReleaseEvent(self, event) -> None:
+        item = self.itemAt(event.position().toPoint())
+        on_name = item is not None and event.position().x() > self.visualItemRect(item).left() + 26
+        super().mouseReleaseEvent(event)
+        if on_name:
+            self.tag_clicked.emit(item)
 
 
 class OrganizationPage(QWidget):
@@ -47,8 +60,11 @@ class OrganizationPage(QWidget):
         right = QWidget(); right_layout = QVBoxLayout(right); right_layout.setContentsMargins(0, 0, 0, 0)
         self.search_results_label = QLabel(); right_layout.addWidget(self.search_results_label); right_layout.addWidget(self.results)
         self.details_title = QLabel(); self.details_title.setStyleSheet("font-size: 16px; font-weight: 600;"); right_layout.addWidget(self.details_title)
-        self.definition = QTextBrowser(); self.definition.setOpenExternalLinks(True); self.definition.setMinimumHeight(130); right_layout.addWidget(self.definition)
+        self.definition = QTextBrowser(); self.definition.setOpenLinks(False); self.definition.setMinimumHeight(130); self.definition.anchorClicked.connect(self._definition_link_clicked); right_layout.addWidget(self.definition)
         self.wiki_button = QPushButton(); self.wiki_button.hide(); self.wiki_button.clicked.connect(self._open_wiki); right_layout.addWidget(self.wiki_button)
+        self.recurring_label = QLabel(); self.recurring_label.setWordWrap(True); right_layout.addWidget(self.recurring_label)
+        self.recurring = NavigableTagList(); self.recurring.setFlow(QListWidget.Flow.LeftToRight); self.recurring.setWrapping(True); self.recurring.setMaximumHeight(120); self.recurring.tag_clicked.connect(self._open_recurring); self.recurring.itemActivated.connect(self._open_recurring); right_layout.addWidget(self.recurring)
+        self.send_recurring_review = QPushButton(); self.send_recurring_review.clicked.connect(self._send_recurring_to_review); right_layout.addWidget(self.send_recurring_review)
         self.samples = QWidget(); self.samples_grid = QGridLayout(self.samples); self.samples_grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft); right_layout.addWidget(self.samples)
         self.network = QNetworkAccessManager(self); self.details_generation = 0; self.wiki_url = ""
         splitter.addWidget(self.tree); splitter.addWidget(right)
@@ -120,11 +136,11 @@ class OrganizationPage(QWidget):
         tag = str(item.data(0, ROLE_TAG) or "") if item else ""
         if not tag:
             self.details_title.setText(self.catalog.text("organization.no_tag_selected"))
-            self.definition.clear(); self.wiki_button.hide(); self._clear_samples(); return
+            self.definition.clear(); self.wiki_button.hide(); self._clear_recurring(); self._clear_samples(); return
         self.details_generation += 1
         self.details_title.setText(tag)
         self.definition.setPlainText(self.catalog.text("organization.details_loading"))
-        self.wiki_button.hide(); self._clear_samples()
+        self.wiki_button.hide(); self._clear_recurring(); self._clear_samples()
         self.tag_details_requested.emit(str(self.board.currentData()), tag)
 
     def _tree_checked(self, item: QTreeWidgetItem, _column: int) -> None:
@@ -247,10 +263,30 @@ class OrganizationPage(QWidget):
     def _open_result(self, item) -> None:
         path = tuple(item.data(ROLE_PATH)); current = self.tree.invisibleRootItem()
         for key in path:
-            found = next((current.child(i) for i in range(current.childCount()) if current.child(i).text(0) == key), None)
+            found = next((
+                current.child(i) for i in range(current.childCount())
+                if current.child(i).text(0) == key or str(current.child(i).data(0, ROLE_TAG) or "") == key
+            ), None)
             if not found: break
             self.tree.expandItem(found); current = found
+        already_current = self.tree.currentItem() is current
         self.tree.setCurrentItem(current)
+        if already_current:
+            self._inspect_item(current)
+
+    def _navigate_to_tag(self, tag: str) -> None:
+        exact_path = next((path for value, path in iter_tag_paths(self._board_root()) if value.casefold() == tag.casefold()), None)
+        if exact_path is not None:
+            self.search.setText(tag); self._search()
+            for index in range(self.results.count()):
+                item = self.results.item(index)
+                if tuple(item.data(ROLE_PATH)) == tuple(exact_path):
+                    self._open_result(item); return
+        self.details_generation += 1
+        self.details_title.setText(tag)
+        self.definition.setPlainText(self.catalog.text("organization.details_loading"))
+        self.wiki_button.hide(); self._clear_recurring(); self._clear_samples()
+        self.tag_details_requested.emit(str(self.board.currentData()), tag)
 
     def set_busy(self, busy: bool) -> None:
         self.save.setEnabled(not busy); self.update_button.setEnabled(not busy)
@@ -260,8 +296,16 @@ class OrganizationPage(QWidget):
         if tag != self.details_title.text(): return
         definition = str(details.get("definition", "")).strip()
         errors = [str(value) for value in details.get("errors", []) if str(value)]
-        if definition:
-            self.definition.setPlainText(definition)
+        wiki_tags = [str(value) for value in details.get("wiki_tags", []) if str(value) and str(value).casefold() != tag.casefold()]
+        if definition or wiki_tags:
+            body = html.escape(definition).replace("\n", "<br>")
+            if wiki_tags:
+                links = ", ".join(
+                    f'<a href="booruflow-tag:{urllib.parse.quote(value, safe="")}">{html.escape(value)}</a>'
+                    for value in wiki_tags
+                )
+                body += f'<p><b>{html.escape(self.catalog.text("organization.wiki_references"))}</b> {links}</p>'
+            self.definition.setHtml(body)
         elif details.get("online"):
             self.definition.setPlainText(self.catalog.text("organization.wiki_empty"))
         elif details.get("cached"):
@@ -270,7 +314,44 @@ class OrganizationPage(QWidget):
             self.definition.setPlainText(self.catalog.text("organization.internet_required", error="; ".join(errors)))
         self.wiki_url = str(details.get("wiki_url", ""))
         self.wiki_button.setVisible(bool(self.wiki_url)); self.wiki_button.setText(self.catalog.text("organization.open_wiki"))
+        self._show_recurring(list(details.get("recurring", [])), int(details.get("sample_size", 0)))
         self._show_samples(list(details.get("samples", [])))
+
+    def _definition_link_clicked(self, url: QUrl) -> None:
+        if url.scheme() == "booruflow-tag":
+            encoded_tag = url.path() or url.toString().partition(":")[2]
+            self._navigate_to_tag(urllib.parse.unquote(encoded_tag))
+        else:
+            QDesktopServices.openUrl(url)
+
+    def _clear_recurring(self) -> None:
+        self.recurring.clear(); self.recurring_label.clear(); self.recurring.hide(); self.recurring_label.hide(); self.send_recurring_review.hide()
+
+    def _show_recurring(self, recurring: list[dict], sample_size: int) -> None:
+        self._clear_recurring()
+        self.recurring_label.setText(self.catalog.text("organization.recurring", sample_size=sample_size, count=len(recurring)))
+        self.recurring_label.show()
+        if not recurring:
+            self.recurring_label.setText(self.catalog.text("organization.no_recurring", sample_size=sample_size)); return
+        for entry in recurring:
+            tag = str(entry.get("tag", "")); count = int(entry.get("count", 0))
+            if not tag: continue
+            self.recurring.addItem(f"{tag} ({count})")
+            item = self.recurring.item(self.recurring.count() - 1); item.setData(ROLE_TAG, tag)
+            item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable); item.setCheckState(Qt.CheckState.Unchecked)
+            item.setToolTip(self.catalog.text("organization.recurring_tooltip"))
+        self.recurring.show(); self.send_recurring_review.show()
+
+    def _open_recurring(self, item) -> None:
+        self._navigate_to_tag(str(item.data(ROLE_TAG) or ""))
+
+    def _send_recurring_to_review(self) -> None:
+        tags = tuple(
+            str(self.recurring.item(index).data(ROLE_TAG))
+            for index in range(self.recurring.count())
+            if self.recurring.item(index).checkState() == Qt.CheckState.Checked
+        )
+        if tags: self.review_tags_requested.emit(tags)
 
     def _open_wiki(self) -> None:
         if self.wiki_url: QDesktopServices.openUrl(QUrl(self.wiki_url))
@@ -290,7 +371,7 @@ class OrganizationPage(QWidget):
             self.samples_grid.addWidget(button, index // 3, index % 3)
             preview = str(sample.get("preview_url", ""))
             if preview:
-                request = QNetworkRequest(QUrl(preview)); request.setRawHeader(b"User-Agent", b"BooruFlow/0.1"); request.setRawHeader(b"Referer", b"https://gelbooru.com/")
+                request = QNetworkRequest(QUrl(preview)); request.setRawHeader(b"User-Agent", b"BooruFlow/0.1"); request.setRawHeader(b"Referer", b"https://e621.net/" if "e621.net" in preview else b"https://gelbooru.com/")
                 reply = self.network.get(request); reply.finished.connect(lambda current=reply, target=button, value=generation: self._sample_ready(current, target, value))
 
     def _sample_ready(self, reply: QNetworkReply, button: QToolButton, generation: int) -> None:
@@ -305,4 +386,5 @@ class OrganizationPage(QWidget):
 
     def retranslate(self) -> None:
         text = self.catalog.text; self.title.setText(text("nav.organization")); self.board_label.setText(text("organization.board")); self.search.setPlaceholderText(text("organization.search")); self.search_button.setText(text("organization.search_button")); self.update_button.setText(text("organization.update")); self.add_category.setText(text("organization.add_category")); self.add_tags.setText(text("organization.add_tags")); self.import_tree.setText(text("organization.import")); self.rename.setText(text("organization.rename")); self.delete.setText(text("organization.delete")); self.send_review.setText(text("organization.send_review")); self.save.setText(text("organization.save")); self.search_results_label.setText(text("organization.search_results"))
+        self.send_recurring_review.setText(text("organization.send_recurring_review"))
         if not self.state.text(): self.state.setText(text("organization.ready"))

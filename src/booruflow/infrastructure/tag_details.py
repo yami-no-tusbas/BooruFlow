@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import json
 import os
+import sqlite3
 import urllib.parse
 import urllib.request
+from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from legacy.wiki_tag_importer import tag_definition
+from legacy.wiki_tag_importer import tag_definition_details
 
 
 class TagDetailsCache:
@@ -46,10 +48,65 @@ def _request_json(url: str, referer: str) -> object:
         return json.loads(response.read().decode("utf-8", errors="replace"))
 
 
-def _gelbooru_samples(tag: str, user_id: str, api_key: str) -> list[dict]:
+GELBOORU_META_FALLBACK = {
+    "highres", "absurdres", "incredibly_absurdres", "lowres", "commentary",
+    "commentary_request", "translated", "translation_request", "check_translation",
+    "bad_id", "duplicate", "revision", "paid_reward",
+}
+
+
+def _recurring_tags(posts: list[dict], current_tag: str, extractor, excluded: set[str] | None = None) -> list[dict]:
+    counts: Counter[str] = Counter()
+    current = current_tag.casefold()
+    excluded_folded = {value.casefold() for value in (excluded or set())}
+    for post in posts:
+        unique = {
+            value for value in extractor(post)
+            if value and value.casefold() != current and value.casefold() not in excluded_folded
+        }
+        counts.update(unique)
+    return [
+        {"tag": tag, "count": count}
+        for tag, count in sorted(counts.items(), key=lambda item: (-item[1], item[0].casefold()))[:20]
+    ]
+
+
+def _gelbooru_post_tags(post: dict) -> list[str]:
+    values = post.get("tags", post.get("tag_string", ""))
+    if isinstance(values, str):
+        return values.split()
+    return [str(value) for value in values] if isinstance(values, list) else []
+
+
+def _e621_post_tags(post: dict) -> list[str]:
+    values = post.get("tags", {})
+    if isinstance(values, str):
+        return values.split()
+    if isinstance(values, dict):
+        return [
+            str(tag) for category, group in values.items()
+            if str(category).casefold() != "meta" and isinstance(group, list)
+            for tag in group
+        ]
+    return []
+
+
+def _gelbooru_meta_tags(database_path: Path | None) -> set[str]:
+    result = set(GELBOORU_META_FALLBACK)
+    if not database_path or not database_path.is_file():
+        return result
+    try:
+        with sqlite3.connect(f"file:{database_path.as_posix()}?mode=ro", uri=True) as connection:
+            result.update(str(row[0]) for row in connection.execute("SELECT name FROM tags WHERE category = 5"))
+    except sqlite3.Error:
+        pass
+    return result
+
+
+def _gelbooru_samples(tag: str, user_id: str, api_key: str, database_path: Path | None = None) -> dict:
     parameters = {
         "page": "dapi", "s": "post", "q": "index", "json": "1",
-        "limit": "6", "tags": tag,
+        "limit": "100", "tags": tag,
     }
     if user_id: parameters["user_id"] = user_id
     if api_key: parameters["api_key"] = api_key
@@ -58,24 +115,30 @@ def _gelbooru_samples(tag: str, user_id: str, api_key: str) -> list[dict]:
         "https://gelbooru.com/",
     )
     posts = payload if isinstance(payload, list) else payload.get("post", []) if isinstance(payload, dict) else []
-    return [
+    samples = [
         {
             "id": int(post.get("id", 0)),
             "preview_url": str(post.get("preview_url") or post.get("sample_url") or ""),
             "post_url": f"https://gelbooru.com/index.php?page=post&s=view&id={int(post.get('id', 0))}",
         }
-        for post in posts if isinstance(post, dict)
+        for post in posts[:6] if isinstance(post, dict)
     ]
+    valid_posts = [post for post in posts if isinstance(post, dict)]
+    return {
+        "samples": samples,
+        "sample_size": len(valid_posts),
+        "recurring": _recurring_tags(valid_posts, tag, _gelbooru_post_tags, _gelbooru_meta_tags(database_path)),
+    }
 
 
-def _e621_samples(tag: str) -> list[dict]:
+def _e621_samples(tag: str) -> dict:
     payload = _request_json(
-        "https://e621.net/posts.json?" + urllib.parse.urlencode({"limit": 6, "tags": tag}),
+        "https://e621.net/posts.json?" + urllib.parse.urlencode({"limit": 100, "tags": tag}),
         "https://e621.net/",
     )
     posts = payload.get("posts", []) if isinstance(payload, dict) else []
     samples = []
-    for post in posts:
+    for post in posts[:6]:
         preview = post.get("preview", {}) if isinstance(post, dict) else {}
         post_id = int(post.get("id", 0)) if isinstance(post, dict) else 0
         samples.append({
@@ -83,11 +146,13 @@ def _e621_samples(tag: str) -> list[dict]:
             "preview_url": str(preview.get("url") or "") if isinstance(preview, dict) else "",
             "post_url": f"https://e621.net/posts/{post_id}",
         })
-    return samples
+    valid_posts = [post for post in posts if isinstance(post, dict)]
+    return {"samples": samples, "sample_size": len(valid_posts), "recurring": _recurring_tags(valid_posts, tag, _e621_post_tags)}
 
 
 def fetch_tag_details(
     board: str, tag: str, cache_path: Path, user_id: str = "", api_key: str = "",
+    tag_database_path: Path | None = None,
 ) -> dict:
     cache = TagDetailsCache(cache_path)
     cached = cache.load(board, tag)
@@ -95,14 +160,14 @@ def fetch_tag_details(
     errors: list[str] = []
     online = False
     try:
-        definition, wiki_url = tag_definition(board, tag)
-        details.update({"definition": definition, "wiki_url": wiki_url})
+        definition, wiki_url, wiki_tags = tag_definition_details(board, tag)
+        details.update({"definition": definition, "wiki_url": wiki_url, "wiki_tags": wiki_tags})
         online = True
     except Exception as exc:
         errors.append(str(exc))
     try:
-        samples = _e621_samples(tag) if board == "e621" else _gelbooru_samples(tag, user_id, api_key)
-        details["samples"] = samples
+        sample_data = _e621_samples(tag) if board == "e621" else _gelbooru_samples(tag, user_id, api_key, tag_database_path)
+        details.update(sample_data)
         online = True
     except Exception as exc:
         errors.append(str(exc))

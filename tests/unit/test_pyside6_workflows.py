@@ -67,6 +67,30 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertEqual(leaf.data(0, ROLE_TAG), "battlecruiser")
         page.close()
 
+    def test_recurring_tags_can_be_checked_for_review_and_opened(self) -> None:
+        from PySide6.QtCore import Qt, QUrl
+        from booruflow.presentation.pyside6.organization_page import OrganizationPage
+
+        document = {"boards": {"gelbooru": {"Medical": {"injury": {}, "wound": {}}}}}
+        page = OrganizationPage(self.catalog(), document)
+        page.details_title.setText("injury")
+        page.show_tag_details({
+            "tag": "injury", "definition": "Related injuries", "online": True,
+            "sample_size": 100, "recurring": [{"tag": "wound", "count": 42}],
+            "wiki_tags": ["wound"], "samples": [],
+        })
+        captured = []
+        page.review_tags_requested.connect(captured.append)
+        page.recurring.item(0).setCheckState(Qt.CheckState.Checked)
+        page._send_recurring_to_review()
+        self.assertEqual(captured, [("wound",)])
+        page._open_recurring(page.recurring.item(0))
+        self.assertEqual(page.details_title.text(), "wound")
+        page.details_title.setText("injury")
+        page._definition_link_clicked(QUrl("booruflow-tag:wound"))
+        self.assertEqual(page.details_title.text(), "wound")
+        page.close()
+
     def test_review_engine_summary_is_captured_for_visible_status(self) -> None:
         from booruflow.application.capabilities import ApplicationCapabilities
         from booruflow.domain import ToolAvailability

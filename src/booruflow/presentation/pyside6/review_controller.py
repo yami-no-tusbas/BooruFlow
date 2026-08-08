@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import re
+import sqlite3
 from collections import deque
+from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QThread, QTimer, Signal
 
@@ -122,3 +124,33 @@ class ReviewCountWorker(QThread):
                 errors.append((query, str(exc)))
             self.progress.emit(index, len(self.queries), query)
         self.completed.emit(results, errors)
+
+
+class ReviewAutocompleteWorker(QThread):
+    completed = Signal(str, list)
+
+    def __init__(self, token: str, databases: tuple[tuple[str, Path], ...]) -> None:
+        super().__init__(); self.token = token; self.databases = databases
+
+    def run(self) -> None:
+        merged: dict[str, dict[str, object]] = {}
+        lookup = self.token.lstrip("-").casefold()
+        for site, path in self.databases:
+            try:
+                connection = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
+                try:
+                    rows = connection.execute(
+                        "SELECT name,post_count FROM tags INDEXED BY idx_tags_name "
+                        "WHERE name>=? AND name<? ORDER BY post_count DESC LIMIT 20",
+                        (lookup, lookup + "\uffff"),
+                    ).fetchall()
+                finally:
+                    connection.close()
+            except (OSError, sqlite3.Error):
+                continue
+            for name, count in rows:
+                item = merged.setdefault(str(name), {"count": 0, "sites": []})
+                item["count"] = max(int(item["count"]), int(count))
+                item["sites"].append(site)
+        ranked = sorted(merged.items(), key=lambda item: (-int(item[1]["count"]), item[0]))[:12]
+        self.completed.emit(self.token, ranked)

@@ -38,6 +38,7 @@ from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.pages import DashboardPage, PlaceholderPage
 from booruflow.presentation.pyside6.review_controller import (
     ReviewCountWorker,
+    ReviewAutocompleteWorker,
     ReviewProcessController,
 )
 from booruflow.presentation.pyside6.review_page import ReviewPage
@@ -68,6 +69,7 @@ class MainWindow(QMainWindow):
         self.project_root = project_root or Path.cwd()
         self.python_executable = python_executable or sys.executable
         self.count_worker: ReviewCountWorker | None = None
+        self.autocomplete_workers: list[ReviewAutocompleteWorker] = []
         self.tagging_worker: TaggingWorker | None = None
         self.cleanup_worker: CleanupScanWorker | None = None
         self.recycle_worker: CleanupRecycleWorker | None = None
@@ -107,6 +109,7 @@ class MainWindow(QMainWindow):
         self.review_page.start_requested.connect(self._start_review)
         self.review_page.stop_requested.connect(self._stop_review)
         self.review_page.count_requested.connect(self._count_queries)
+        self.review_page.autocomplete_requested.connect(self._autocomplete_review)
         self.pages.addWidget(self.review_page)
         self.tagging_page = TaggingPage(catalog, settings)
         self.tagging_page.start_requested.connect(self._start_tagging)
@@ -115,6 +118,7 @@ class MainWindow(QMainWindow):
         self.organization_page = OrganizationPage(catalog, self.taxonomy_repository.load())
         self.organization_page.save_requested.connect(self._save_taxonomy)
         self.organization_page.update_requested.connect(self._update_taxonomy)
+        self.organization_page.review_tags_requested.connect(self._review_organization_tags)
         self.pages.addWidget(self.organization_page)
         self.cleanup_page = CleanupPage(catalog)
         self.cleanup_page.scan_requested.connect(self._start_cleanup)
@@ -275,6 +279,27 @@ class MainWindow(QMainWindow):
         self.count_worker.progress.connect(self.review_page.set_count_progress)
         self.count_worker.completed.connect(self._count_finished)
         self.count_worker.start()
+
+    def _autocomplete_review(self, token: str) -> None:
+        request_sites = tuple(self.review_page.site.currentData())
+        settings = self.settings_repository.load() if self.settings_repository else {}
+        candidates = (
+            ("Gelbooru", Path(str(settings.get("gelbooru_database", "")))),
+            ("e621", Path(str(settings.get("e621_database", "")))),
+        )
+        databases = tuple((name, path) for name, path in candidates if name.casefold() in request_sites and path.is_file())
+        if not databases:
+            return
+        worker = ReviewAutocompleteWorker(token, databases)
+        self.autocomplete_workers.append(worker)
+        worker.completed.connect(self.review_page.show_suggestions)
+        worker.finished.connect(lambda value=worker: self._discard_autocomplete(value))
+        worker.start()
+
+    def _discard_autocomplete(self, worker: ReviewAutocompleteWorker) -> None:
+        if worker in self.autocomplete_workers:
+            self.autocomplete_workers.remove(worker)
+        worker.deleteLater()
 
     def _count_finished(self, results: list, errors: list) -> None:
         self.review_page.set_running(False)
@@ -504,6 +529,14 @@ class MainWindow(QMainWindow):
         self.taxonomy_worker = TaxonomySaveWorker(self.taxonomy_repository, document)
         self.taxonomy_worker.completed.connect(self._taxonomy_saved)
         self.taxonomy_worker.start()
+
+    def _review_organization_tags(self, tags: tuple[str, ...]) -> None:
+        self.review_page.queries.setPlainText("\n".join(tags))
+        board = str(self.organization_page.board.currentData())
+        index = self.review_page.site.findData((board,))
+        if index >= 0: self.review_page.site.setCurrentIndex(index)
+        self.navigate_to(1)
+        self.log(self.catalog.text("organization.sent_review", count=len(tags)))
 
     def _taxonomy_saved(self, backup: str, error: str) -> None:
         self.organization_page.set_busy(False)

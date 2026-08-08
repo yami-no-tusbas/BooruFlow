@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QSize, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
+from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
     QListWidget, QListWidgetItem, QProgressBar, QPushButton, QSpinBox,
@@ -64,7 +65,9 @@ class TaggingPage(QWidget):
         layout.addWidget(self.state)
         self.results = QListWidget()
         self.results.setAlternatingRowColors(True)
+        self.results.setIconSize(QSize(120, 120))
         self.results.itemActivated.connect(self._open_item)
+        self.network = QNetworkAccessManager(self)
         layout.addWidget(self.results, 1)
         self.start_button.clicked.connect(self._start)
         self.stop_button.clicked.connect(self.stop_requested.emit)
@@ -109,6 +112,22 @@ class TaggingPage(QWidget):
             )
             item.setData(256, post_id)
             self.results.addItem(item)
+            preview = str(post.get("preview_url") or "")
+            if preview:
+                request = QNetworkRequest(QUrl(preview))
+                request.setRawHeader(b"User-Agent", b"BooruFlow/0.1")
+                request.setRawHeader(b"Referer", b"https://gelbooru.com/")
+                reply = self.network.get(request)
+                reply.finished.connect(lambda current=reply, target=item: self._thumbnail_ready(current, target))
+
+    def _thumbnail_ready(self, reply: QNetworkReply, item: QListWidgetItem) -> None:
+        try:
+            if reply.error() == QNetworkReply.NetworkError.NoError:
+                pixmap = QPixmap()
+                if pixmap.loadFromData(bytes(reply.readAll())):
+                    item.setIcon(QIcon(pixmap))
+        finally:
+            reply.deleteLater()
 
     def _open_item(self, item: QListWidgetItem) -> None:
         QDesktopServices.openUrl(QUrl(

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
-    QComboBox, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
+    QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
     QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
     QVBoxLayout, QWidget,
 )
@@ -21,6 +23,7 @@ ROLE_KIND = Qt.ItemDataRole.UserRole + 2
 class OrganizationPage(QWidget):
     save_requested = Signal(object)
     update_requested = Signal()
+    review_tags_requested = Signal(tuple)
 
     def __init__(self, catalog: LanguageCatalog, document: dict) -> None:
         super().__init__(); self.catalog = catalog; self.document = document
@@ -35,12 +38,13 @@ class OrganizationPage(QWidget):
         layout.addLayout(top)
         splitter = QSplitter()
         self.tree = QTreeWidget(); self.tree.setHeaderHidden(True)
-        self.results = QListWidget(); splitter.addWidget(self.tree); splitter.addWidget(self.results)
+        self.results = QListWidget(); self.results.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection); splitter.addWidget(self.tree); splitter.addWidget(self.results)
         splitter.setStretchFactor(0, 3); splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter, 1)
         actions = QHBoxLayout()
-        self.add_category = QPushButton(); self.add_tags = QPushButton(); self.rename = QPushButton(); self.delete = QPushButton(); self.save = QPushButton()
-        for button in (self.add_category, self.add_tags, self.rename, self.delete): actions.addWidget(button)
+        self.add_category = QPushButton(); self.add_tags = QPushButton(); self.import_tree = QPushButton(); self.rename = QPushButton(); self.delete = QPushButton(); self.send_review = QPushButton(); self.save = QPushButton()
+        for button in (self.add_category, self.add_tags, self.import_tree, self.rename, self.delete): actions.addWidget(button)
+        actions.addWidget(self.send_review)
         actions.addStretch(1); actions.addWidget(self.save); layout.addLayout(actions)
         self.state = QLabel(); self.state.setWordWrap(True); self.state.setContentsMargins(2, 6, 2, 6); layout.addWidget(self.state)
         self.board.currentIndexChanged.connect(self.reload)
@@ -49,8 +53,10 @@ class OrganizationPage(QWidget):
         self.results.itemActivated.connect(self._open_result)
         self.add_category.clicked.connect(self._add_category)
         self.add_tags.clicked.connect(self._add_tags)
+        self.import_tree.clicked.connect(self._import_tree)
         self.rename.clicked.connect(self._rename)
         self.delete.clicked.connect(self._delete)
+        self.send_review.clicked.connect(self._send_to_review)
         self.save.clicked.connect(lambda: self.save_requested.emit(self.document))
         self.update_button.clicked.connect(self.update_requested.emit)
         self.reload(); self.retranslate()
@@ -102,6 +108,39 @@ class OrganizationPage(QWidget):
                 if tag.strip() and tag.strip() not in tags: tags.append(tag.strip())
             self.reload()
 
+    def _import_tree(self) -> None:
+        path, _ = QFileDialog.getOpenFileName(self, self.catalog.text("organization.import"), "", "Text (*.txt *.md);;All files (*)")
+        if not path: return
+        try:
+            from legacy.wiki_tag_importer import parse_pasted_tag_list
+            incoming = parse_pasted_tag_list(Path(path).read_text(encoding="utf-8-sig", errors="replace"))
+            target, _ = self._selected_container()
+            self._merge(target, incoming)
+            self.reload(); self.state.setText(self.catalog.text("organization.imported", path=path))
+        except (OSError, ValueError, TypeError) as exc:
+            self.state.setText(self.catalog.text("organization.failed", error=exc))
+
+    @classmethod
+    def _merge(cls, target: dict, incoming: dict) -> None:
+        for key, value in incoming.items():
+            if key in target and isinstance(target[key], dict) and isinstance(value, dict):
+                cls._merge(target[key], value)
+            elif key not in target:
+                target[key] = value
+
+    def _send_to_review(self) -> None:
+        tags: list[str] = []
+        for item in self.results.selectedItems():
+            tag = item.text().split("  —  ", 1)[0].strip()
+            if tag and tag not in tags: tags.append(tag)
+        if not tags:
+            current = self.tree.currentItem()
+            if current:
+                node = current.data(0, ROLE_NODE)
+                tags = list(dict.fromkeys(tag for tag, _path in iter_tag_paths(node)))
+                if current.data(0, ROLE_KIND) == "tag": tags = [current.text(0)]
+        if tags: self.review_tags_requested.emit(tuple(tags))
+
     def _parent_and_key(self, path: tuple[str, ...]):
         node = self._board_root()
         for key in path[:-1]: node = node[key]
@@ -150,5 +189,5 @@ class OrganizationPage(QWidget):
         self.save.setEnabled(not busy); self.update_button.setEnabled(not busy)
 
     def retranslate(self) -> None:
-        text = self.catalog.text; self.title.setText(text("nav.organization")); self.board_label.setText(text("organization.board")); self.search.setPlaceholderText(text("organization.search")); self.search_button.setText(text("organization.search_button")); self.update_button.setText(text("organization.update")); self.add_category.setText(text("organization.add_category")); self.add_tags.setText(text("organization.add_tags")); self.rename.setText(text("organization.rename")); self.delete.setText(text("organization.delete")); self.save.setText(text("organization.save"))
+        text = self.catalog.text; self.title.setText(text("nav.organization")); self.board_label.setText(text("organization.board")); self.search.setPlaceholderText(text("organization.search")); self.search_button.setText(text("organization.search_button")); self.update_button.setText(text("organization.update")); self.add_category.setText(text("organization.add_category")); self.add_tags.setText(text("organization.add_tags")); self.import_tree.setText(text("organization.import")); self.rename.setText(text("organization.rename")); self.delete.setText(text("organization.delete")); self.send_review.setText(text("organization.send_review")); self.save.setText(text("organization.save"))
         if not self.state.text(): self.state.setText(text("organization.ready"))

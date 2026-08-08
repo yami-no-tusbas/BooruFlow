@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import math
+import re
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -14,6 +15,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QListWidget,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -30,6 +32,7 @@ class ReviewPage(QWidget):
     start_requested = Signal(object)
     stop_requested = Signal()
     count_requested = Signal(tuple)
+    autocomplete_requested = Signal(str)
 
     def __init__(
         self,
@@ -72,6 +75,16 @@ class ReviewPage(QWidget):
         self.queries.setMaximumHeight(105)
         self.queries.setPlaceholderText("rating:general\nblue_hair solo")
         search_layout.addWidget(self.queries)
+        self.suggestions = QListWidget()
+        self.suggestions.setMaximumHeight(105)
+        self.suggestions.hide()
+        search_layout.addWidget(self.suggestions)
+        self.autocomplete_timer = QTimer(self)
+        self.autocomplete_timer.setSingleShot(True)
+        self.autocomplete_timer.setInterval(180)
+        self.queries.textChanged.connect(lambda: self.autocomplete_timer.start())
+        self.autocomplete_timer.timeout.connect(self._request_autocomplete)
+        self.suggestions.itemActivated.connect(self._accept_suggestion)
         layout.addWidget(self.search_group)
 
         self.criteria_group = QGroupBox()
@@ -141,6 +154,37 @@ class ReviewPage(QWidget):
                 seen.add(value)
                 values.append(value)
         return tuple(values)
+
+    def _current_token(self) -> str:
+        cursor = self.queries.textCursor()
+        match = re.search(r"([^\s;]+)$", self.queries.toPlainText()[:cursor.position()])
+        return "" if match is None else match.group(1)
+
+    def _request_autocomplete(self) -> None:
+        token = self._current_token()
+        if len(token.lstrip("-")) < 3 or ":" in token:
+            self.suggestions.hide(); return
+        self.autocomplete_requested.emit(token)
+
+    def show_suggestions(self, token: str, ranked: list) -> None:
+        if token != self._current_token() or not ranked:
+            self.suggestions.hide(); return
+        self.suggestions.clear()
+        for name, data in ranked:
+            prefix = "-" if token.startswith("-") else ""
+            self.suggestions.addItem(
+                f"{prefix}{name} ({int(data['count']):,}) · {' + '.join(data['sites'])}"
+            )
+            self.suggestions.item(self.suggestions.count() - 1).setData(256, prefix + name)
+        self.suggestions.show()
+
+    def _accept_suggestion(self, item) -> None:
+        cursor = self.queries.textCursor(); position = cursor.position(); text = self.queries.toPlainText()
+        token = self._current_token(); start = position - len(token)
+        replacement = str(item.data(256))
+        self.queries.setPlainText(text[:start] + replacement + text[position:])
+        cursor = self.queries.textCursor(); cursor.setPosition(start + len(replacement)); self.queries.setTextCursor(cursor)
+        self.suggestions.hide(); self.queries.setFocus()
 
     def build_request(self) -> ReviewRequest:
         sites = tuple(self.site.currentData())

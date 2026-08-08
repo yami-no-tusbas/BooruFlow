@@ -41,7 +41,7 @@ class OrganizationPage(QWidget):
     save_requested = Signal(object)
     update_requested = Signal()
     review_tags_requested = Signal(tuple)
-    tag_details_requested = Signal(str, str)
+    tag_details_requested = Signal(str, str, str)
 
     def __init__(self, catalog: LanguageCatalog, document: dict) -> None:
         super().__init__(); self.catalog = catalog; self.document = document
@@ -77,7 +77,7 @@ class OrganizationPage(QWidget):
         actions.addWidget(self.send_review)
         actions.addStretch(1); actions.addWidget(self.save); layout.addLayout(actions)
         self.state = QLabel(); self.state.setWordWrap(True); self.state.setContentsMargins(2, 6, 2, 6); layout.addWidget(self.state)
-        self.board.currentIndexChanged.connect(self.reload)
+        self.board.currentIndexChanged.connect(lambda _index: self.reload(False))
         self.tree.itemExpanded.connect(self._populate)
         self.tree.itemChanged.connect(self._tree_checked)
         self.tree.currentItemChanged.connect(self._inspect_item)
@@ -94,21 +94,41 @@ class OrganizationPage(QWidget):
         self.send_review.clicked.connect(self._send_to_review)
         self.save.clicked.connect(lambda: self.save_requested.emit(self.document))
         self.update_button.clicked.connect(self.update_requested.emit)
-        self.reload(); self.retranslate()
+        self.reload(False); self.retranslate()
 
     def _board_root(self) -> dict:
         return self.document.setdefault("boards", {}).setdefault(str(self.board.currentData()), {})
 
-    def reload(self) -> None:
+    def _tree_state(self) -> tuple[set[tuple[str, ...]], tuple[str, ...]]:
+        expanded: set[tuple[str, ...]] = set()
+        iterator = QTreeWidgetItemIterator(self.tree)
+        while iterator.value():
+            item = iterator.value()
+            if item.isExpanded(): expanded.add(tuple(item.data(0, ROLE_PATH) or ()))
+            iterator += 1
+        current = self.tree.currentItem()
+        return expanded, tuple(current.data(0, ROLE_PATH) or ()) if current else ()
+
+    def reload(self, preserve_state: bool = True) -> None:
+        expanded, selected = self._tree_state() if preserve_state else (set(), ())
         self.tree.clear()
         for key, node in sorted(self._board_root().items(), key=lambda item: item[0].casefold()):
             self._add_item(self.tree.invisibleRootItem(), str(key), node, (str(key),), "category")
+        self._restore_tree_state(expanded, selected)
+
+    def _restore_tree_state(self, expanded: set[tuple[str, ...]], selected: tuple[str, ...]) -> None:
+        for path in sorted(expanded, key=len):
+            item = self._select_path(path, select=False)
+            if item is not None: self.tree.expandItem(item)
+        if selected: self._select_path(selected)
 
     def _add_item(self, parent: QTreeWidgetItem, label: str, node, path: tuple[str, ...], kind: str) -> None:
         empty_legacy_tag = kind == "tag" and isinstance(node, dict) and not node
         display = label + (" *" if empty_legacy_tag else "")
         item = QTreeWidgetItem(parent, [display]); item.setData(0, ROLE_NODE, node); item.setData(0, ROLE_PATH, path); item.setData(0, ROLE_KIND, kind)
-        tag = label if kind == "tag" else str(node.get("__tag__", "")) if isinstance(node, dict) else ""
+        metadata = self.document.get("metadata", {}).get(str(self.board.currentData()), {}).get(label, {})
+        has_wiki = isinstance(metadata, dict) and bool(metadata.get("wiki_url"))
+        tag = label if kind == "tag" or has_wiki else str(node.get("__tag__", "")) if isinstance(node, dict) else ""
         item.setData(0, ROLE_TAG, tag)
         if empty_legacy_tag: item.setToolTip(0, self.catalog.text("organization.empty_entry"))
         item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
@@ -147,7 +167,11 @@ class OrganizationPage(QWidget):
         self.details_title.setText(tag)
         self.definition.setPlainText(self.catalog.text("organization.details_loading"))
         self.wiki_button.hide(); self._clear_recurring(); self._clear_samples()
-        self.tag_details_requested.emit(str(self.board.currentData()), tag)
+        self.tag_details_requested.emit(str(self.board.currentData()), tag, self._wiki_url(tag))
+
+    def _wiki_url(self, tag: str) -> str:
+        value = self.document.get("metadata", {}).get(str(self.board.currentData()), {}).get(tag, {})
+        return str(value.get("wiki_url", "")) if isinstance(value, dict) else ""
 
     def _tree_checked(self, item: QTreeWidgetItem, _column: int) -> None:
         state = item.checkState(0)
@@ -210,11 +234,40 @@ class OrganizationPage(QWidget):
         if item is None: return
         self.tree.setCurrentItem(item)
         menu = QMenu(self)
+        add_category = menu.addAction(self.catalog.text("organization.add_child_category"))
         add_children = menu.addAction(self.catalog.text("organization.add_child_tags"))
+        wiki = menu.addAction(self.catalog.text("organization.set_wiki"))
+        menu.addSeparator()
+        rename = menu.addAction(self.catalog.text("organization.rename"))
+        delete = menu.addAction(self.catalog.text("organization.delete"))
         selected = menu.exec(self.tree.viewport().mapToGlobal(position))
-        if selected is add_children: self._add_tags_to_item(item)
+        if selected is add_category: self._add_category()
+        elif selected is add_children: self._add_tags_to_item(item)
+        elif selected is wiki: self._set_wiki(item)
+        elif selected is rename: self._rename()
+        elif selected is delete: self._delete()
 
-    def _select_path(self, path: tuple[str, ...]) -> QTreeWidgetItem | None:
+    def _set_wiki(self, item: QTreeWidgetItem) -> None:
+        tag = str(item.data(0, ROLE_TAG) or tuple(item.data(0, ROLE_PATH))[-1])
+        current = self._wiki_url(tag)
+        value, ok = QInputDialog.getText(
+            self, self.catalog.text("organization.set_wiki"),
+            self.catalog.text("organization.wiki_prompt"), text=current,
+        )
+        if not ok: return
+        value = value.strip(); board = str(self.board.currentData())
+        if value.isdigit():
+            value = f"https://e621.net/wiki_pages/{value}" if board == "e621" else f"https://gelbooru.com/index.php?page=wiki&s=view&id={value}"
+        metadata = self.document.setdefault("metadata", {}).setdefault(board, {})
+        entry = metadata.setdefault(tag, {})
+        if value: entry["wiki_url"] = value
+        else:
+            entry.pop("wiki_url", None)
+            if not entry: metadata.pop(tag, None)
+        path = tuple(item.data(0, ROLE_PATH)); self.reload(); self._select_path(path)
+        self.state.setText(self.catalog.text("organization.wiki_set") if value else self.catalog.text("organization.wiki_removed"))
+
+    def _select_path(self, path: tuple[str, ...], select: bool = True) -> QTreeWidgetItem | None:
         current = self.tree.invisibleRootItem()
         for key in path:
             self.tree.expandItem(current)
@@ -225,7 +278,7 @@ class OrganizationPage(QWidget):
             ), None)
             if found is None: return None
             self._populate(found); self.tree.expandItem(found); current = found
-        if current is not self.tree.invisibleRootItem(): self.tree.setCurrentItem(current)
+        if select and current is not self.tree.invisibleRootItem(): self.tree.setCurrentItem(current)
         return current
 
     def _import_tree(self) -> None:
@@ -279,16 +332,40 @@ class OrganizationPage(QWidget):
 
     def _rename(self) -> None:
         item = self.tree.currentItem()
-        if not item or item.data(0, ROLE_KIND) != "category": return
-        path = tuple(item.data(0, ROLE_PATH)); parent, key = self._parent_and_key(path)
+        if not item: return
+        path = tuple(item.data(0, ROLE_PATH)); stored = item.data(0, ROLE_NODE)
+        expanded, _selected = self._tree_state()
+        key = str(item.data(0, ROLE_TAG) or path[-1])
         value, ok = QInputDialog.getText(self, self.catalog.text("organization.rename"), self.catalog.text("organization.name"), text=key)
-        if ok and value.strip() and value.strip() != key: parent[value.strip()] = parent.pop(key); self.reload()
+        new = value.strip()
+        if not ok or not new or new == key: return
+        if isinstance(stored, dict):
+            parent, path_key = self._parent_and_key(path)
+            if new in parent: return
+            parent[new] = parent.pop(path_key)
+            if stored.get("__tag__") == key: stored["__tag__"] = new
+            selected_path = path[:-1] + (new,)
+        else:
+            parent = self._board_root()
+            for path_key in path: parent = parent[path_key]
+            tags = parent.get("__tags__", [])
+            if new in tags: return
+            if key in tags: tags[tags.index(key)] = new
+            selected_path = path
+        board_metadata = self.document.setdefault("metadata", {}).setdefault(str(self.board.currentData()), {})
+        if key in board_metadata: board_metadata[new] = board_metadata.pop(key)
+        rewritten = {
+            selected_path + expanded_path[len(path):] if expanded_path[:len(path)] == path else expanded_path
+            for expanded_path in expanded
+        }
+        self.reload(False); self._restore_tree_state(rewritten, selected_path)
 
     def _delete(self) -> None:
         item = self.tree.currentItem()
         if not item: return
         if QMessageBox.question(self, self.catalog.text("organization.delete"), self.catalog.text("organization.confirm_delete", name=item.text(0))) != QMessageBox.StandardButton.Yes: return
         path = tuple(item.data(0, ROLE_PATH)); kind = item.data(0, ROLE_KIND)
+        parent_path = path[:-1] if isinstance(item.data(0, ROLE_NODE), dict) else path
         if kind == "category": parent, key = self._parent_and_key(path); parent.pop(key, None)
         else:
             stored = item.data(0, ROLE_NODE)
@@ -299,7 +376,7 @@ class OrganizationPage(QWidget):
                 node = self._board_root()
                 for key in path: node = node[key]
                 if tag in node.get("__tags__", []): node["__tags__"].remove(tag)
-        self.reload()
+        self.reload(); self._select_path(parent_path)
 
     def _search(self) -> None:
         needle = self.search.text().strip().casefold(); self.results.clear()
@@ -349,7 +426,7 @@ class OrganizationPage(QWidget):
         self.details_title.setText(tag)
         self.definition.setPlainText(self.catalog.text("organization.details_loading"))
         self.wiki_button.hide(); self._clear_recurring(); self._clear_samples()
-        self.tag_details_requested.emit(str(self.board.currentData()), tag)
+        self.tag_details_requested.emit(str(self.board.currentData()), tag, self._wiki_url(tag))
 
     def set_busy(self, busy: bool) -> None:
         self.save.setEnabled(not busy); self.update_button.setEnabled(not busy)

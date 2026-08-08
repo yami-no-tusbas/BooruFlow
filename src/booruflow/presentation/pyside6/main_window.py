@@ -630,7 +630,7 @@ class MainWindow(QMainWindow):
         self.navigate_to(1)
         self.log(self.catalog.text("organization.sent_review", count=len(tags)))
 
-    def _load_tag_details(self, board: str, tag: str) -> None:
+    def _load_tag_details(self, board: str, tag: str, wiki_url: str = "") -> None:
         self.tag_details_generation += 1
         gel = self._credentials().get("gelbooru", {})
         settings = self.settings_repository.load() if self.settings_repository else {}
@@ -643,6 +643,7 @@ class MainWindow(QMainWindow):
             str(gel.get("user_id", "")) if isinstance(gel, dict) else "",
             str(gel.get("api_key", "")) if isinstance(gel, dict) else "",
             Path(database_value) if database_value else None,
+            wiki_url,
         )
         self.tag_details_workers.append(worker)
         worker.completed.connect(self._tag_details_ready)

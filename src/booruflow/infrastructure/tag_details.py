@@ -152,7 +152,7 @@ def _e621_samples(tag: str) -> dict:
 
 def fetch_tag_details(
     board: str, tag: str, cache_path: Path, user_id: str = "", api_key: str = "",
-    tag_database_path: Path | None = None,
+    tag_database_path: Path | None = None, wiki_url: str = "",
 ) -> dict:
     cache = TagDetailsCache(cache_path)
     cached = cache.load(board, tag)
@@ -160,8 +160,8 @@ def fetch_tag_details(
     errors: list[str] = []
     online = False
     try:
-        definition, wiki_url, wiki_tags = tag_definition_details(board, tag)
-        details.update({"definition": definition, "wiki_url": wiki_url, "wiki_tags": wiki_tags})
+        definition, resolved_wiki_url, wiki_tags = tag_definition_details(board, tag, wiki_url)
+        details.update({"definition": definition, "wiki_url": resolved_wiki_url, "wiki_tags": wiki_tags})
         online = True
     except Exception as exc:
         errors.append(str(exc))

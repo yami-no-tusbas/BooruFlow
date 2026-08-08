@@ -98,6 +98,66 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertEqual(node["wound"]["__tag__"], "wound")
         page.close()
 
+    def test_reload_preserves_expanded_branches_and_parent_selection_after_delete(self) -> None:
+        from PySide6.QtWidgets import QMessageBox
+        from booruflow.presentation.pyside6.organization_page import OrganizationPage
+
+        document = {"boards": {"gelbooru": {"A": {"B": {"leaf": {}}}}}}
+        page = OrganizationPage(self.catalog(), document)
+        branch_a = page.tree.topLevelItem(0); page._populate(branch_a); branch_a.setExpanded(True)
+        branch_b = branch_a.child(0); page._populate(branch_b); branch_b.setExpanded(True)
+        page.tree.setCurrentItem(branch_b.child(0))
+        with patch(
+            "booruflow.presentation.pyside6.organization_page.QMessageBox.question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ):
+            page._delete()
+        restored_a = page.tree.topLevelItem(0); restored_b = restored_a.child(0)
+        self.assertTrue(restored_a.isExpanded())
+        self.assertTrue(restored_b.isExpanded())
+        self.assertEqual(page.tree.currentItem().text(0).removesuffix(" *"), "B")
+        page.close()
+
+    def test_rename_preserves_expansion_under_the_renamed_branch(self) -> None:
+        from booruflow.presentation.pyside6.organization_page import OrganizationPage
+
+        document = {"boards": {"gelbooru": {"A": {"B": {"C": {"leaf": {}}}}}}}
+        page = OrganizationPage(self.catalog(), document)
+        branch_a = page.tree.topLevelItem(0); page._populate(branch_a); branch_a.setExpanded(True)
+        branch_b = branch_a.child(0); page._populate(branch_b); branch_b.setExpanded(True)
+        page.tree.setCurrentItem(branch_b)
+        with patch(
+            "booruflow.presentation.pyside6.organization_page.QInputDialog.getText",
+            return_value=("Renamed", True),
+        ):
+            page._rename()
+        restored_a = page.tree.topLevelItem(0); restored = restored_a.child(0)
+        self.assertEqual(restored.text(0), "Renamed")
+        self.assertTrue(restored_a.isExpanded())
+        self.assertTrue(restored.isExpanded())
+        page.close()
+
+    def test_numeric_wiki_id_is_attached_to_any_node_and_used_for_details(self) -> None:
+        from booruflow.presentation.pyside6.organization_page import OrganizationPage
+
+        document = {"boards": {"gelbooru": {"Characters": {"List_of_Azur_Lane_characters": {"Azur_Lane": {}}}}}}
+        page = OrganizationPage(self.catalog(), document)
+        characters = page.tree.topLevelItem(0); page._populate(characters)
+        node = characters.child(0)
+        with patch(
+            "booruflow.presentation.pyside6.organization_page.QInputDialog.getText",
+            return_value=("26107", True),
+        ):
+            page._set_wiki(node)
+        expected = "https://gelbooru.com/index.php?page=wiki&s=view&id=26107"
+        self.assertEqual(document["metadata"]["gelbooru"]["List_of_Azur_Lane_characters"]["wiki_url"], expected)
+        captured = []
+        page.tag_details_requested.connect(lambda *values: captured.append(values))
+        restored = page._select_path(("Characters", "List_of_Azur_Lane_characters"))
+        page._inspect_item(restored)
+        self.assertEqual(captured[-1], ("gelbooru", "List_of_Azur_Lane_characters", expected))
+        page.close()
+
     def test_recurring_tags_can_be_checked_for_review_and_opened(self) -> None:
         from PySide6.QtCore import Qt, QUrl
         from booruflow.presentation.pyside6.organization_page import OrganizationPage

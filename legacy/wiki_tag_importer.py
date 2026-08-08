@@ -331,7 +331,7 @@ class _GelbooruWikiParser(HTMLParser):
                 self.line_has_bold = True
         if self.current_href and "page=wiki" in self.current_href and "search=" in self.current_href:
             query = urllib.parse.parse_qs(urllib.parse.urlparse(self.current_href).query)
-            candidate = query.get("search", [""])[0].strip()
+            candidate = query.get("search", [""])[0].split("|", 1)[0].strip()
             if candidate and candidate.casefold() not in {"tag_groups"}:
                 self.links.append(candidate)
                 self.line_links.append(candidate)
@@ -1095,9 +1095,10 @@ def merge_catalogues(document: dict, imported: dict) -> dict[str, int]:
     }
 
 
-def tag_definition_details(board: str, tag: str) -> tuple[str, str, list[str]]:
+def tag_definition_details(board: str, tag: str, wiki_url: str = "") -> tuple[str, str, list[str]]:
     if board == "e621":
-        page = _e621_page(tag)
+        page_id = re.search(r"/wiki_pages/(\d+)", wiki_url)
+        page = json.loads(_get(f"https://e621.net/wiki_pages/{page_id.group(1)}.json")) if page_id else _e621_page(tag)
         raw_body = str(page.get("body", ""))
         referenced_tags = list(dict.fromkeys(_wiki_links(raw_body)))
         body = raw_body
@@ -1122,7 +1123,7 @@ def tag_definition_details(board: str, tag: str) -> tuple[str, str, list[str]]:
         if relation_lines:
             body = f"{body}\n\n" + "\n".join(relation_lines)
         return body[:6000], f"https://e621.net/wiki_pages/{page['id']}", referenced_tags
-    url = "https://gelbooru.com/index.php?" + urllib.parse.urlencode(
+    url = wiki_url or "https://gelbooru.com/index.php?" + urllib.parse.urlencode(
         {"page": "wiki", "s": "list", "search": tag}
     )
     source = _get(url)

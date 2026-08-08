@@ -43,17 +43,17 @@ class TagDetailsWorker(QThread):
 
     def __init__(
         self, generation: int, board: str, tag: str, cache_path,
-        user_id: str = "", api_key: str = "", tag_database_path=None,
+        user_id: str = "", api_key: str = "", tag_database_path=None, wiki_url: str = "",
     ) -> None:
         super().__init__()
         self.generation = generation; self.board = board; self.tag = tag
-        self.cache_path = cache_path; self.user_id = user_id; self.api_key = api_key; self.tag_database_path = tag_database_path
+        self.cache_path = cache_path; self.user_id = user_id; self.api_key = api_key; self.tag_database_path = tag_database_path; self.wiki_url = wiki_url
 
     def run(self) -> None:
         from booruflow.infrastructure.tag_details import fetch_tag_details
 
         details = fetch_tag_details(
             self.board, self.tag, self.cache_path, self.user_id, self.api_key,
-            self.tag_database_path,
+            self.tag_database_path, self.wiki_url,
         )
         self.completed.emit(self.generation, details)

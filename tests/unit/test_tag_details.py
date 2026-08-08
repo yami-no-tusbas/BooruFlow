@@ -15,7 +15,7 @@ class TagDetailsTests(unittest.TestCase):
 
     def test_online_empty_wiki_and_samples_are_reported(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            with patch("booruflow.infrastructure.tag_details.tag_definition_details", return_value=("", "https://wiki", ["related_tag"])), patch(
+            with patch("booruflow.infrastructure.tag_details.tag_definition_details", return_value=("", "https://wiki", ["related_tag"])) as wiki, patch(
                 "booruflow.infrastructure.tag_details._gelbooru_samples",
                 return_value={
                     "samples": [{"id": 1, "preview_url": "preview", "post_url": "post"}],
@@ -24,13 +24,15 @@ class TagDetailsTests(unittest.TestCase):
                 },
             ):
                 details = fetch_tag_details(
-                    "gelbooru", "Abukuma_(Azur_Lane)", Path(directory) / "cache.json"
+                    "gelbooru", "Abukuma_(Azur_Lane)", Path(directory) / "cache.json",
+                    wiki_url="https://wiki/26107",
                 )
             self.assertTrue(details["online"])
             self.assertEqual(details["definition"], "")
             self.assertEqual(details["samples"][0]["id"], 1)
             self.assertEqual(details["recurring"], [{"tag": "solo", "count": 1}])
             self.assertEqual(details["wiki_tags"], ["related_tag"])
+            wiki.assert_called_once_with("gelbooru", "Abukuma_(Azur_Lane)", "https://wiki/26107")
 
     def test_recurring_tags_exclude_current_and_count_once_per_post(self) -> None:
         posts = [

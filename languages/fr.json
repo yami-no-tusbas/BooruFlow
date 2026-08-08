@@ -1,0 +1,60 @@
+{
+  "_meta": {"name": "Français", "translator": "Intégré"},
+  "app.title": "Artist by Tag — artistes, copyrights, personnages et espèces",
+  "tab.review": "Revue par catégorie",
+  "tab.cleanup": "Nettoyage rétroactif",
+  "tab.organizer": "Organisation des tags",
+  "tab.tagging": "Tagging",
+  "tab.options": "Options",
+  "options.language": "Langue de l’interface",
+  "options.language_help": "Les fichiers de langue sont détectés automatiquement dans le dossier languages au démarrage.",
+  "options.credentials": "Identifiants des sites",
+  "options.site": "Site :",
+  "options.user_id": "User ID :",
+  "options.api_key": "Clé API :",
+  "options.api_hidden": "La clé API est masquée et les identifiants ne sont jamais écrits dans les journaux.",
+  "options.save_credentials": "Enregistrer les identifiants",
+  "options.locations": "Emplacements et bases locales",
+  "options.database_log": "Journal de mise à jour des bases de tags",
+  "options.update": "Mettre à jour",
+  "options.change": "Changer…",
+  "options.no_update_selected": "Aucun site sélectionné pour la mise à jour des bases.",
+  "cleanup.title": "Auditer les téléchargements avec la blacklist Grabber",
+  "cleanup.help": "Un dossier par ligne. Vous pouvez aussi glisser-déposer un ou plusieurs dossiers ici.",
+  "cleanup.add": "Ajouter un dossier…",
+  "cleanup.clear": "Vider la liste",
+  "cleanup.scan": "Analyser (lecture seule)",
+  "cleanup.recycle": "Envoyer les correspondances à la Corbeille",
+  "cleanup.empty": "Aucun dossier sélectionné. Ajoutez ou déposez au moins un dossier.",
+  "cleanup.drop_ready": "Glisser-déposer actif : déposez les dossiers dans la liste.",
+  "cleanup.drop_unavailable": "Le glisser-déposer natif n’a pas pu être activé ; le bouton Ajouter un dossier reste disponible.",
+  "review.load_txt": "Choisir une liste TXT…"
+  ,"review.step_search": "1 — Générer la liste à examiner"
+  ,"review.sites": "Sites recherchés :"
+  ,"review.mode": "Mode :"
+  ,"review.query_help": "Une recherche par ligne (ou séparées par « ; ») :"
+  ,"review.pages": "Pages à explorer"
+  ,"review.first_page": "Première page"
+  ,"review.results_min": "Nombre de résultats min."
+  ,"review.results_max": "Nombre de résultats max."
+  ,"review.match": "Correspondance des résultats :"
+  ,"review.auto_continue": "Continuer automatiquement si aucune entrée ne correspond"
+  ,"review.remember": "Mémoriser les recherches terminées"
+  ,"review.stop_after": "Arrêter après ce bloc"
+  ,"review.launch": "Lancer la recherche"
+  ,"review.count": "Compter"
+  ,"review.step_batches": "2 — Paramètres et génération de lots d’onglets"
+  ,"review.before": "Ajouter avant la recherche :"
+  ,"review.after": "Ajouter après la recherche :"
+  ,"review.tabs_per_batch": "Onglets par lot :"
+  ,"review.images_per_tab": "Images par onglet :"
+  ,"review.create_batches": "Créer les lots depuis les derniers résultats"
+  ,"review.step_control": "3 — Traiter les lots"
+  ,"review.resume": "Reprendre la session"
+  ,"review.previous": "Lot précédent"
+  ,"review.launch_grabber": "Lancer Grabber"
+  ,"review.log": "Journal"
+  ,"review.clear_log": "Effacer les logs"
+  ,"review.percent_example": "Exemple : avec {total} résultats au total, {percentage} % demande au moins {required} résultat(s) correspondant à la recherche.",
+  "_literals": {}
+}

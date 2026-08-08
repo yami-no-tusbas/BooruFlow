@@ -36,3 +36,23 @@ class WikiImportWorker(QThread):
             self.completed.emit(preview, summary, "")
         except Exception as exc:
             self.completed.emit({}, {}, str(exc))
+
+
+class TagDetailsWorker(QThread):
+    completed = Signal(int, object)
+
+    def __init__(
+        self, generation: int, board: str, tag: str, cache_path,
+        user_id: str = "", api_key: str = "",
+    ) -> None:
+        super().__init__()
+        self.generation = generation; self.board = board; self.tag = tag
+        self.cache_path = cache_path; self.user_id = user_id; self.api_key = api_key
+
+    def run(self) -> None:
+        from booruflow.infrastructure.tag_details import fetch_tag_details
+
+        details = fetch_tag_details(
+            self.board, self.tag, self.cache_path, self.user_id, self.api_key
+        )
+        self.completed.emit(self.generation, details)

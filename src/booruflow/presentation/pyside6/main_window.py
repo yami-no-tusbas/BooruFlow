@@ -34,7 +34,9 @@ from booruflow.presentation.pyside6.icons import navigation_icon
 from booruflow.presentation.pyside6.cleanup_controller import CleanupRecycleWorker, CleanupScanWorker
 from booruflow.presentation.pyside6.cleanup_page import CleanupPage
 from booruflow.presentation.pyside6.grabber_page import GrabberPage
-from booruflow.presentation.pyside6.organization_controller import TaxonomySaveWorker, WikiImportWorker
+from booruflow.presentation.pyside6.organization_controller import (
+    TagDetailsWorker, TaxonomySaveWorker, WikiImportWorker,
+)
 from booruflow.presentation.pyside6.organization_page import OrganizationPage
 from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.pages import DashboardPage
@@ -83,6 +85,8 @@ class MainWindow(QMainWindow):
             self.project_root / "data" / "databases",
         )
         self.taxonomy_worker: TaxonomySaveWorker | WikiImportWorker | None = None
+        self.tag_details_generation = 0
+        self.tag_details_workers: list[TagDetailsWorker] = []
         self.database_process = QProcess(self)
         self.database_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.database_process.readyReadStandardOutput.connect(self._database_output)
@@ -127,6 +131,7 @@ class MainWindow(QMainWindow):
         self.organization_page.save_requested.connect(self._save_taxonomy)
         self.organization_page.update_requested.connect(self._update_taxonomy)
         self.organization_page.review_tags_requested.connect(self._review_organization_tags)
+        self.organization_page.tag_details_requested.connect(self._load_tag_details)
         self.pages.addWidget(self.organization_page)
         self.cleanup_page = CleanupPage(catalog)
         self.cleanup_page.scan_requested.connect(self._start_cleanup)
@@ -624,6 +629,37 @@ class MainWindow(QMainWindow):
         if index >= 0: self.review_page.site.setCurrentIndex(index)
         self.navigate_to(1)
         self.log(self.catalog.text("organization.sent_review", count=len(tags)))
+
+    def _load_tag_details(self, board: str, tag: str) -> None:
+        self.tag_details_generation += 1
+        gel = self._credentials().get("gelbooru", {})
+        worker = TagDetailsWorker(
+            self.tag_details_generation,
+            board,
+            tag,
+            self.project_root / "var" / "cache" / "tag_details.json",
+            str(gel.get("user_id", "")) if isinstance(gel, dict) else "",
+            str(gel.get("api_key", "")) if isinstance(gel, dict) else "",
+        )
+        self.tag_details_workers.append(worker)
+        worker.completed.connect(self._tag_details_ready)
+        worker.finished.connect(lambda value=worker: self._discard_tag_details_worker(value))
+        worker.start()
+
+    def _tag_details_ready(self, generation: int, details: dict) -> None:
+        if generation != self.tag_details_generation:
+            return
+        self.organization_page.show_tag_details(details)
+        errors = details.get("errors", [])
+        if errors and not details.get("online"):
+            self.log(self.catalog.text(
+                "organization.details_offline_log", tag=details.get("tag", ""), error="; ".join(map(str, errors))
+            ))
+
+    def _discard_tag_details_worker(self, worker: TagDetailsWorker) -> None:
+        if worker in self.tag_details_workers:
+            self.tag_details_workers.remove(worker)
+        worker.deleteLater()
 
     def _taxonomy_saved(self, backup: str, error: str) -> None:
         self.organization_page.set_busy(False)

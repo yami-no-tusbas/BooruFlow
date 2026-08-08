@@ -54,6 +54,19 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertEqual(set(captured[0]), {"cat", "dog"})
         page.close()
 
+    def test_legacy_empty_leaf_is_marked_but_keeps_its_real_tag(self) -> None:
+        from booruflow.presentation.pyside6.organization_page import OrganizationPage, ROLE_TAG
+
+        document = {"boards": {"gelbooru": {"Characters": {"battlecruiser": {}}}}}
+        page = OrganizationPage(self.catalog(), document)
+        branch = page.tree.topLevelItem(0)
+        page.tree.expandItem(branch)
+        self.app.processEvents()
+        leaf = branch.child(0)
+        self.assertEqual(leaf.text(0), "battlecruiser *")
+        self.assertEqual(leaf.data(0, ROLE_TAG), "battlecruiser")
+        page.close()
+
     def test_review_engine_summary_is_captured_for_visible_status(self) -> None:
         from booruflow.application.capabilities import ApplicationCapabilities
         from booruflow.domain import ToolAvailability

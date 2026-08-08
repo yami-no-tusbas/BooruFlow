@@ -70,6 +70,7 @@
   "review.maximum": "Maximum results:",
   "review.match": "Result match:",
   "review.remember": "Remember completed searches",
+  "review.auto_continue": "Continue automatically when nothing is retained",
   "review.example": "Example: with {total} total results, {percent}% requires at least {required} matching result(s).",
   "review.count": "Count",
   "review.start": "Start review",
@@ -92,6 +93,10 @@
   "review.log_start": "Starting review for {count} search(es).",
   "review.site_started": "=== {site} engine ===",
   "review.outputs": "Results saved in: {paths}",
+  "review.continuing": "Nothing retained; continuing automatically at page {page}…",
+  "review.results": "Retained tags:",
+  "review.send_grabber": "Prepare selected results in Grabber",
+  "review.sent_grabber": "Prepared {count} result(s) in Grabber.",
   "entity.artists": "Artists",
   "entity.copyrights": "Copyrights",
   "entity.characters": "Characters",
@@ -120,6 +125,8 @@
   ,"tagging.priority.high": "High"
   ,"tagging.priority.low": "Low"
   ,"tagging.result": "{priority} — post #{id} — {count} tags"
+  ,"tagging.section": "{priority} — {count} image(s)"
+  ,"tagging.card": "#{id} · {count} tags"
   ,"cleanup.group": "Audit downloaded images against the Grabber blacklist"
   ,"cleanup.help": "Drop one or more folders here. The audit is read-only; deletion is never automatic."
   ,"cleanup.add": "Add folder…"

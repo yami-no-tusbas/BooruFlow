@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sys
+import re
+from dataclasses import replace
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QProcess, QSize, Qt
+from PySide6.QtCore import QProcess, QSize, Qt, QTimer
 from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
@@ -86,6 +88,11 @@ class MainWindow(QMainWindow):
         self.database_process.readyReadStandardOutput.connect(self._database_output)
         self.database_process.finished.connect(self._database_finished)
         self.database_site = ""
+        self.active_review_request: ReviewRequest | None = None
+        self.review_next_page: int | None = None
+        self.review_retained = 0
+        self.review_summary: list[str] = []
+        self.review_output_buffer = ""
         settings = settings_repository.load() if settings_repository else {}
         credentials = credentials_repository.load() if credentials_repository else {}
         self.resize(1120, 760)
@@ -110,6 +117,7 @@ class MainWindow(QMainWindow):
         self.review_page.stop_requested.connect(self._stop_review)
         self.review_page.count_requested.connect(self._count_queries)
         self.review_page.autocomplete_requested.connect(self._autocomplete_review)
+        self.review_page.grabber_tags_requested.connect(self._review_results_to_grabber)
         self.pages.addWidget(self.review_page)
         self.tagging_page = TaggingPage(catalog, settings)
         self.tagging_page.start_requested.connect(self._start_tagging)
@@ -226,6 +234,10 @@ class MainWindow(QMainWindow):
         return self.credentials_repository.load() if self.credentials_repository else {}
 
     def _start_review(self, request: ReviewRequest) -> None:
+        if self.settings_repository:
+            saved_settings = self.settings_repository.load()
+            saved_settings["review_auto_continue"] = request.auto_continue
+            self.settings_repository.save(saved_settings)
         credentials = self._credentials()
         gel = credentials.get("gelbooru", {})
         if "gelbooru" in request.sites and (
@@ -236,6 +248,12 @@ class MainWindow(QMainWindow):
         commands = build_review_commands(
             request, self.project_root, self.python_executable, credentials
         )
+        self.active_review_request = request
+        self.review_next_page = None
+        self.review_retained = 0
+        self.review_summary = []
+        self.review_output_buffer = ""
+        self.review_page.show_results([])
         self.review_page.set_running(True)
         self.log(self.catalog.text("review.log_start", count=len(request.queries)))
         try:
@@ -255,17 +273,86 @@ class MainWindow(QMainWindow):
         self.log(self.catalog.text("review.site_started", site=site))
 
     def _review_output(self, chunk: str) -> None:
-        for line in chunk.splitlines():
-            if line.strip():
-                self.log(translate_legacy_log(line, self.catalog.code))
+        self.review_output_buffer += chunk
+        parts = self.review_output_buffer.splitlines(keepends=True)
+        self.review_output_buffer = ""
+        for part in parts:
+            if part.endswith(("\n", "\r")):
+                self._review_line(part.rstrip("\r\n"))
+            else:
+                self.review_output_buffer = part
+
+    def _review_line(self, line: str) -> None:
+        if not line.strip():
+            return
+        translated = translate_legacy_log(line, self.catalog.code)
+        self.log(translated)
+        next_match = re.search(r"prochain d[ée]part page\s+(\d+)", line, re.IGNORECASE)
+        if next_match:
+            self.review_next_page = int(next_match.group(1))
+        retained_match = re.search(r"(\d+)\s+.+?\s+retenus(?:\s+sur\s+(\d+)\s+posts cumul[ée]s)?", line, re.IGNORECASE)
+        e621_match = re.search(r"^(\d+)\s+.+?\s+e621 retenus", line.strip(), re.IGNORECASE)
+        if e621_match:
+            self.review_retained += int(e621_match.group(1)); self.review_summary.append(translated)
+        elif retained_match and ("posts cumul" in line or "retenus sur" in line):
+            self.review_retained += int(retained_match.group(1)); self.review_summary.append(translated)
+        elif line.lstrip().startswith(("Filtrage :", "Bilan ")):
+            self.review_summary.append(translated)
 
     def _review_finished(self, success: bool, outputs: list[str]) -> None:
+        if self.review_output_buffer:
+            self._review_line(self.review_output_buffer)
+            self.review_output_buffer = ""
         self.review_page.set_running(False)
-        self.review_page.state.setText(
-            self.catalog.text("review.finished" if success else "review.interrupted")
+        request = self.active_review_request
+        if success and self.review_next_page:
+            self.review_page.start_page.setValue(int(self.review_next_page))
+        can_continue = bool(
+            success and request and request.auto_continue and request.sites == ("gelbooru",)
+            and self.review_retained == 0 and self.review_next_page
+            and self.review_next_page > request.start_page
         )
+        if can_continue:
+            next_page = int(self.review_next_page)
+            self.review_page.show_summary(self.review_summary, completed=False)
+            self.review_page.state.setText(
+                self.review_page.state.text() + "\n" + self.catalog.text("review.continuing", page=next_page)
+            )
+            QTimer.singleShot(350, lambda: self._continue_review(request, next_page))
+            return
+        entries = self._review_result_entries(request) if success and request else []
+        self.review_page.show_results(entries)
+        if success:
+            self.review_page.show_summary(self.review_summary, completed=True)
+        else:
+            self.review_page.state.setText(self.catalog.text("review.interrupted"))
         if success and outputs:
             self.log(self.catalog.text("review.outputs", paths="; ".join(outputs)))
+
+    def _continue_review(self, request: ReviewRequest, next_page: int) -> None:
+        self.review_page.start_page.setValue(next_page)
+        self._start_review(replace(request, start_page=next_page))
+
+    def _review_result_entries(self, request: ReviewRequest) -> list[tuple[str, str]]:
+        entries: list[tuple[str, str]] = []
+        seen: set[tuple[str, str]] = set()
+        for site in request.sites:
+            directory = request.output_root / request.entity_type / site
+            for path in directory.glob("*_candidats_uniques.txt"):
+                try:
+                    values = path.read_text(encoding="utf-8-sig", errors="replace").splitlines()
+                except OSError:
+                    continue
+                for value in values:
+                    entry = (site, value.strip())
+                    if entry[1] and entry not in seen:
+                        seen.add(entry); entries.append(entry)
+        return entries
+
+    def _review_results_to_grabber(self, entries: tuple[tuple[str, str], ...]) -> None:
+        self.grabber_page.tags.setPlainText("\n".join(f"{site}\t{tag}" for site, tag in entries))
+        self.navigate_to(6)
+        self.log(self.catalog.text("review.sent_grabber", count=len(entries)))
 
     def _count_queries(self, queries: tuple[str, ...]) -> None:
         gel = self._credentials().get("gelbooru", {})

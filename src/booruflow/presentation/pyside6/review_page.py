@@ -33,6 +33,7 @@ class ReviewPage(QWidget):
     stop_requested = Signal()
     count_requested = Signal(tuple)
     autocomplete_requested = Signal(str)
+    grabber_tags_requested = Signal(tuple)
 
     def __init__(
         self,
@@ -105,7 +106,10 @@ class ReviewPage(QWidget):
                 cell.addWidget(QLabel("%"))
             criteria.addLayout(cell, row, column)
         self.remember = QCheckBox()
-        criteria.addWidget(self.remember, 2, 0, 1, 3)
+        self.auto_continue = QCheckBox()
+        self.auto_continue.setChecked(bool(settings.get("review_auto_continue", True)))
+        criteria.addWidget(self.remember, 2, 0, 1, 2)
+        criteria.addWidget(self.auto_continue, 2, 2)
         self.example = QLabel()
         self.example.setWordWrap(True)
         criteria.addWidget(self.example, 3, 0, 1, 3)
@@ -133,7 +137,19 @@ class ReviewPage(QWidget):
         layout.addWidget(self.progress)
         self.state = QLabel()
         self.state.setContentsMargins(2, 4, 2, 4)
+        self.state.setWordWrap(True)
         layout.addWidget(self.state)
+        self.results_label = QLabel()
+        layout.addWidget(self.results_label)
+        self.results = QListWidget()
+        self.results.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection)
+        self.results.setMaximumHeight(150)
+        self.results.hide()
+        layout.addWidget(self.results)
+        self.grabber_button = QPushButton()
+        self.grabber_button.clicked.connect(self._send_results_to_grabber)
+        self.grabber_button.hide()
+        layout.addWidget(self.grabber_button)
         layout.addStretch(1)
         self.retranslate()
 
@@ -202,6 +218,7 @@ class ReviewPage(QWidget):
             maximum_results=self.maximum_results.value(),
             match_percent=self.match_percent.value(),
             remember_queries=self.remember.isChecked(),
+            auto_continue=self.auto_continue.isChecked(),
             gelbooru_database=gel_db,
             e621_database=e621_db,
             output_root=Path(str(self.settings.get("output_root", "var/results"))),
@@ -241,6 +258,24 @@ class ReviewPage(QWidget):
         if running:
             self.state.setText(self.catalog.text("review.running"))
 
+    def show_summary(self, lines: list[str], completed: bool = True) -> None:
+        suffix = self.catalog.text("review.finished") if completed else ""
+        self.state.setText("\n".join([*lines, suffix]).strip())
+
+    def show_results(self, entries: list[tuple[str, str]]) -> None:
+        self.results.clear()
+        for site, tag in entries:
+            self.results.addItem(f"{tag}  ·  {site}")
+            self.results.item(self.results.count() - 1).setData(256, (site, tag))
+        visible = bool(entries)
+        self.results.setVisible(visible)
+        self.results_label.setVisible(visible)
+        self.grabber_button.setVisible(visible)
+
+    def _send_results_to_grabber(self) -> None:
+        selected = self.results.selectedItems() or [self.results.item(i) for i in range(self.results.count())]
+        self.grabber_tags_requested.emit(tuple(item.data(256) for item in selected))
+
     def set_progress(self, page: int, block: int, total: int) -> None:
         self.progress.setRange(0, total)
         self.progress.setValue(block)
@@ -273,9 +308,12 @@ class ReviewPage(QWidget):
         for label, key in zip(self.criteria_labels, ("pages", "start_page", "minimum", "maximum", "match"), strict=True):
             label.setText(text(f"review.{key}"))
         self.remember.setText(text("review.remember"))
+        self.auto_continue.setText(text("review.auto_continue"))
         self.count_button.setText(text("review.count"))
         self.start_button.setText(text("review.start"))
         self.stop_button.setText(text("review.stop"))
+        self.results_label.setText(text("review.results"))
+        self.grabber_button.setText(text("review.send_grabber"))
         if self.start_button.isEnabled():
             self.state.setText(text("review.ready"))
         self._update_example()

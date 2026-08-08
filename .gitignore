@@ -29,6 +29,8 @@ e621_exports/
 e621_wiki_*.json
 
 # Generated application output
+var/*
+!var/README.md
 results/
 listes_galerie/
 listes_telechargement/
@@ -47,4 +49,3 @@ backup-*/
 .DS_Store
 Thumbs.db
 desktop.ini
-

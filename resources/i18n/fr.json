@@ -70,6 +70,7 @@
   "review.maximum": "Nombre de résultats max. :",
   "review.match": "Correspondance des résultats :",
   "review.remember": "Mémoriser les recherches terminées",
+  "review.auto_continue": "Continuer automatiquement si rien n’est retenu",
   "review.example": "Exemple : avec {total} résultats au total, {percent}% demande au moins {required} résultat(s) correspondant(s).",
   "review.count": "Compter",
   "review.start": "Lancer la révision",
@@ -92,6 +93,10 @@
   "review.log_start": "Démarrage de la révision pour {count} recherche(s).",
   "review.site_started": "=== Moteur {site} ===",
   "review.outputs": "Résultats enregistrés dans : {paths}",
+  "review.continuing": "Aucun résultat retenu ; poursuite automatique à la page {page}…",
+  "review.results": "Tags retenus :",
+  "review.send_grabber": "Préparer la sélection dans Grabber",
+  "review.sent_grabber": "{count} résultat(s) préparé(s) dans Grabber.",
   "entity.artists": "Artistes",
   "entity.copyrights": "Copyrights",
   "entity.characters": "Personnages",
@@ -120,6 +125,8 @@
   ,"tagging.priority.high": "Haute"
   ,"tagging.priority.low": "Faible"
   ,"tagging.result": "{priority} — post #{id} — {count} tags"
+  ,"tagging.section": "{priority} — {count} image(s)"
+  ,"tagging.card": "#{id} · {count} tags"
   ,"cleanup.group": "Auditer les images téléchargées avec la blacklist Grabber"
   ,"cleanup.help": "Dépose un ou plusieurs dossiers ici. L’audit est en lecture seule ; aucune suppression n’est automatique."
   ,"cleanup.add": "Ajouter un dossier…"

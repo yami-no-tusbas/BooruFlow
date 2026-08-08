@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
     QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
     QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
+    QTreeWidgetItemIterator,
     QVBoxLayout, QWidget,
 )
 
@@ -37,7 +38,7 @@ class OrganizationPage(QWidget):
         top.addWidget(self.search, 1); top.addWidget(self.search_button); top.addWidget(self.update_button)
         layout.addLayout(top)
         splitter = QSplitter()
-        self.tree = QTreeWidget(); self.tree.setHeaderHidden(True)
+        self.tree = QTreeWidget(); self.tree.setHeaderHidden(True); self.tree.setSelectionMode(QTreeWidget.SelectionMode.ExtendedSelection)
         self.results = QListWidget(); self.results.setSelectionMode(QListWidget.SelectionMode.ExtendedSelection); splitter.addWidget(self.tree); splitter.addWidget(self.results)
         splitter.setStretchFactor(0, 3); splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter, 1)
@@ -49,6 +50,7 @@ class OrganizationPage(QWidget):
         self.state = QLabel(); self.state.setWordWrap(True); self.state.setContentsMargins(2, 6, 2, 6); layout.addWidget(self.state)
         self.board.currentIndexChanged.connect(self.reload)
         self.tree.itemExpanded.connect(self._populate)
+        self.tree.itemChanged.connect(self._tree_checked)
         self.search_button.clicked.connect(self._search)
         self.results.itemActivated.connect(self._open_result)
         self.add_category.clicked.connect(self._add_category)
@@ -71,6 +73,8 @@ class OrganizationPage(QWidget):
 
     def _add_item(self, parent: QTreeWidgetItem, label: str, node, path: tuple[str, ...], kind: str) -> None:
         item = QTreeWidgetItem(parent, [label]); item.setData(0, ROLE_NODE, node); item.setData(0, ROLE_PATH, path); item.setData(0, ROLE_KIND, kind)
+        item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+        item.setCheckState(0, Qt.CheckState.Unchecked)
         has_children = bool(node) if isinstance(node, (dict, list)) else False
         if has_children: QTreeWidgetItem(item, [""])
 
@@ -84,6 +88,18 @@ class OrganizationPage(QWidget):
             if node.get("__tag__"): self._add_item(item, str(node["__tag__"]), str(node["__tag__"]), path, "tag")
             for key, child in sorted(node.items(), key=lambda pair: str(pair[0]).casefold()):
                 if not str(key).startswith("__"): self._add_item(item, str(key), child, path + (str(key),), "category")
+        if item.checkState(0) == Qt.CheckState.Checked:
+            self.tree.blockSignals(True)
+            for index in range(item.childCount()): item.child(index).setCheckState(0, Qt.CheckState.Checked)
+            self.tree.blockSignals(False)
+
+    def _tree_checked(self, item: QTreeWidgetItem, _column: int) -> None:
+        state = item.checkState(0)
+        self.tree.blockSignals(True)
+        for index in range(item.childCount()):
+            child = item.child(index)
+            if child.text(0): child.setCheckState(0, state)
+        self.tree.blockSignals(False)
 
     def _selected_container(self) -> tuple[dict, tuple[str, ...]]:
         item = self.tree.currentItem(); path = tuple(item.data(0, ROLE_PATH)) if item else ()
@@ -130,15 +146,25 @@ class OrganizationPage(QWidget):
 
     def _send_to_review(self) -> None:
         tags: list[str] = []
-        for item in self.results.selectedItems():
+        checked_results = [self.results.item(index) for index in range(self.results.count()) if self.results.item(index).checkState() == Qt.CheckState.Checked]
+        for item in checked_results or self.results.selectedItems():
             tag = item.text().split("  —  ", 1)[0].strip()
             if tag and tag not in tags: tags.append(tag)
+        iterator = QTreeWidgetItemIterator(self.tree, QTreeWidgetItemIterator.IteratorFlag.Checked)
+        while iterator.value():
+            item = iterator.value()
+            if item.data(0, ROLE_KIND) == "tag":
+                if item.text(0) not in tags: tags.append(item.text(0))
+            elif item.data(0, ROLE_KIND) == "category":
+                for tag, _path in iter_tag_paths(item.data(0, ROLE_NODE)):
+                    if tag not in tags: tags.append(tag)
+            iterator += 1
         if not tags:
-            current = self.tree.currentItem()
-            if current:
+            for current in self.tree.selectedItems():
                 node = current.data(0, ROLE_NODE)
-                tags = list(dict.fromkeys(tag for tag, _path in iter_tag_paths(node)))
-                if current.data(0, ROLE_KIND) == "tag": tags = [current.text(0)]
+                values = [current.text(0)] if current.data(0, ROLE_KIND) == "tag" else [tag for tag, _path in iter_tag_paths(node)]
+                for tag in values:
+                    if tag not in tags: tags.append(tag)
         if tags: self.review_tags_requested.emit(tuple(tags))
 
     def _parent_and_key(self, path: tuple[str, ...]):
@@ -173,7 +199,10 @@ class OrganizationPage(QWidget):
         for tag, path in iter_tag_paths(self._board_root()):
             if needle in tag.casefold():
                 self.results.addItem(f"{tag}  —  {' / '.join(path)}")
-                self.results.item(self.results.count() - 1).setData(ROLE_PATH, path)
+                result = self.results.item(self.results.count() - 1)
+                result.setData(ROLE_PATH, path)
+                result.setFlags(result.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                result.setCheckState(Qt.CheckState.Unchecked)
                 if self.results.count() >= 500: break
         self.state.setText(self.catalog.text("organization.search_count", count=self.results.count()))
 

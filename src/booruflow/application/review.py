@@ -17,6 +17,7 @@ class ReviewRequest:
     maximum_results: int
     match_percent: int
     remember_queries: bool
+    auto_continue: bool
     gelbooru_database: Path
     e621_database: Path
     output_root: Path

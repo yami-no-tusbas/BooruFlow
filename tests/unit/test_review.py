@@ -20,6 +20,7 @@ class ReviewRequestTests(unittest.TestCase):
             "maximum_results": 0,
             "match_percent": 25,
             "remember_queries": True,
+            "auto_continue": True,
             "gelbooru_database": root / "gel.db",
             "e621_database": root / "e621.db",
             "output_root": root / "results",

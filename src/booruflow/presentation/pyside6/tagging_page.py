@@ -2,17 +2,33 @@
 
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, QUrl, Signal
+from PySide6.QtCore import QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QFormLayout, QGridLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
-    QListWidget, QListWidgetItem, QProgressBar, QPushButton, QSpinBox,
+    QProgressBar, QPushButton, QScrollArea, QSpinBox, QToolButton,
     QVBoxLayout, QWidget,
 )
 
 from booruflow.application.tagging import TaggingRequest
 from booruflow.infrastructure.localization import LanguageCatalog
+
+
+class CollapsibleResultGroup(QWidget):
+    def __init__(self, title: str) -> None:
+        super().__init__()
+        layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(4)
+        self.toggle = QToolButton(); self.toggle.setText(title); self.toggle.setCheckable(True); self.toggle.setChecked(True)
+        self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
+        self.toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self.content = QWidget(); self.grid = QGridLayout(self.content); self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        self.toggle.toggled.connect(self._toggle)
+        layout.addWidget(self.toggle); layout.addWidget(self.content)
+
+    def _toggle(self, expanded: bool) -> None:
+        self.content.setVisible(expanded)
+        self.toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
 
 
 class TaggingPage(QWidget):
@@ -63,12 +79,12 @@ class TaggingPage(QWidget):
         self.state = QLabel()
         self.state.setContentsMargins(2, 4, 2, 4)
         layout.addWidget(self.state)
-        self.results = QListWidget()
-        self.results.setAlternatingRowColors(True)
-        self.results.setIconSize(QSize(120, 120))
-        self.results.itemActivated.connect(self._open_item)
+        self.results_scroll = QScrollArea(); self.results_scroll.setWidgetResizable(True); self.results_scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        self.results = QWidget(); self.results_layout = QVBoxLayout(self.results); self.results_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
+        self.results_scroll.setWidget(self.results)
+        self.result_generation = 0
         self.network = QNetworkAccessManager(self)
-        layout.addWidget(self.results, 1)
+        layout.addWidget(self.results_scroll, 1)
         self.start_button.clicked.connect(self._start)
         self.stop_button.clicked.connect(self.stop_requested.emit)
         self.retranslate()
@@ -90,7 +106,7 @@ class TaggingPage(QWidget):
         self.start_button.setEnabled(not running)
         self.stop_button.setEnabled(running)
         if running:
-            self.results.clear()
+            self._clear_results()
             self.state.setText(self.catalog.text("tagging.running"))
 
     def set_progress(self, page: int, current: int, total: int, examined: int, retained: int) -> None:
@@ -102,36 +118,46 @@ class TaggingPage(QWidget):
         ))
 
     def show_results(self, posts: list[dict]) -> None:
-        self.results.clear()
-        order = {"critical": 0, "high": 1, "low": 2}
-        for post in sorted(posts, key=lambda value: (order.get(str(value.get("priority")), 9), int(value.get("tag_count", 0)))):
-            post_id = int(post.get("id", 0))
-            priority = self.catalog.text(f"tagging.priority.{post.get('priority', 'low')}")
-            item = QListWidgetItem(
-                self.catalog.text("tagging.result", priority=priority, id=post_id, count=int(post.get("tag_count", 0)))
+        self._clear_results(); generation = self.result_generation
+        grouped = {key: [post for post in posts if post.get("priority") == key] for key in ("critical", "high", "low")}
+        for key, values in grouped.items():
+            section = CollapsibleResultGroup(
+                self.catalog.text("tagging.section", priority=self.catalog.text(f"tagging.priority.{key}"), count=len(values))
             )
-            item.setData(256, post_id)
-            self.results.addItem(item)
-            preview = str(post.get("preview_url") or "")
-            if preview:
-                request = QNetworkRequest(QUrl(preview))
-                request.setRawHeader(b"User-Agent", b"BooruFlow/0.1")
-                request.setRawHeader(b"Referer", b"https://gelbooru.com/")
-                reply = self.network.get(request)
-                reply.finished.connect(lambda current=reply, target=item: self._thumbnail_ready(current, target))
+            self.results_layout.addWidget(section)
+            for index, post in enumerate(sorted(values, key=lambda value: int(value.get("tag_count", 0)))):
+                post_id = int(post.get("id", 0)); count = int(post.get("tag_count", 0))
+                card = QToolButton(); card.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+                card.setIconSize(QSize(150, 135)); card.setFixedSize(175, 180)
+                card.setText(self.catalog.text("tagging.card", id=post_id, count=count))
+                card.clicked.connect(lambda _checked=False, value=post_id: self._open_post(value))
+                section.grid.addWidget(card, index // 4, index % 4)
+                preview = str(post.get("preview_url") or "")
+                if preview:
+                    request = QNetworkRequest(QUrl(preview)); request.setRawHeader(b"User-Agent", b"BooruFlow/0.1"); request.setRawHeader(b"Referer", b"https://gelbooru.com/")
+                    reply = self.network.get(request)
+                    reply.finished.connect(lambda current=reply, target=card, value=generation: self._thumbnail_ready(current, target, value))
 
-    def _thumbnail_ready(self, reply: QNetworkReply, item: QListWidgetItem) -> None:
+    def _clear_results(self) -> None:
+        self.result_generation += 1
+        while self.results_layout.count():
+            item = self.results_layout.takeAt(0)
+            if item.widget(): item.widget().deleteLater()
+
+    def _thumbnail_ready(self, reply: QNetworkReply, button: QToolButton, generation: int) -> None:
         try:
-            if reply.error() == QNetworkReply.NetworkError.NoError:
+            if generation == self.result_generation and reply.error() == QNetworkReply.NetworkError.NoError:
                 pixmap = QPixmap()
                 if pixmap.loadFromData(bytes(reply.readAll())):
-                    item.setIcon(QIcon(pixmap))
+                    button.setIcon(QIcon(pixmap))
+        except RuntimeError:
+            pass
         finally:
             reply.deleteLater()
 
-    def _open_item(self, item: QListWidgetItem) -> None:
+    def _open_post(self, post_id: int) -> None:
         QDesktopServices.openUrl(QUrl(
-            f"https://gelbooru.com/index.php?page=post&s=view&id={int(item.data(256))}"
+            f"https://gelbooru.com/index.php?page=post&s=view&id={post_id}"
         ))
 
     def retranslate(self) -> None:

@@ -84,7 +84,7 @@ def validate_wiki_source(source: str) -> list[tuple[str, str]]:
             issues.append(("search_spaces", match.group(1).strip()))
     if re.search(r"(?mi)^h[1-6]\.\s+", source):
         issues.append(("heading", ""))
-    for token in ("b", "i", "quote", "spoiler", "post"):
+    for token in ("b", "i", "quote", "spoiler", "post", "h1", "h2", "h3", "h4", "h5"):
         if len(re.findall(fr"\[{token}]", source, re.I)) != len(re.findall(fr"\[/{token}]", source, re.I)):
             issues.append(("unbalanced", token))
     return issues
@@ -127,6 +127,11 @@ def render_wiki_preview(source: str) -> str:
     )
     value = re.sub(r"\[b](.*?)\[/b]", r"<b>\1</b>", value, flags=re.I | re.S)
     value = re.sub(r"\[i](.*?)\[/i]", r"<i>\1</i>", value, flags=re.I | re.S)
+    for level in range(1, 6):
+        value = re.sub(
+            fr"\[h{level}](.*?)\[/h{level}]",
+            fr"<h{level}>\1</h{level}>", value, flags=re.I | re.S,
+        )
     value = re.sub(r"\[quote](.*?)\[/quote]", r"<blockquote>\1</blockquote>", value, flags=re.I | re.S)
     value = re.sub(r"\[spoiler](.*?)\[/spoiler]", r"<span style='background:#555;color:#555'>\1</span>", value, flags=re.I | re.S)
     value = re.sub(

@@ -59,8 +59,8 @@ class PySide6ShellTests(unittest.TestCase):
 
     def test_organization_can_prepare_a_wiki_draft(self) -> None:
         window = self.window()
-        window._prepare_wiki("Aulick_(Azur_Lane)")
+        window._prepare_wiki("Unit_Test_Wiki_Tag")
         self.assertEqual(window.navigation.currentRow(), window.NAVIGATION_KEYS.index("wiki"))
-        self.assertEqual(window.wiki_page.tag.text(), "Aulick_(Azur_Lane)")
+        self.assertEqual(window.wiki_page.tag.text(), "Unit_Test_Wiki_Tag")
         self.assertIn("[b]Description:[/b]", window.wiki_page.source.toPlainText())
         window.close()

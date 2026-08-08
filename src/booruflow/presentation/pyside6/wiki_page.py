@@ -9,16 +9,18 @@ import urllib.parse
 from datetime import datetime, timezone
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QGridLayout, QHBoxLayout, QLabel, QLineEdit,
+    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
     QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QSplitter, QTextBrowser,
+    QToolButton,
     QVBoxLayout, QWidget,
 )
 
 from booruflow.application.wiki import TEMPLATES, missing_local_tags, referenced_tags, render_wiki_preview, validate_wiki_source
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.presentation.pyside6.icons import wiki_tool_icon
 
 
 class WikiPage(QWidget):
@@ -31,15 +33,21 @@ class WikiPage(QWidget):
         setup = QHBoxLayout(); self.tag_label = QLabel(); self.tag = QLineEdit(); self.template_label = QLabel(); self.template = QComboBox()
         for key in TEMPLATES: self.template.addItem("", key)
         self.apply_template = QPushButton(); setup.addWidget(self.tag_label); setup.addWidget(self.tag, 1); setup.addWidget(self.template_label); setup.addWidget(self.template); setup.addWidget(self.apply_template); layout.addLayout(setup)
-        toolbar = QGridLayout(); self.tool_buttons: dict[str, QPushButton] = {}
-        for index, key in enumerate(("bold", "italic", "tag_link", "search_link", "post", "quote", "spoiler", "external", "see_also")):
-            button = QPushButton(); button.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
-            self.tool_buttons[key] = button; toolbar.addWidget(button, index // 4, index % 4)
-        layout.addLayout(toolbar)
+        ribbon = QHBoxLayout(); ribbon.setSpacing(8); self.ribbon_labels: dict[str, QLabel] = {}; self.tool_buttons: dict[str, QToolButton] = {}
+        style_group, style_row = self._ribbon_group("style"); self.heading_selector = QComboBox(); self.heading_selector.setMinimumWidth(125); style_row.addWidget(self.heading_selector)
+        for key in ("bold", "italic"): style_row.addWidget(self._tool_button(key))
+        links_group, links_row = self._ribbon_group("links")
+        for key in ("tag_link", "search_link", "external"): links_row.addWidget(self._tool_button(key))
+        insert_group, insert_row = self._ribbon_group("insert")
+        for key in ("post", "quote", "spoiler"): insert_row.addWidget(self._tool_button(key))
+        sections_group, sections_row = self._ribbon_group("sections"); sections_row.addWidget(self._tool_button("see_also"))
+        for group in (style_group, links_group, insert_group, sections_group): ribbon.addWidget(group)
+        ribbon.addStretch(1); layout.addLayout(ribbon)
         splitter = QSplitter(); source_box = QWidget(); source_layout = QVBoxLayout(source_box); source_layout.setContentsMargins(0, 0, 0, 0)
         self.source_label = QLabel(); self.source = QPlainTextEdit(); self.source.setTabChangesFocus(True); source_layout.addWidget(self.source_label); source_layout.addWidget(self.source)
         preview_box = QWidget(); preview_layout = QVBoxLayout(preview_box); preview_layout.setContentsMargins(0, 0, 0, 0)
         self.preview_label = QLabel(); self.preview = QTextBrowser(); self.preview.setOpenLinks(False); self.preview.anchorClicked.connect(self._open_preview_link); preview_layout.addWidget(self.preview_label); preview_layout.addWidget(self.preview)
+        source_box.setMinimumWidth(300); preview_box.setMinimumWidth(300)
         splitter.addWidget(source_box); splitter.addWidget(preview_box); splitter.setStretchFactor(0, 1); splitter.setStretchFactor(1, 1); splitter.setSizes([500, 500]); layout.addWidget(splitter, 1)
         self.validation = QLabel(); self.validation.setWordWrap(True); self.validation.setContentsMargins(8, 6, 8, 6); layout.addWidget(self.validation)
         actions = QHBoxLayout(); self.load = QPushButton(); self.save = QPushButton(); self.copy = QPushButton(); self.open_create = QPushButton()
@@ -49,10 +57,32 @@ class WikiPage(QWidget):
         self.source.textChanged.connect(self._changed); self.tag.textChanged.connect(self._changed)
         self.apply_template.clicked.connect(self._apply_template); self.load.clicked.connect(self._load_draft); self.save.clicked.connect(self._save_draft); self.copy.clicked.connect(self._copy_source); self.open_create.clicked.connect(self._open_create)
         self.tool_buttons["bold"].clicked.connect(lambda: self._wrap("[b]", "[/b]")); self.tool_buttons["italic"].clicked.connect(lambda: self._wrap("[i]", "[/i]"))
+        self.heading_selector.activated.connect(self._heading_selected)
         self.tool_buttons["tag_link"].clicked.connect(lambda: self._wrap("[[", "]]", "tag_name")); self.tool_buttons["search_link"].clicked.connect(lambda: self._wrap("{{", "}}", "tag_name"))
         self.tool_buttons["post"].clicked.connect(lambda: self._wrap("[post]", "[/post]", "123456")); self.tool_buttons["quote"].clicked.connect(lambda: self._wrap("[quote]", "[/quote]")); self.tool_buttons["spoiler"].clicked.connect(lambda: self._wrap("[spoiler]", "[/spoiler]"))
         self.tool_buttons["external"].clicked.connect(lambda: self._insert_section("[b]External links:[/b]\nhttps://example.com/")); self.tool_buttons["see_also"].clicked.connect(lambda: self._insert_section("[b]See also:[/b]\n* [[related_tag]]"))
+        self.shortcuts: list[QShortcut] = []
+        self._add_shortcut("Ctrl+B", lambda: self._wrap("[b]", "[/b]")); self._add_shortcut("Ctrl+I", lambda: self._wrap("[i]", "[/i]")); self._add_shortcut("Ctrl+K", lambda: self._wrap("[[", "]]", "tag_name"))
+        self._add_shortcut("Ctrl+Shift+K", lambda: self._wrap("{{", "}}", "tag_name")); self._add_shortcut("Ctrl+S", self._save_draft); self._add_shortcut("Ctrl+Shift+C", self._copy_source)
+        for level in range(1, 6): self._add_shortcut(f"Ctrl+Alt+{level}", lambda value=level: self._wrap(f"[h{value}]", f"[/h{value}]", "Heading"))
         self.retranslate(); self._refresh()
+
+    def _ribbon_group(self, key: str) -> tuple[QFrame, QHBoxLayout]:
+        frame = QFrame(); frame.setFrameShape(QFrame.Shape.StyledPanel); outer = QVBoxLayout(frame); outer.setContentsMargins(6, 4, 6, 3); outer.setSpacing(2)
+        row = QHBoxLayout(); row.setSpacing(3); label = QLabel(); label.setAlignment(Qt.AlignmentFlag.AlignCenter); label.setStyleSheet("color:#6B7280;font-size:10px;")
+        self.ribbon_labels[key] = label; outer.addLayout(row); outer.addWidget(label); return frame, row
+
+    def _tool_button(self, key: str) -> QToolButton:
+        button = QToolButton(); button.setIcon(wiki_tool_icon(key)); button.setIconSize(QSize(24, 24)); button.setFixedSize(34, 34)
+        self.tool_buttons[key] = button; return button
+
+    def _heading_selected(self, index: int) -> None:
+        level = int(self.heading_selector.itemData(index) or 0)
+        if level: self._wrap(f"[h{level}]", f"[/h{level}]", "Heading")
+        self.heading_selector.setCurrentIndex(0)
+
+    def _add_shortcut(self, sequence: str, callback) -> None:
+        shortcut = QShortcut(QKeySequence(sequence), self); shortcut.activated.connect(callback); self.shortcuts.append(shortcut)
 
     def set_tag(self, tag: str, template: str = "character") -> None:
         tag = tag.strip()
@@ -149,4 +179,11 @@ class WikiPage(QWidget):
         for key in TEMPLATES:
             index = self.template.findData(key)
             if index >= 0: self.template.setItemText(index, text(f"wiki.template_{key}"))
-        for key, button in self.tool_buttons.items(): button.setText(text(f"wiki.tool_{key}"))
+        self.heading_selector.clear(); self.heading_selector.addItem(text("wiki.normal_text"), 0)
+        for level in range(1, 6): self.heading_selector.addItem(text("wiki.heading_level", level=level), level)
+        shortcut_labels = {"bold": "Ctrl+B", "italic": "Ctrl+I", "tag_link": "Ctrl+K", "search_link": "Ctrl+Shift+K"}
+        for key, button in self.tool_buttons.items():
+            label = text(f"wiki.tool_{key}")
+            if key in shortcut_labels: label += f" ({shortcut_labels[key]})"
+            button.setToolTip(label); button.setAccessibleName(label)
+        for key, label in self.ribbon_labels.items(): label.setText(text(f"wiki.group_{key}"))

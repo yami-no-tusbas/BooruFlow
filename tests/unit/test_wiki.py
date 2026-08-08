@@ -18,12 +18,17 @@ class WikiMarkupTests(unittest.TestCase):
         self.assertEqual({code for code, _value in issues}, {"heading", "spaces", "alias"})
 
     def test_preview_renders_confirmed_gelbooru_markup(self) -> None:
-        preview = render_wiki_preview("[b]See also:[/b] [[Azur_Lane]] {{1girl}} [post]42[/post] gelbooru.com/index.php?page=wiki")
+        preview = render_wiki_preview("[h3]Related tags[/h3] [b]See also:[/b] [[Azur_Lane]] {{1girl}} [post]42[/post] gelbooru.com/index.php?page=wiki")
+        self.assertIn("<h3>Related tags</h3>", preview)
         self.assertIn("<b>See also:</b>", preview)
         self.assertIn("booruflow-tag:Azur_Lane", preview)
         self.assertIn("tags=1girl", preview)
         self.assertIn("id=42", preview)
         self.assertIn('href="https://gelbooru.com/', preview)
+
+    def test_validator_checks_all_five_heading_levels(self) -> None:
+        self.assertEqual(validate_wiki_source("[h1]One[/h1]\n[h5]Five[/h5]"), [])
+        self.assertIn(("unbalanced", "h4"), validate_wiki_source("[h4]Broken"))
 
     def test_missing_tags_are_checked_case_insensitively_in_local_database(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -55,6 +60,12 @@ class WikiPageTests(unittest.TestCase):
             page = WikiPage(LanguageCatalog(LANGUAGES, "en"), Path(directory))
             page.set_tag("Aulick_(Azur_Lane)")
             self.assertIn("[b]Description:[/b]", page.source.toPlainText())
+            self.assertEqual(page.heading_selector.count(), 6)
+            self.assertEqual(len(page.shortcuts), 11)
+            self.assertIn("Ctrl+B", page.tool_buttons["bold"].toolTip())
+            page.source.clear(); page._heading_selected(5)
+            self.assertEqual(page.source.toPlainText(), "[h5]Heading[/h5]")
+            page.source.setPlainText("[b]Description:[/b]")
             page._save_draft()
             draft = Path(directory) / "Aulick_(Azur_Lane).json"
             self.assertTrue(draft.is_file())

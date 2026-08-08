@@ -107,3 +107,28 @@ def navigation_icon(name: str, size: int = 30) -> QIcon:
     painter.end()
     pixmap.setDevicePixelRatio(ratio)
     return QIcon(pixmap)
+
+
+def wiki_tool_icon(name: str, size: int = 24) -> QIcon:
+    pixmap = QPixmap(size * 2, size * 2); pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap); painter.setRenderHint(QPainter.RenderHint.Antialiasing); painter.scale(2, 2)
+    color = QColor("#374151"); painter.setPen(QPen(color, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)); painter.setBrush(Qt.BrushStyle.NoBrush)
+    if name == "bold":
+        path = QPainterPath(); path.moveTo(7, 3); path.lineTo(7, 21); path.moveTo(7, 4); path.cubicTo(19, 2, 20, 11, 8, 12); path.cubicTo(21, 11, 21, 22, 7, 20); painter.drawPath(path)
+    elif name == "italic":
+        painter.drawLine(10, 4, 20, 4); painter.drawLine(5, 20, 15, 20); painter.drawLine(15, 4, 10, 20)
+    elif name == "post":
+        painter.drawRoundedRect(QRectF(4, 3, 16, 18), 2, 2); painter.drawLine(8, 9, 16, 9); painter.drawLine(8, 15, 16, 15); painter.drawLine(10, 6, 10, 18); painter.drawLine(15, 6, 15, 18)
+    elif name == "quote":
+        painter.drawRoundedRect(QRectF(4, 6, 6, 7), 2, 2); painter.drawLine(8, 12, 6, 18); painter.drawRoundedRect(QRectF(14, 6, 6, 7), 2, 2); painter.drawLine(18, 12, 16, 18)
+    elif name == "tag_link":
+        painter.drawRoundedRect(QRectF(3, 8, 10, 8), 4, 4); painter.drawRoundedRect(QRectF(11, 8, 10, 8), 4, 4); painter.drawLine(9, 12, 15, 12)
+    elif name == "search_link":
+        painter.drawEllipse(QRectF(4, 4, 11, 11)); painter.drawLine(14, 14, 21, 21)
+    elif name == "spoiler":
+        path = QPainterPath(); path.moveTo(2, 12); path.cubicTo(7, 5, 17, 5, 22, 12); path.cubicTo(17, 19, 7, 19, 2, 12); painter.drawPath(path); painter.drawEllipse(QPointF(12, 12), 2.5, 2.5)
+    elif name == "external":
+        painter.drawRoundedRect(QRectF(3, 7, 14, 14), 2, 2); painter.drawLine(11, 13, 21, 3); painter.drawPolyline(QPolygonF([QPointF(15, 3), QPointF(21, 3), QPointF(21, 9)]))
+    elif name == "see_also":
+        for y in (6, 12, 18): painter.drawEllipse(QPointF(4, y), 1, 1); painter.drawLine(8, y, 21, y)
+    painter.end(); pixmap.setDevicePixelRatio(2); return QIcon(pixmap)

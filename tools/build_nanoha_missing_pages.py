@@ -48,6 +48,15 @@ SERIES = [
  ("Origins", ["triangle_heart", "triangle_heart_3", "triangle_heart_3_lyrical_toy_box"]),
 ]
 
+STRIKERS_GROUPS = [
+ ("Forward team", ["subaru_nakajima", "teana_lanster", "erio_mondial", "caro_ru_lushe"]),
+ ("Riot Force 6 and allies", ["ginga_nakajima", "shario_finieno", "griffith_lowran", "vice_granscenic", "alto_krauetta", "lucino_liilie", "aina_triton", "carim_gracia", "schach_nouera", "verossa_acous"]),
+ ("Families and background", ["genya_nakajima", "quint_nakajima", "tiida_lanster", "megane_alpine", "karel_harlaown", "liera_harlaown", "laguna_granscenic", "mira_barret", "tanto_(lyrical_nanoha)"]),
+ ("Bureau leadership", ["regius_gaiz", "auris_gaiz"]),
+ ("JS Incident cast", ["jail_scaglietti", "lutecia_alpine", "agito_(nanoha)", "zest_grangeitz", "garyuu_(nanoha)", "hakutenou", "vivio", "friedrich_(nanoha)", "voltaire_(nanoha)"]),
+ ("Numbers", ["uno_(nanoha)", "due_(nanoha)", "tre_(nanoha)", "quattro_(nanoha)", "cinque_(nanoha)", "sein_(nanoha)", "sette_(nanoha)", "otto_(nanoha)", "nove_(nanoha)", "dieci_(nanoha)", "wendi_(nanoha)", "deed_(nanoha)"]),
+]
+
 def safe(tag: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.()+-]+", "_", tag).strip("._") or "untitled"
 
@@ -78,6 +87,10 @@ def main() -> None:
         lines.append(f"[h2]{heading}[/h2]"+"\n".join(f"* [[{tag}]]" for tag in tags))
     lines.append("[h2]Original series supporting characters[/h2]"+"\n".join(f"* [[{tag}]]" for tag in PAGES))
     lines.append("[h2]A's characters[/h2]"+"\n".join(f"* [[{tag}]]" for tag in AS_PAGES))
+    lines.append("[h2]StrikerS characters[/h2]"+"".join(
+        f"[h3]{heading}[/h3]"+"\n".join(f"* [[{tag}]]" for tag in tags)
+        for heading,tags in STRIKERS_GROUPS
+    ))
     lines.extend(["[h2]External reference[/h2]", NANOHA+"Magical_Girl_Lyrical_Nanoha_Wiki", NANOHA+"Media"])
     source="\n".join(lines)
     source=re.sub(r"\n+(\[h[1-6]\])",r"\1",source)

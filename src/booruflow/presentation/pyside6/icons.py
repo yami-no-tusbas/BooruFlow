@@ -13,6 +13,7 @@ NAVIGATION_COLORS = {
     "review": "#10B981",
     "tagging": "#F59E0B",
     "organization": "#8B5CF6",
+    "tag_browser": "#0F766E",
     "wiki": "#EC4899",
     "cleanup": "#EF4444",
     "options": "#64748B",
@@ -52,6 +53,14 @@ def _organization(painter: QPainter) -> None:
         painter.drawEllipse(point, 2.5, 2.5)
 
 
+def _tag_browser(painter: QPainter) -> None:
+    painter.drawRoundedRect(QRectF(5, 7, 20, 16), 2, 2)
+    painter.drawLine(QPointF(5, 12), QPointF(25, 12))
+    painter.drawLine(QPointF(11, 7), QPointF(11, 23))
+    painter.drawLine(QPointF(18, 7), QPointF(18, 23))
+    painter.drawLine(QPointF(5, 17), QPointF(25, 17))
+
+
 def _cleanup(painter: QPainter) -> None:
     painter.drawLine(QPointF(11, 8), QPointF(19, 8))
     painter.drawLine(QPointF(13, 6), QPointF(17, 6))
@@ -84,6 +93,7 @@ _DRAWERS: dict[str, Callable[[QPainter], None]] = {
     "review": _review,
     "tagging": _tagging,
     "organization": _organization,
+    "tag_browser": _tag_browser,
     "wiki": _wiki,
     "cleanup": _cleanup,
     "options": _options,

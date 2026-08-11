@@ -72,6 +72,7 @@ class OptionsPage(QWidget):
     save_requested = Signal(dict, dict)
     language_changed = Signal(str)
     database_update_requested = Signal(str, str)
+    database_stop_requested = Signal()
 
     def __init__(
         self,
@@ -87,6 +88,7 @@ class OptionsPage(QWidget):
             "e621": self._site_credentials(credentials, "e621"),
         }
         self._current_site = "gelbooru"
+        self._database_running_site = ""
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 24, 28, 28)
         layout.setSpacing(16)
@@ -139,12 +141,8 @@ class OptionsPage(QWidget):
         self.output_root = PathRow(catalog, directory=True)
         self.gelbooru_database.action.show()
         self.e621_database.action.show()
-        self.gelbooru_database.action_requested.connect(
-            lambda: self.database_update_requested.emit("gelbooru", self.gelbooru_database.edit.text().strip())
-        )
-        self.e621_database.action_requested.connect(
-            lambda: self.database_update_requested.emit("e621", self.e621_database.edit.text().strip())
-        )
+        self.gelbooru_database.action_requested.connect(lambda: self._database_action("gelbooru"))
+        self.e621_database.action_requested.connect(lambda: self._database_action("e621"))
         path_form.addRow(self.gelbooru_database_label, self.gelbooru_database)
         path_form.addRow(self.e621_database_label, self.e621_database)
         path_form.addRow(self.grabber_directory_label, self.grabber_directory)
@@ -232,14 +230,23 @@ class OptionsPage(QWidget):
         self.e621_database.retranslate()
         self.grabber_directory.retranslate()
         self.output_root.retranslate()
-        self.gelbooru_database.action.setText(text("options.update_database"))
-        self.e621_database.action.setText(text("options.update_database"))
+        for site, row in (("gelbooru", self.gelbooru_database), ("e621", self.e621_database)):
+            row.action.setText(text("options.stop_database") if self._database_running_site == site else text("options.update_database"))
         self.note.setText(text("options.note"))
         self.save_button.setText(text("options.save"))
 
     def set_database_running(self, running: bool, site: str = "") -> None:
-        self.gelbooru_database.action.setEnabled(not running)
-        self.e621_database.action.setEnabled(not running)
+        self._database_running_site = site if running else ""
+        self.gelbooru_database.action.setEnabled(not running or site == "gelbooru")
+        self.e621_database.action.setEnabled(not running or site == "e621")
+        self.retranslate()
         self.database_status.setText(
             self.catalog.text("options.database_running", site=site) if running else ""
         )
+
+    def _database_action(self, site: str) -> None:
+        if self._database_running_site:
+            if self._database_running_site == site: self.database_stop_requested.emit()
+            return
+        row = self.gelbooru_database if site == "gelbooru" else self.e621_database
+        self.database_update_requested.emit(site, row.edit.text().strip())

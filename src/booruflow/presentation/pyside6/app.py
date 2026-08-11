@@ -35,7 +35,7 @@ def initial_settings(root: Path) -> dict[str, object]:
         "gelbooru_database": str(
             legacy.get(
                 "local_gel_db",
-                root / "data" / "databases" / "g_tags_260712_blacklist.db",
+                root / "data" / "databases" / "gelbooru_tags.db",
             )
         ),
         "e621_database": str(

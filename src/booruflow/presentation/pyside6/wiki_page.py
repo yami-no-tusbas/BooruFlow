@@ -28,6 +28,8 @@ class WikiPage(QWidget):
 
     def __init__(self, catalog: LanguageCatalog, drafts_directory: Path, tag_database_path: Path | None = None) -> None:
         super().__init__(); self.catalog = catalog; self.drafts_directory = drafts_directory; self.tag_database_path = tag_database_path
+        self._active_draft_path: Path | None = None
+        self._active_draft_tag = ""
         layout = QVBoxLayout(self); layout.setContentsMargins(28, 20, 28, 24); layout.setSpacing(10)
         self.title = QLabel(); self.title.setStyleSheet("font-size: 22px; font-weight: 600;"); layout.addWidget(self.title)
         setup = QHBoxLayout(); self.tag_label = QLabel(); self.tag = QLineEdit(); self.template_label = QLabel(); self.template = QComboBox()
@@ -92,6 +94,7 @@ class WikiPage(QWidget):
         path = self._draft_path_for_tag(tag)
         if path.is_file():
             self._load_draft_path(path); return
+        self._active_draft_path = None; self._active_draft_tag = ""
         self.source.clear(); self.tag.setText(tag); index = self.template.findData(template)
         if index >= 0: self.template.setCurrentIndex(index)
         self._apply_template(force=True)
@@ -129,6 +132,8 @@ class WikiPage(QWidget):
     def _draft_path(self) -> Path | None:
         tag = self.tag.text().strip()
         if not tag: return None
+        if self._active_draft_path is not None and tag == self._active_draft_tag:
+            return self._active_draft_path
         return self._draft_path_for_tag(tag)
 
     def _draft_path_for_tag(self, tag: str) -> Path:
@@ -144,6 +149,7 @@ class WikiPage(QWidget):
         try:
             path.parent.mkdir(parents=True, exist_ok=True); temporary = path.with_suffix(".tmp")
             temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"); os.replace(temporary, path)
+            self._active_draft_path = path; self._active_draft_tag = data["tag"]
             if not silent: self.validation.setText(self.catalog.text("wiki.saved", path=path))
         except OSError as exc:
             self.validation.setText(self.catalog.text("wiki.save_failed", error=exc))
@@ -155,10 +161,11 @@ class WikiPage(QWidget):
 
     def _load_draft_path(self, path: Path) -> None:
         try:
-            data = json.loads(path.read_text(encoding="utf-8-sig")); self.tag.setText(str(data.get("tag", "")))
+            data = json.loads(path.read_text(encoding="utf-8-sig")); loaded_tag = str(data.get("tag", "")); self.tag.setText(loaded_tag)
             index = self.template.findData(str(data.get("template", "character")))
             if index >= 0: self.template.setCurrentIndex(index)
             self.source.setPlainText(str(data.get("source", "")))
+            self._active_draft_path = path; self._active_draft_tag = loaded_tag
         except (OSError, ValueError, TypeError) as exc:
             self.validation.setText(self.catalog.text("wiki.load_failed", error=exc))
 

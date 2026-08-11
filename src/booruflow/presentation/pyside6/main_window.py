@@ -48,12 +48,13 @@ from booruflow.presentation.pyside6.review_controller import (
 from booruflow.presentation.pyside6.review_page import ReviewPage
 from booruflow.presentation.pyside6.tagging_controller import TaggingWorker
 from booruflow.presentation.pyside6.tagging_page import TaggingPage
+from booruflow.presentation.pyside6.tag_browser_page import TagBrowserPage
 from booruflow.presentation.pyside6.wiki_page import WikiPage
 
 
 class MainWindow(QMainWindow):
     NAVIGATION_KEYS = (
-        "home", "review", "tagging", "organization", "wiki", "cleanup", "options", "grabber"
+        "home", "review", "tagging", "organization", "tag_browser", "wiki", "cleanup", "options", "grabber"
     )
 
     def __init__(
@@ -136,6 +137,15 @@ class MainWindow(QMainWindow):
         self.organization_page.wiki_draft_requested.connect(self._prepare_wiki)
         self.pages.addWidget(self.organization_page)
         database_value = str(settings.get("gelbooru_database", ""))
+        e621_database_value = str(settings.get("e621_database", ""))
+        self.tag_browser_page = TagBrowserPage(
+            catalog,
+            {
+                "gelbooru": Path(database_value) if database_value else None,
+                "e621": Path(e621_database_value) if e621_database_value else None,
+            },
+        )
+        self.pages.addWidget(self.tag_browser_page)
         self.wiki_page = WikiPage(
             catalog, self.project_root / "var" / "wiki_drafts",
             Path(database_value) if database_value else None,
@@ -151,6 +161,7 @@ class MainWindow(QMainWindow):
         options.save_requested.connect(self._save_options)
         options.language_changed.connect(self.change_language)
         options.database_update_requested.connect(self._update_database)
+        options.database_stop_requested.connect(self._stop_database_update)
         self.options_page = options
         self.pages.addWidget(options)
         self.grabber_page = GrabberPage(catalog, settings, capabilities.grabber.available)
@@ -738,6 +749,12 @@ class MainWindow(QMainWindow):
         path = Path(destination)
         if not destination:
             path = self.project_root / "data" / "databases" / ("gelbooru_tags.db" if site == "gelbooru" else "e621_tags.db")
+            row = self.options_page.gelbooru_database if site == "gelbooru" else self.options_page.e621_database
+            row.edit.setText(str(path))
+            self.tag_browser_page.set_databases({
+                "gelbooru": Path(self.options_page.gelbooru_database.edit.text()),
+                "e621": Path(self.options_page.e621_database.edit.text()),
+            })
         path.parent.mkdir(parents=True, exist_ok=True)
         environment = self.database_process.processEnvironment()
         if environment.isEmpty():
@@ -769,6 +786,12 @@ class MainWindow(QMainWindow):
         for line in chunk.splitlines():
             if line.strip(): self.log(translate_legacy_log(line, self.catalog.code))
 
+    def _stop_database_update(self) -> None:
+        if self.database_process.state() == QProcess.ProcessState.NotRunning: return
+        self.log(self.catalog.text("options.database_stopping"))
+        self.options_page.database_status.setText(self.catalog.text("options.database_stopping"))
+        self.database_process.terminate()
+
     def _database_finished(self, code: int, _status: QProcess.ExitStatus) -> None:
         self._database_output()
         self.options_page.set_database_running(False)
@@ -789,6 +812,13 @@ class MainWindow(QMainWindow):
             self.log_button.setText(self.catalog.text("log.hide"))
             return
         self.review_page.settings = settings
+        database = str(settings.get("gelbooru_database", ""))
+        e621_database = str(settings.get("e621_database", ""))
+        self.tag_browser_page.set_databases({
+            "gelbooru": Path(database) if database else None,
+            "e621": Path(e621_database) if e621_database else None,
+        })
+        self.wiki_page.tag_database_path = Path(database) if database else None
         self.status_label.setText(self.catalog.text("status.saved"))
         self.log(self.catalog.text("log.options_saved"))
 

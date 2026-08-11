@@ -57,10 +57,11 @@ class DashboardPage(QWidget):
             FeatureCard("review", "home.review", 1),
             FeatureCard("tagging", "home.tagging", 2),
             FeatureCard("organization", "home.organization", 3),
-            FeatureCard("wiki", "home.wiki", 4),
-            FeatureCard("cleanup", "home.cleanup", 5),
-            FeatureCard("options", "home.options", 6),
-            FeatureCard("grabber", "home.grabber", 7),
+            FeatureCard("tag_browser", "home.tag_browser", 4),
+            FeatureCard("wiki", "home.wiki", 5),
+            FeatureCard("cleanup", "home.cleanup", 6),
+            FeatureCard("options", "home.options", 7),
+            FeatureCard("grabber", "home.grabber", 8),
         )
         for position, card in enumerate(cards):
             grid.addWidget(self._card(card), position // 2, position % 2)

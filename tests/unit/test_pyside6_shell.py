@@ -31,9 +31,10 @@ class PySide6ShellTests(unittest.TestCase):
 
     def test_main_window_exposes_top_level_navigation(self) -> None:
         window = self.window()
-        self.assertEqual(window.navigation.count(), 8)
-        self.assertEqual(window.pages.count(), 8)
-        self.assertEqual(window.navigation.item(4).data(256), "wiki")
+        self.assertEqual(window.navigation.count(), 9)
+        self.assertEqual(window.pages.count(), 9)
+        self.assertEqual(window.navigation.item(4).data(256), "tag_browser")
+        self.assertEqual(window.navigation.item(5).data(256), "wiki")
         self.assertEqual(window.navigation.currentRow(), 0)
         window.close()
 

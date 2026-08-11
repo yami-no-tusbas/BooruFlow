@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import sqlite3
 import tempfile
@@ -75,4 +76,23 @@ class WikiPageTests(unittest.TestCase):
             self.assertNotEqual(page.source.toPlainText(), "custom draft")
             page.set_tag("Aulick_(Azur_Lane)")
             self.assertEqual(page.source.toPlainText(), "custom draft")
+            page.close()
+
+    def test_loaded_nested_draft_is_saved_back_to_its_original_path(self) -> None:
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.wiki_page import WikiPage
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            nested = root / "MSLN" / "signum.json"
+            nested.parent.mkdir()
+            nested.write_text(json.dumps({
+                "tag": "signum", "template": "character", "source": "original",
+            }), encoding="utf-8")
+            page = WikiPage(LanguageCatalog(LANGUAGES, "en"), root)
+            page._load_draft_path(nested)
+            page.source.setPlainText("updated in place")
+            page._save_draft()
+            self.assertEqual(json.loads(nested.read_text(encoding="utf-8"))["source"], "updated in place")
+            self.assertFalse((root / "signum.json").exists())
             page.close()

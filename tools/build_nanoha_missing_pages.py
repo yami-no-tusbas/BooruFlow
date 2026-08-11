@@ -70,6 +70,12 @@ VIVID_GROUPS = [
  ("Later manga and other characters", ["edelgard_barkas", "noah_earls", "goliath_(nanoha)"]),
 ]
 
+VIVID_STRIKE_GROUPS = [
+ ("Protagonists and coaches", ["fuka_reventon", "rinne_berlinetta", "jill_stola"]),
+ ("Berlinetta family", ["dan_berlinetta", "lorrie_berlinetta", "roy_berlinetta"]),
+ ("Other Striker athletes", ["lyra_caprice", "carrie_tercel", "adeel_telstar", "karna_maven_(nanoha)", "janice_goat"]),
+]
+
 def safe(tag: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.()+-]+", "_", tag).strip("._") or "untitled"
 
@@ -110,6 +116,10 @@ def main() -> None:
     lines.append("[h2]ViVid characters[/h2]"+"".join(
         f"[h3]{heading}[/h3]"+"\n".join(f"* [[{tag}]]" for tag in tags)
         for heading,tags in VIVID_GROUPS
+    ))
+    lines.append("[h2]ViVid Strike! characters[/h2]"+"".join(
+        f"[h3]{heading}[/h3]"+"\n".join(f"* [[{tag}]]" for tag in tags)
+        for heading,tags in VIVID_STRIKE_GROUPS
     ))
     lines.extend(["[h2]External reference[/h2]", NANOHA+"Magical_Girl_Lyrical_Nanoha_Wiki", NANOHA+"Media"])
     source="\n".join(lines)

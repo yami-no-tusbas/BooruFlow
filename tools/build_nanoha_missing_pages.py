@@ -57,12 +57,22 @@ def save(tag: str, template: str, source: str) -> None:
 
 def main() -> None:
     OUT.mkdir(parents=True,exist_ok=True)
+    uploaded = OUT / "uploaded"
+    uploaded_names = {
+        path.name.casefold() for path in uploaded.rglob("*") if path.is_file()
+    } if uploaded.is_dir() else set()
     all_pages = {**PAGES, **AS_PAGES}
+    created = 0
+    skipped = 0
     for tag,(description,continuity,sources) in all_pages.items():
+        if f"{safe(tag)}.json".casefold() in uploaded_names:
+            skipped += 1
+            continue
         source=(f"[b]Description:[/b]\n{description}\n\n[b]Continuity note:[/b]\n{continuity}\n\n"
                 f"[b]Copyright:[/b]\n[[mahou_shoujo_lyrical_nanoha]]\n\n[b]See also:[/b]\n[[List_of:Mahou_Shoujo_Lyrical_Nanoha_(franchise)]]\n\n"
                 "[b]External sources:[/b]\n"+"\n".join(sources))
         save(tag,"character",source)
+        created += 1
     lines=["A central navigation page for the Magical Girl Lyrical Nanoha franchise, its continuities, adaptations and character pages.",""]
     for heading,tags in SERIES:
         lines.append(f"[h2]{heading}[/h2]"+"\n".join(f"* [[{tag}]]" for tag in tags))
@@ -72,9 +82,19 @@ def main() -> None:
     source="\n".join(lines)
     source=re.sub(r"\n+(\[h[1-6]\])",r"\1",source)
     source=re.sub(r"(\[/h[1-6]\])\n+",r"\1",source)
-    save("List_of:Mahou_Shoujo_Lyrical_Nanoha_(franchise)","general",source)
-    (OUT/"mahou_shoujo_lyrical_nanoha_TOP_INSERT.txt").write_text(
-        "[b]Franchise index:[/b] [[List_of:Mahou_Shoujo_Lyrical_Nanoha_(franchise)]]\n",encoding="utf-8")
-    print(f"Created {len(all_pages)} character drafts, one franchise index and one safe insertion snippet")
+    index_tag = "List_of:Mahou_Shoujo_Lyrical_Nanoha_(franchise)"
+    index_created = f"{safe(index_tag)}.json".casefold() not in uploaded_names
+    if index_created:
+        save(index_tag,"general",source)
+    snippet_name = "mahou_shoujo_lyrical_nanoha_TOP_INSERT.txt"
+    snippet_created = snippet_name.casefold() not in uploaded_names
+    if snippet_created:
+        (OUT/snippet_name).write_text(
+            "[b]Franchise index:[/b] [[List_of:Mahou_Shoujo_Lyrical_Nanoha_(franchise)]]\n",encoding="utf-8")
+    print(
+        f"Created {created} character drafts, skipped {skipped} uploaded character drafts; "
+        f"franchise index: {'created' if index_created else 'uploaded'}; "
+        f"insertion snippet: {'created' if snippet_created else 'uploaded'}"
+    )
 
 if __name__=="__main__": main()

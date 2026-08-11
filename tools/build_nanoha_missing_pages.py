@@ -58,6 +58,14 @@ STRIKERS_GROUPS = [
  ("Numbers", ["uno_(nanoha)", "due_(nanoha)", "tre_(nanoha)", "quattro_(nanoha)", "cinque_(nanoha)", "sein_(nanoha)", "sette_(nanoha)", "otto_(nanoha)", "nove_(nanoha)", "dieci_(nanoha)", "wendi_(nanoha)", "deed_(nanoha)"]),
 ]
 
+VIVID_GROUPS = [
+ ("Main generation", ["einhard_stratos", "corona_timir", "rio_wezley", "miura_rinaldi"]),
+ ("Intermiddle competitors and support", ["sieglinde_eremiah", "viktoria_dahlgrun", "harry_tribeca", "els_tasmin", "mikaya_chevelle", "chantez_apinion", "fabia_crozelg", "yuna_platz", "elsa_edix", "elly_stout", "yumina_enclave", "linda_(nanoha)", "luca", "mia_(nanoha)"]),
+ ("Ancient Belkan history", ["claus_ingvalt", "olivie_segbrecht", "wilfried_jeremiah", "crozelg_(nanoha)", "dahlgrun_(nanoha)"]),
+ ("Leuven martial-arts schools", ["irene_hardin", "claire_lagreat", "edgar_lagreat", "ray_tundra", "rinna_tundra", "tao_raikaku", "xue_rosen_(nanoha)", "yen_lankwai_(nanoha)"]),
+ ("Later manga and other characters", ["edelgard_barkas", "noah_earls", "goliath_(nanoha)"]),
+]
+
 def safe(tag: str) -> str:
     return re.sub(r"[^A-Za-z0-9_.()+-]+", "_", tag).strip("._") or "untitled"
 
@@ -91,6 +99,10 @@ def main() -> None:
     lines.append("[h2]StrikerS characters[/h2]"+"".join(
         f"[h3]{heading}[/h3]"+"\n".join(f"* [[{tag}]]" for tag in tags)
         for heading,tags in STRIKERS_GROUPS
+    ))
+    lines.append("[h2]ViVid characters[/h2]"+"".join(
+        f"[h3]{heading}[/h3]"+"\n".join(f"* [[{tag}]]" for tag in tags)
+        for heading,tags in VIVID_GROUPS
     ))
     lines.extend(["[h2]External reference[/h2]", NANOHA+"Magical_Girl_Lyrical_Nanoha_Wiki", NANOHA+"Media"])
     source="\n".join(lines)

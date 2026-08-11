@@ -121,7 +121,7 @@ def series_source() -> str:
         lines.extend(["", f"[b]{heading}:[/b]", *[f"[[{tag}]]" for tag in tags]])
     lines.extend([
         "", "[b]Returning ViVid characters:[/b]", *[f"[[{tag}]]" for tag in returning],
-        "", "[b]Devices:[/b]", "[[huracan]]", "[[scuderia]]", "[[asteion]]", "[[solfege_(nanoha)]]",
+        "", "[b]Devices:[/b]", "[[huracan_(nanoha)]]", "[[scuderia]]", "[[asteion]]", "[[solfege_(nanoha)]]",
         "", "[b]Follows:[/b]", "[[mahou_shoujo_lyrical_nanoha_vivid]]", "[[mahou_shoujo_lyrical_nanoha_strikers_sound_stage_x]]",
         "", "[b]See also:[/b]", f"[[{INDEX}]]", "[[nakajima_gym]]", "[[frontier_gym]]",
         "", "[b]External sources:[/b]", NANOHA + "ViVid_Strike%21", OFFICIAL, OFFICIAL + "character/",

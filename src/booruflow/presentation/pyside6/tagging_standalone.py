@@ -199,7 +199,7 @@ def create_application(argv: list[str] | None = None) -> tuple[QApplication, Sta
     config = writable_root / "config"
     settings = JsonSettingsRepository(config / "gelbooru_tagging_settings.json")
     credentials = JsonSettingsRepository(config / "gelbooru_tagging_credentials.json")
-    catalog = LanguageCatalog(bundled_root / "resources" / "i18n", "fr")
+    catalog = LanguageCatalog(bundled_root / "resources" / "i18n", "en")
     return application, StandaloneTaggingWindow(catalog, settings, credentials)
 
 

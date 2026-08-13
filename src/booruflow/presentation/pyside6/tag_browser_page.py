@@ -4,12 +4,23 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QThread, Qt, Signal
+from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-    QLineEdit, QPushButton, QSpinBox, QTableWidget, QTableWidgetItem,
-    QVBoxLayout, QWidget, QAbstractItemView,
+    QAbstractItemView,
+    QApplication,
+    QComboBox,
+    QFormLayout,
+    QGroupBox,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QPushButton,
+    QSpinBox,
+    QTableWidget,
+    QTableWidgetItem,
+    QVBoxLayout,
+    QWidget,
 )
 
 from booruflow.infrastructure.localization import LanguageCatalog
@@ -28,7 +39,7 @@ class TagSearchWorker(QThread):
     def run(self) -> None:
         try:
             self.completed.emit(search_tags(self.database, self.request))
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 - worker boundary reports search failures
             self.failed.emit(str(exc))
 
 
@@ -119,7 +130,9 @@ class TagBrowserPage(QWidget):
         for row_index, row in enumerate(self.rows):
             values = (row.id, row.name, row.post_count, row.category, row.ambiguous)
             for column, value in enumerate(values):
-                item = QTableWidgetItem(str(value)); item.setData(Qt.ItemDataRole.UserRole, value)
+                item = QTableWidgetItem()
+                item.setData(Qt.ItemDataRole.DisplayRole, value)
+                item.setData(Qt.ItemDataRole.UserRole, value)
                 if column != 1: item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(row_index, column, item)
         self.table.setSortingEnabled(True)

@@ -43,6 +43,27 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertTrue(critical.content.isHidden())
         page.close()
 
+    def test_tag_browser_sorts_post_counts_as_numbers(self) -> None:
+        from PySide6.QtCore import Qt
+
+        from booruflow.infrastructure.tag_browser import TagRow
+        from booruflow.presentation.pyside6.tag_browser_page import TagBrowserPage
+
+        page = TagBrowserPage(self.catalog())
+        page._show_rows(
+            [
+                TagRow(1, "small", 91, 0, 0),
+                TagRow(2, "large", 7359, 0, 0),
+                TagRow(3, "middle", 842, 0, 0),
+            ]
+        )
+        page.table.sortItems(2, Qt.SortOrder.DescendingOrder)
+        self.assertEqual(
+            [page.table.item(row, 2).data(Qt.ItemDataRole.DisplayRole) for row in range(3)],
+            [7359, 842, 91],
+        )
+        page.close()
+
     def test_checked_taxonomy_branch_is_sent_to_review(self) -> None:
         from PySide6.QtCore import Qt
 

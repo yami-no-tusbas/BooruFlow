@@ -11,7 +11,7 @@ from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
 
-from legacy.wiki_tag_importer import tag_definition_details
+from booruflow.infrastructure.wiki_tag_importer import tag_definition_details
 
 
 class TagDetailsCache:

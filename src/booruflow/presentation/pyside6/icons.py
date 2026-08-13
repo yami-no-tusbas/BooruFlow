@@ -7,7 +7,6 @@ from collections.abc import Callable
 from PySide6.QtCore import QPointF, QRectF, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
 
-
 NAVIGATION_COLORS = {
     "home": "#3B82F6",
     "review": "#10B981",
@@ -18,6 +17,7 @@ NAVIGATION_COLORS = {
     "cleanup": "#EF4444",
     "options": "#64748B",
     "grabber": "#06B6D4",
+    "tasks": "#2563EB",
 }
 
 
@@ -88,6 +88,13 @@ def _grabber(painter: QPainter) -> None:
     painter.drawPolyline(QPolygonF([QPointF(8, 19), QPointF(8, 23), QPointF(22, 23), QPointF(22, 19)]))
 
 
+def _tasks(painter: QPainter) -> None:
+    painter.drawRoundedRect(QRectF(7, 6, 16, 18), 2, 2)
+    for y in (11, 16, 21):
+        painter.drawEllipse(QPointF(11, y), 1, 1)
+        painter.drawLine(QPointF(14, y), QPointF(20, y))
+
+
 _DRAWERS: dict[str, Callable[[QPainter], None]] = {
     "home": _home,
     "review": _review,
@@ -98,6 +105,7 @@ _DRAWERS: dict[str, Callable[[QPainter], None]] = {
     "cleanup": _cleanup,
     "options": _options,
     "grabber": _grabber,
+    "tasks": _tasks,
 }
 
 

@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 from booruflow.application.review import ReviewRequest, build_review_commands
+from booruflow.presentation.pyside6.review_controller import ReviewOutputState
 
 
 class ReviewRequestTests(unittest.TestCase):
@@ -30,9 +31,8 @@ class ReviewRequestTests(unittest.TestCase):
         return ReviewRequest(**values)
 
     def test_species_is_rejected_for_gelbooru(self) -> None:
-        with tempfile.TemporaryDirectory() as directory:
-            with self.assertRaises(ValueError):
-                self.request(Path(directory), entity_type="species")
+        with tempfile.TemporaryDirectory() as directory, self.assertRaises(ValueError):
+            self.request(Path(directory), entity_type="species")
 
     def test_command_keeps_credentials_out_of_arguments(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
@@ -51,12 +51,46 @@ class ReviewRequestTests(unittest.TestCase):
             self.assertEqual(command.environment["GELBOORU_USER_ID"], "user-secret")
             self.assertEqual(command.environment["GELBOORU_API_KEY"], "key-secret")
             self.assertEqual(command.working_directory, root)
+            self.assertEqual(
+                command.arguments[:3],
+                ("-u", "-m", "booruflow.cli.gelbooru_scan"),
+            )
+            self.assertFalse(any("legacy" in argument for argument in command.arguments))
+
+    def test_e621_command_uses_the_packaged_cli_module(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            request = self.request(root, sites=("e621",))
+            command = build_review_commands(request, root, "python")[0]
+
+        self.assertEqual(
+            command.arguments[:3],
+            ("-u", "-m", "booruflow.cli.e621_scan"),
+        )
+        self.assertFalse(any("legacy" in argument for argument in command.arguments))
 
     def test_legacy_parser_has_no_hardcoded_credentials(self) -> None:
-        from legacy.gelbooru_artistes_par_tags_ignore import parse_args
+        from booruflow.cli.gelbooru_scan import parse_args
 
         environment = {"GELBOORU_USER_ID": "", "GELBOORU_API_KEY": ""}
         with patch.dict(os.environ, environment), patch.object(sys, "argv", ["scanner"]):
             arguments = parse_args()
         self.assertEqual(arguments.user_id, "")
         self.assertEqual(arguments.api_key, "")
+
+    def test_review_output_state_accepts_accented_and_mojibake_continuation_markers(self) -> None:
+        accented = ReviewOutputState()
+        mojibake = ReviewOutputState()
+
+        accented.consume("Aucun résultat, prochain départ page 12", "translated")
+        mojibake.consume("Aucun résultat, prochain dÃ©part page 27", "translated")
+
+        self.assertEqual(accented.next_page, 12)
+        self.assertEqual(mojibake.next_page, 27)
+
+    def test_review_output_state_accumulates_e621_retained_results(self) -> None:
+        state = ReviewOutputState()
+        state.consume("768 artistes e621 retenus.", "768 artists retained")
+
+        self.assertEqual(state.retained, 768)
+        self.assertEqual(state.summary, ["768 artists retained"])

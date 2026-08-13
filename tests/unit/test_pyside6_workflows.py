@@ -5,7 +5,6 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-
 PYSIDE6_AVAILABLE = importlib.util.find_spec("PySide6") is not None
 LANGUAGES = Path(__file__).resolve().parents[2] / "resources" / "i18n"
 
@@ -29,10 +28,12 @@ class PySide6WorkflowTests(unittest.TestCase):
         from booruflow.presentation.pyside6.tagging_page import TaggingPage
 
         page = TaggingPage(self.catalog(), {})
-        page.show_results([
-            {"id": 10, "tag_count": 4, "priority": "critical"},
-            {"id": 20, "tag_count": 7, "priority": "high"},
-        ])
+        page.show_results(
+            [
+                {"id": 10, "tag_count": 4, "priority": "critical"},
+                {"id": 20, "tag_count": 7, "priority": "high"},
+            ]
+        )
         self.assertEqual(page.results_layout.count(), 3)
         critical = page.results_layout.itemAt(0).widget()
         self.assertEqual(critical.grid.count(), 1)
@@ -44,6 +45,7 @@ class PySide6WorkflowTests(unittest.TestCase):
 
     def test_checked_taxonomy_branch_is_sent_to_review(self) -> None:
         from PySide6.QtCore import Qt
+
         from booruflow.presentation.pyside6.organization_page import OrganizationPage
 
         document = {"boards": {"gelbooru": {"Animals": {"cat": {}, "dog": {}}}}}
@@ -56,7 +58,7 @@ class PySide6WorkflowTests(unittest.TestCase):
         page.close()
 
     def test_legacy_empty_leaf_is_marked_but_keeps_its_real_tag(self) -> None:
-        from booruflow.presentation.pyside6.organization_page import OrganizationPage, ROLE_TAG
+        from booruflow.presentation.pyside6.organization_page import ROLE_TAG, OrganizationPage
 
         document = {"boards": {"gelbooru": {"Characters": {"battlecruiser": {}}}}}
         page = OrganizationPage(self.catalog(), document)
@@ -85,7 +87,9 @@ class PySide6WorkflowTests(unittest.TestCase):
 
         document = {"boards": {"gelbooru": {"Medical": {"injury": {}}}}}
         page = OrganizationPage(self.catalog(), document)
-        medical = page.tree.topLevelItem(0); page.tree.expandItem(medical); self.app.processEvents()
+        medical = page.tree.topLevelItem(0)
+        page.tree.expandItem(medical)
+        self.app.processEvents()
         injury = medical.child(0)
         with patch(
             "booruflow.presentation.pyside6.organization_page.QInputDialog.getMultiLineText",
@@ -100,19 +104,25 @@ class PySide6WorkflowTests(unittest.TestCase):
 
     def test_reload_preserves_expanded_branches_and_parent_selection_after_delete(self) -> None:
         from PySide6.QtWidgets import QMessageBox
+
         from booruflow.presentation.pyside6.organization_page import OrganizationPage
 
         document = {"boards": {"gelbooru": {"A": {"B": {"leaf": {}}}}}}
         page = OrganizationPage(self.catalog(), document)
-        branch_a = page.tree.topLevelItem(0); page._populate(branch_a); branch_a.setExpanded(True)
-        branch_b = branch_a.child(0); page._populate(branch_b); branch_b.setExpanded(True)
+        branch_a = page.tree.topLevelItem(0)
+        page._populate(branch_a)
+        branch_a.setExpanded(True)
+        branch_b = branch_a.child(0)
+        page._populate(branch_b)
+        branch_b.setExpanded(True)
         page.tree.setCurrentItem(branch_b.child(0))
         with patch(
             "booruflow.presentation.pyside6.organization_page.QMessageBox.question",
             return_value=QMessageBox.StandardButton.Yes,
         ):
             page._delete()
-        restored_a = page.tree.topLevelItem(0); restored_b = restored_a.child(0)
+        restored_a = page.tree.topLevelItem(0)
+        restored_b = restored_a.child(0)
         self.assertTrue(restored_a.isExpanded())
         self.assertTrue(restored_b.isExpanded())
         self.assertEqual(page.tree.currentItem().text(0).removesuffix(" *"), "B")
@@ -123,15 +133,20 @@ class PySide6WorkflowTests(unittest.TestCase):
 
         document = {"boards": {"gelbooru": {"A": {"B": {"C": {"leaf": {}}}}}}}
         page = OrganizationPage(self.catalog(), document)
-        branch_a = page.tree.topLevelItem(0); page._populate(branch_a); branch_a.setExpanded(True)
-        branch_b = branch_a.child(0); page._populate(branch_b); branch_b.setExpanded(True)
+        branch_a = page.tree.topLevelItem(0)
+        page._populate(branch_a)
+        branch_a.setExpanded(True)
+        branch_b = branch_a.child(0)
+        page._populate(branch_b)
+        branch_b.setExpanded(True)
         page.tree.setCurrentItem(branch_b)
         with patch(
             "booruflow.presentation.pyside6.organization_page.QInputDialog.getText",
             return_value=("Renamed", True),
         ):
             page._rename()
-        restored_a = page.tree.topLevelItem(0); restored = restored_a.child(0)
+        restored_a = page.tree.topLevelItem(0)
+        restored = restored_a.child(0)
         self.assertEqual(restored.text(0), "Renamed")
         self.assertTrue(restored_a.isExpanded())
         self.assertTrue(restored.isExpanded())
@@ -140,9 +155,14 @@ class PySide6WorkflowTests(unittest.TestCase):
     def test_numeric_wiki_id_is_attached_to_any_node_and_used_for_details(self) -> None:
         from booruflow.presentation.pyside6.organization_page import OrganizationPage
 
-        document = {"boards": {"gelbooru": {"Characters": {"List_of_Azur_Lane_characters": {"Azur_Lane": {}}}}}}
+        document = {
+            "boards": {
+                "gelbooru": {"Characters": {"List_of_Azur_Lane_characters": {"Azur_Lane": {}}}}
+            }
+        }
         page = OrganizationPage(self.catalog(), document)
-        characters = page.tree.topLevelItem(0); page._populate(characters)
+        characters = page.tree.topLevelItem(0)
+        page._populate(characters)
         node = characters.child(0)
         with patch(
             "booruflow.presentation.pyside6.organization_page.QInputDialog.getText",
@@ -150,7 +170,9 @@ class PySide6WorkflowTests(unittest.TestCase):
         ):
             page._set_wiki(node)
         expected = "https://gelbooru.com/index.php?page=wiki&s=view&id=26107"
-        self.assertEqual(document["metadata"]["gelbooru"]["List_of_Azur_Lane_characters"]["wiki_url"], expected)
+        self.assertEqual(
+            document["metadata"]["gelbooru"]["List_of_Azur_Lane_characters"]["wiki_url"], expected
+        )
         captured = []
         page.tag_details_requested.connect(lambda *values: captured.append(values))
         restored = page._select_path(("Characters", "List_of_Azur_Lane_characters"))
@@ -160,16 +182,23 @@ class PySide6WorkflowTests(unittest.TestCase):
 
     def test_recurring_tags_can_be_checked_for_review_and_opened(self) -> None:
         from PySide6.QtCore import Qt, QUrl
+
         from booruflow.presentation.pyside6.organization_page import OrganizationPage
 
         document = {"boards": {"gelbooru": {"Medical": {"injury": {}, "wound": {}}}}}
         page = OrganizationPage(self.catalog(), document)
         page.details_title.setText("injury")
-        page.show_tag_details({
-            "tag": "injury", "definition": "Related injuries", "online": True,
-            "sample_size": 100, "recurring": [{"tag": "wound", "count": 42}],
-            "wiki_tags": ["wound"], "samples": [],
-        })
+        page.show_tag_details(
+            {
+                "tag": "injury",
+                "definition": "Related injuries",
+                "online": True,
+                "sample_size": 100,
+                "recurring": [{"tag": "wound", "count": 42}],
+                "wiki_tags": ["wound"],
+                "samples": [],
+            }
+        )
         captured = []
         page.review_tags_requested.connect(captured.append)
         page.recurring.item(0).setCheckState(Qt.CheckState.Checked)
@@ -188,9 +217,9 @@ class PySide6WorkflowTests(unittest.TestCase):
         from booruflow.presentation.pyside6.main_window import MainWindow
 
         window = MainWindow(ApplicationCapabilities(ToolAvailability(False)), self.catalog())
-        window._review_output("768 artistes e621 retenus.\n")
-        self.assertEqual(window.review_retained, 768)
-        self.assertIn("768", window.review_summary[0])
+        window.review_coordinator.output("768 artistes e621 retenus.\n")
+        self.assertEqual(window.review_coordinator.output_state.retained, 768)
+        self.assertIn("768", window.review_coordinator.output_state.summary[0])
         window.close()
 
     def test_e621_candidate_file_is_exposed_as_review_results(self) -> None:
@@ -203,14 +232,28 @@ class PySide6WorkflowTests(unittest.TestCase):
             root = Path(directory)
             target = root / "artists" / "e621"
             target.mkdir(parents=True)
-            (target / "artistes_candidats_uniques.txt").write_text("artist_one\nartist_two\n", encoding="utf-8")
+            (target / "artistes_candidats_uniques.txt").write_text(
+                "artist_one\nartist_two\n", encoding="utf-8"
+            )
             request = ReviewRequest(
-                ("rating:safe",), ("e621",), "artists", 10, 1, 0, 0, 1,
-                False, True, root / "gel.db", root / "e621.db", root, None,
+                ("rating:safe",),
+                ("e621",),
+                "artists",
+                10,
+                1,
+                0,
+                0,
+                1,
+                False,
+                True,
+                root / "gel.db",
+                root / "e621.db",
+                root,
+                None,
             )
             window = MainWindow(ApplicationCapabilities(ToolAvailability(False)), self.catalog())
             self.assertEqual(
-                window._review_result_entries(request),
+                window.review_coordinator.result_entries(request),
                 [("e621", "artist_one"), ("e621", "artist_two")],
             )
             window.close()

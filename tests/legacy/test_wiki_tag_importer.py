@@ -1,6 +1,5 @@
-from legacy import wiki_tag_importer as importer
-
-from legacy.wiki_tag_importer import (
+from booruflow.infrastructure import wiki_tag_importer as importer
+from booruflow.infrastructure.wiki_tag_importer import (
     _clean_heading,
     analyze_pasted_tag_list,
     merge_catalogues,
@@ -8,6 +7,12 @@ from legacy.wiki_tag_importer import (
     parse_gelbooru_group,
     parse_pasted_tag_list,
 )
+from legacy import wiki_tag_importer as legacy_importer
+
+
+def test_legacy_module_keeps_the_public_migrated_api():
+    assert legacy_importer.import_catalogues is importer.import_catalogues
+    assert legacy_importer.merge_catalogues is importer.merge_catalogues
 
 
 def test_e621_sections_and_nested_tags_are_imported():
@@ -48,7 +53,10 @@ h4. [[Arthropod]]: [#arthropod]
     tree = parse_e621_group(body)
     arthropod = tree["Fauna"]["Arthropod"]
     arachnid = arthropod["arachnid"]
-    assert arachnid["acarine"]["mite"]["acariform"]["pyroglyphid"]["dust_mite"]["__tag__"] == "dust_mite"
+    assert (
+        arachnid["acarine"]["mite"]["acariform"]["pyroglyphid"]["dust_mite"]["__tag__"]
+        == "dust_mite"
+    )
     assert arthropod["crustacean"]["__tag__"] == "crustacean"
     assert "Navigation" not in tree
 
@@ -301,20 +309,14 @@ Semi-automatic:
 
 
 def test_pasted_tabs_define_arbitrary_child_depth():
-    tree = parse_pasted_tag_list(
-        "Tag\n\tEnfant_1\n\tEnfant_2\n\t\tEnfant3_1\nTag2\n\tEnfant2_1\n"
-    )
+    tree = parse_pasted_tag_list("Tag\n\tEnfant_1\n\tEnfant_2\n\t\tEnfant3_1\nTag2\n\tEnfant2_1\n")
     assert tree["Tag"]["Enfant_1"]["__tag__"] == "Enfant_1"
     assert tree["Tag"]["Enfant_2"]["Enfant3_1"]["__tag__"] == "Enfant3_1"
     assert tree["Tag2"]["Enfant2_1"]["__tag__"] == "Enfant2_1"
 
 
 def test_pasted_tag_with_compact_slash_is_a_valid_parent_node():
-    tree = parse_pasted_tag_list(
-        "series\n"
-        "\tFate/Stay_Night\n"
-        "\t\tSaber\n"
-    )
+    tree = parse_pasted_tag_list("series\n\tFate/Stay_Night\n\t\tSaber\n")
     fate = tree["series"]["Fate/Stay_Night"]
     assert fate["__tag__"] == "Fate/Stay_Night"
     assert fate["Saber"]["__tag__"] == "Saber"
@@ -373,16 +375,12 @@ def test_symbol_list_strips_annotations_and_accepts_symbolic_tags_and_bbcode():
 
 
 def test_preview_reports_indent_jumps_and_tree_size():
-    tree, audit = analyze_pasted_tag_list(
-        "Root\n\tGroup\n\t\t\ttoo_deep\nSibling\n\tchild\n"
-    )
+    tree, audit = analyze_pasted_tag_list("Root\n\tGroup\n\t\t\ttoo_deep\nSibling\n\tchild\n")
     assert "Root" in tree
     assert audit["nonempty_lines"] == 5
     assert audit["node_count"] == 5
     assert audit["max_depth"] == 3
-    assert audit["jumps"] == [
-        {"line": 3, "from_depth": 1, "to_depth": 3, "text": "too_deep"}
-    ]
+    assert audit["jumps"] == [{"line": 3, "from_depth": 1, "to_depth": 3, "text": "too_deep"}]
 
 
 def test_merge_preserves_manual_tree_and_local_exclusions():

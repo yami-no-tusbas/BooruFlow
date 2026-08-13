@@ -21,7 +21,7 @@ from pathlib import Path
 
 from legacy.artist_by_tag_gui import build_tab, find_grabber_credentials
 from tools.benchmarks.grabber_load_benchmark import LoadMeasurement, monitor_load
-from legacy.gelbooru_artistes_par_tags_ignore import fetch_counts_parallel
+from booruflow.cli.gelbooru_scan import fetch_counts_parallel
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_GRABBER = Path(r"D:\0ZGrabber_blacklist")

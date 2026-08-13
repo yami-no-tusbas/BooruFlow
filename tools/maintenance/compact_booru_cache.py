@@ -10,7 +10,7 @@ import sqlite3
 from datetime import datetime
 from pathlib import Path
 
-from legacy.booru_cache import BooruCache
+from booruflow.infrastructure.booru_cache import BooruCache
 
 
 COMMON_COPY_TABLES = (

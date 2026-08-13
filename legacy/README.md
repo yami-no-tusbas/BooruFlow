@@ -1,6 +1,8 @@
 # Legacy Tkinter application
 
-This package contains the working Tkinter application retained during the incremental PySide6 migration.
+This package contains the Tkinter fallback retained during the incremental
+PySide6 migration. The other modules are thin compatibility wrappers around
+the implementations in `src/booruflow`; new code must import the modern paths.
 Launch it from the repository root with `Lancer-Artist-by-Tag-GUI.bat` or:
 
 ```powershell

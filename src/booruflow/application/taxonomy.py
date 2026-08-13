@@ -9,13 +9,16 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from legacy.tag_taxonomy_db import TaxonomyDatabase
+from booruflow.infrastructure.taxonomy_database import TaxonomyDatabase
 
 
 def default_document() -> dict:
     return {
-        "version": 1, "boards": {"gelbooru": {}, "e621": {}},
-        "metadata": {}, "sources": [], "excluded_imported_tags": {},
+        "version": 1,
+        "boards": {"gelbooru": {}, "e621": {}},
+        "metadata": {},
+        "sources": [],
+        "excluded_imported_tags": {},
     }
 
 
@@ -48,7 +51,8 @@ class TaxonomyRepository:
         try:
             data = json.loads(self.path.read_text(encoding="utf-8-sig"))
             if isinstance(data, dict) and isinstance(data.get("boards"), dict):
-                data.setdefault("metadata", {}); data.setdefault("sources", [])
+                data.setdefault("metadata", {})
+                data.setdefault("sources", [])
                 data.setdefault("excluded_imported_tags", {})
                 return data
         except (OSError, ValueError, TypeError):
@@ -59,13 +63,17 @@ class TaxonomyRepository:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         backup = None
         if self.path.is_file():
-            backup = self.path.with_name(f"{self.path.stem}.backup-{datetime.now():%Y%m%d-%H%M%S}.json")
+            backup = self.path.with_name(
+                f"{self.path.stem}.backup-{datetime.now():%Y%m%d-%H%M%S}.json"  # noqa: DTZ005
+            )
             shutil.copy2(self.path, backup)
         temporary = self.path.with_suffix(".tmp")
         temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temporary, self.path)
         for board in ("gelbooru", "e621"):
-            database = TaxonomyDatabase(self.databases_directory / f"tag_organization_{board}.sqlite", board)
+            database = TaxonomyDatabase(
+                self.databases_directory / f"tag_organization_{board}.sqlite", board
+            )
             try:
                 database.sync_from_document(
                     document.get("boards", {}).get(board, {}),
@@ -79,7 +87,7 @@ class TaxonomyRepository:
 
     @staticmethod
     def merged_preview(document: dict, imported: dict) -> tuple[dict, dict]:
-        from legacy.wiki_tag_importer import merge_catalogues
+        from booruflow.infrastructure.wiki_tag_importer import merge_catalogues
 
         preview = copy.deepcopy(document)
         summary = merge_catalogues(preview, imported)

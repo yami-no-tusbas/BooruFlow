@@ -29,9 +29,9 @@ from tkinter import filedialog, messagebox, simpledialog, ttk
 from tkinter.scrolledtext import ScrolledText
 from urllib.parse import parse_qs, urlparse
 
-from legacy.entity_types import ENTITY_TYPES, entity_type
-from legacy.gelbooru_artistes_par_tags_ignore import fetch_result_count
-from legacy.retro_cleanup import (
+from booruflow.application.entity_types import ENTITY_TYPES, entity_type
+from booruflow.infrastructure.gelbooru_client import fetch_result_count
+from booruflow.infrastructure.retro_cleanup import (
     Match as CleanupMatch,
     iter_image_files,
     match_file as cleanup_match_file,
@@ -39,7 +39,7 @@ from legacy.retro_cleanup import (
     send_to_recycle_bin,
     write_report as write_cleanup_report,
 )
-from legacy.wiki_tag_importer import (
+from booruflow.infrastructure.wiki_tag_importer import (
     analyze_pasted_tag_list,
     gelbooru_page_tree,
     import_catalogues,
@@ -48,7 +48,7 @@ from legacy.wiki_tag_importer import (
     parse_pasted_tag_list,
     tag_definition,
 )
-from legacy.tag_taxonomy_db import TaxonomyDatabase
+from booruflow.infrastructure.taxonomy_database import TaxonomyDatabase
 
 try:
     from PIL import Image, ImageTk
@@ -62,7 +62,6 @@ APP_DIR = PROJECT_ROOT
 DATA_DIR = PROJECT_ROOT / "data"
 CONFIG_DIR = PROJECT_ROOT / "config"
 VAR_DIR = PROJECT_ROOT / "var"
-SCANNER = LEGACY_DIR / "gelbooru_artistes_par_tags_ignore.py"
 DEFAULT_DB = DATA_DIR / "databases" / "g_tags_260712_blacklist.db"
 DEFAULT_OUTPUT = VAR_DIR / "results" / "resultats_artistes_gelbooru"
 DEFAULT_GRABBER = Path(r"D:\0ZGrabber_blacklist")
@@ -178,10 +177,7 @@ def find_grabber_credentials(grabber_dir: Path) -> tuple[str, str]:
         return env_user, env_key
 
     # Compatibilité avec les scripts historiques déjà configurés par l'utilisateur.
-    legacy_scripts = [
-        SCANNER,
-        Path(r"D:\IGL\TagsToIGL\generate_tabs.py"),
-    ]
+    legacy_scripts = [Path(r"D:\IGL\TagsToIGL\generate_tabs.py")]
     for script in legacy_scripts:
         try:
             source = script.read_text(encoding="utf-8-sig", errors="replace")
@@ -3330,7 +3326,7 @@ class App:
             jobs.append(
                 (
                     "Gelbooru",
-                    [python_exe, "-u", str(LEGACY_DIR / "gelbooru_tags_updater.py")],
+                    [python_exe, "-u", "-m", "booruflow.cli.gelbooru_tags_update"],
                     gel_env,
                 )
             )
@@ -3341,7 +3337,8 @@ class App:
                     [
                         sys.executable,
                         "-u",
-                        str(LEGACY_DIR / "e621_tags_importer.py"),
+                        "-m",
+                        "booruflow.cli.e621_tags_update",
                         "--db",
                         self.local_e621_db_var.get(),
                         "--cache-dir",
@@ -3795,9 +3792,7 @@ class App:
                 "La catégorie species est propre à e621. Décoche Gelbooru.",
             )
             return
-        if self.search_gelbooru_var.get() and (
-            not SCANNER.is_file() or not gelbooru_db.is_file()
-        ):
+        if self.search_gelbooru_var.get() and not gelbooru_db.is_file():
             messagebox.showerror(
                 "Base Gelbooru absente",
                 f"Base Gelbooru introuvable :\n{gelbooru_db}",
@@ -3843,7 +3838,8 @@ class App:
         if self.search_gelbooru_var.get():
             gel_output = output_root / self.entity_type_var.get() / "gelbooru"
             command = [
-                sys.executable, "-u", str(SCANNER), str(gelbooru_db), *queries,
+                sys.executable, "-u", "-m", "booruflow.cli.gelbooru_scan",
+                str(gelbooru_db), *queries,
                 *common, "--min-hits", "1", "--sortie", str(gel_output),
             ]
             if self.remember_queries_var.get():
@@ -3857,7 +3853,7 @@ class App:
         if self.search_e621_var.get():
             e621_output = output_root / self.entity_type_var.get() / "e621"
             command = [
-                sys.executable, "-u", str(LEGACY_DIR / "e621_artistes_par_tags.py"),
+                sys.executable, "-u", "-m", "booruflow.cli.e621_scan",
                 str(e621_db), *queries, *common, "--sortie", str(e621_output),
             ]
             commands.append(("e621", command, e621_output))

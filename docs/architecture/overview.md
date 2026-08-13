@@ -34,6 +34,18 @@ Infrastructure adapters
 - Retroactive cleanup
 - Optional Grabber batch generation and session control
 
+## PySide6 coordination
+
+`MainWindow` is the composition shell. Long-running or stateful workflows are
+owned by dedicated Review, Tagging, Cleanup, Organization, database-update and
+Grabber coordinators. The shell retains navigation and explicit confirmation
+boundaries for destructive cleanup and taxonomy replacement.
+
+Controllers publish lifecycle and progress updates through `TaskManager`.
+Its repository is an application port: production uses bounded atomic JSON
+history while tests use an in-memory implementation. Running records recovered
+after an application restart become `interrupted`, so stale work is never shown
+as active indefinitely.
+
 The future navigation should use one top-level page per functional area. It
 must not reproduce nested notebooks merely to mirror the old implementation.
-

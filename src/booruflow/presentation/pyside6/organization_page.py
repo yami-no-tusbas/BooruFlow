@@ -10,15 +10,29 @@ from PySide6.QtCore import QSize, Qt, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIcon, QPixmap
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
-    QComboBox, QFileDialog, QHBoxLayout, QInputDialog, QLabel, QLineEdit, QListWidget,
-    QMenu, QMessageBox, QPushButton, QSplitter, QTreeWidget, QTreeWidgetItem,
-    QTreeWidgetItemIterator, QTextBrowser, QToolButton,
-    QGridLayout, QVBoxLayout, QWidget,
+    QComboBox,
+    QFileDialog,
+    QGridLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListWidget,
+    QMenu,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QTextBrowser,
+    QToolButton,
+    QTreeWidget,
+    QTreeWidgetItem,
+    QTreeWidgetItemIterator,
+    QVBoxLayout,
+    QWidget,
 )
 
 from booruflow.application.taxonomy import iter_tag_paths
 from booruflow.infrastructure.localization import LanguageCatalog
-
 
 ROLE_NODE = Qt.ItemDataRole.UserRole
 ROLE_PATH = Qt.ItemDataRole.UserRole + 1
@@ -46,7 +60,7 @@ class OrganizationPage(QWidget):
 
     def __init__(self, catalog: LanguageCatalog, document: dict) -> None:
         super().__init__(); self.catalog = catalog; self.document = document
-        layout = QVBoxLayout(self); layout.setContentsMargins(28, 20, 28, 24)
+        layout = QVBoxLayout(self); layout.setContentsMargins(16, 20, 16, 24)
         self.title = QLabel(); self.title.setStyleSheet("font-size: 22px; font-weight: 600;")
         layout.addWidget(self.title)
         top = QHBoxLayout(); self.board_label = QLabel(); self.board = QComboBox()
@@ -288,7 +302,7 @@ class OrganizationPage(QWidget):
         path, _ = QFileDialog.getOpenFileName(self, self.catalog.text("organization.import"), "", "Text (*.txt *.md);;All files (*)")
         if not path: return
         try:
-            from legacy.wiki_tag_importer import parse_pasted_tag_list
+            from booruflow.infrastructure.wiki_tag_importer import parse_pasted_tag_list
             incoming = parse_pasted_tag_list(Path(path).read_text(encoding="utf-8-sig", errors="replace"))
             target, _ = self._selected_container()
             self._merge(target, incoming)

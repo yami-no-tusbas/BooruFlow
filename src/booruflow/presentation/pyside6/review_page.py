@@ -10,7 +10,6 @@ from PySide6.QtCore import QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
-    QFormLayout,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -45,7 +44,7 @@ class ReviewPage(QWidget):
         self.catalog = catalog
         self.settings = settings
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(28, 20, 28, 24)
+        layout.setContentsMargins(18, 20, 18, 24)
         layout.setSpacing(12)
         self.title = QLabel()
         self.title.setStyleSheet("font-size: 22px; font-weight: 600;")

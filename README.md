@@ -20,13 +20,17 @@ The Tkinter fallback remains available during migration:
 .\Lancer-Artist-by-Tag-GUI.bat
 ```
 
-The new `src/booruflow` package is an incremental PySide6 migration. It does
-not replace the working interface until feature parity has been verified.
+The `src/booruflow` package now contains the shared application services,
+infrastructure, CLI engines and the PySide6 interface. The Tkinter launcher is
+kept only as a fallback until visual and behavioral parity has been verified.
+The task center records long-running review, tagging, taxonomy, database,
+cleanup and Grabber operations in `var/state/task_history.json`; unfinished
+entries are reported as interrupted on the next launch.
 
 ## Repository layout
 
-- `legacy`: working Tkinter application and compatibility modules.
-- `src/booruflow`: new layered application under construction.
+- `legacy`: Tkinter fallback plus thin compatibility wrappers.
+- `src/booruflow`: layered application, shared services and packaged CLI engines.
 - `data`: local databases, imported source data and tracked taxonomy.
 - `config`: machine-local settings and credentials; ignored by Git.
 - `var`: generated results, lists and benchmarks; ignored by Git.
@@ -50,4 +54,3 @@ excluded from Git.
 
 See [docs/architecture/overview.md](docs/architecture/overview.md) and
 [docs/architecture/migration-plan.md](docs/architecture/migration-plan.md).
-

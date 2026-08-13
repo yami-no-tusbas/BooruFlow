@@ -13,6 +13,7 @@ from booruflow.application import resolve_capabilities
 from booruflow.infrastructure.grabber import GrabberInstallation
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.settings import JsonSettingsRepository
+from booruflow.infrastructure.task_repository import JsonTaskRepository
 from booruflow.presentation.pyside6.main_window import MainWindow
 
 
@@ -57,6 +58,7 @@ def create_application(argv: list[str] | None = None) -> tuple[QApplication, Mai
     config = root / "config"
     settings_repository = JsonSettingsRepository(config / "booruflow_settings.json")
     credentials_repository = JsonSettingsRepository(config / "booruflow_credentials.json")
+    task_repository = JsonTaskRepository(root / "var" / "state" / "task_history.json")
     settings = settings_repository.load()
     if not settings:
         settings = initial_settings(root)
@@ -73,6 +75,7 @@ def create_application(argv: list[str] | None = None) -> tuple[QApplication, Mai
         catalog,
         settings_repository=settings_repository,
         credentials_repository=credentials_repository,
+        task_repository=task_repository,
         project_root=root,
         python_executable=sys.executable,
     )

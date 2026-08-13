@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from legacy.retro_cleanup import match_file, parse_blacklist
-
+from booruflow.infrastructure.retro_cleanup import match_file, parse_blacklist
+from legacy import retro_cleanup as legacy_retro_cleanup
 
 MD5 = "0123456789abcdef0123456789abcdef"
 BLACKLIST = parse_blacklist(
@@ -25,6 +25,11 @@ def test_blacklist_categories():
     assert len(BLACKLIST.rules) == 3
     assert BLACKLIST.ignored_compound == 2
     assert BLACKLIST.ignored_non_tag == 2
+
+
+def test_legacy_module_keeps_the_migrated_api():
+    assert legacy_retro_cleanup.match_file is match_file
+    assert legacy_retro_cleanup.parse_blacklist is parse_blacklist
 
 
 def test_unscoped_rule_matches_every_site():

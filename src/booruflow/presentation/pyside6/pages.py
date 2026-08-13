@@ -6,18 +6,49 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (
+    QAbstractButton,
+    QComboBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
 
 from booruflow.domain import ToolAvailability
 from booruflow.infrastructure.localization import LanguageCatalog
+
+
+class ScrollablePageHost(QScrollArea):
+    """Keep dense workflow pages accessible at every supported window size."""
+
+    def __init__(self, page: QWidget) -> None:
+        super().__init__()
+        self.page = page
+        self._make_content_responsive(page)
+        self.setWidget(page)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.Shape.NoFrame)
+        self.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop)
+
+    @staticmethod
+    def _make_content_responsive(page: QWidget) -> None:
+        """Let layouts shrink before the host exposes its fallback scrollbars."""
+
+        for label in page.findChildren(QLabel):
+            label.setMinimumWidth(0)
+            policy = label.sizePolicy()
+            policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+            label.setSizePolicy(policy)
+        for widget_type in (QAbstractButton, QComboBox, QLineEdit, QSpinBox):
+            for widget in page.findChildren(widget_type):
+                widget.setMinimumWidth(0)
 
 
 @dataclass(frozen=True, slots=True)

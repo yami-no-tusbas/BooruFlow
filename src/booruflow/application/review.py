@@ -1,4 +1,4 @@
-"""Validated review requests and legacy-engine command construction."""
+"""Validated review requests and command construction for review engines."""
 
 from __future__ import annotations
 
@@ -58,7 +58,6 @@ def build_review_commands(
     python_executable: str,
     credentials: dict[str, object] | None = None,
 ) -> list[EngineCommand]:
-    legacy = project_root / "legacy"
     blacklist = (
         request.grabber_directory / "blacklist.txt"
         if request.grabber_directory
@@ -70,16 +69,25 @@ def build_review_commands(
         else project_root / "config" / "ignore.txt"
     )
     common = (
-        "--pages", str(request.pages),
-        "--page-debut", str(request.start_page),
-        "--min-artist-posts", str(request.minimum_results),
-        "--max-artist-posts", str(request.maximum_results),
-        "--min-match-percent", str(request.match_percent),
-        "--cache-days", "30",
-        "--blacklist", str(blacklist),
-        "--ignore", str(ignore),
+        "--pages",
+        str(request.pages),
+        "--page-debut",
+        str(request.start_page),
+        "--min-artist-posts",
+        str(request.minimum_results),
+        "--max-artist-posts",
+        str(request.maximum_results),
+        "--min-match-percent",
+        str(request.match_percent),
+        "--cache-days",
+        "30",
+        "--blacklist",
+        str(blacklist),
+        "--ignore",
+        str(ignore),
         "--autoriser-requetes-ignorees",
-        "--entity-type", request.entity_type,
+        "--entity-type",
+        request.entity_type,
     )
     commands: list[EngineCommand] = []
     for site in request.sites:
@@ -93,22 +101,32 @@ def build_review_commands(
                 "GELBOORU_API_KEY": str(site_credentials.get("api_key", "")),
             }
             arguments = (
-                "-u", str(legacy / "gelbooru_artistes_par_tags_ignore.py"),
-                str(request.gelbooru_database), *request.queries, *common,
-                "--min-hits", "1", "--sortie", str(output),
+                "-u",
+                "-m",
+                "booruflow.cli.gelbooru_scan",
+                str(request.gelbooru_database),
+                *request.queries,
+                *common,
+                "--min-hits",
+                "1",
+                "--sortie",
+                str(output),
             )
             if request.remember_queries:
                 arguments += ("--memoriser-requetes",)
         else:
             environment = {}
             arguments = (
-                "-u", str(legacy / "e621_artistes_par_tags.py"),
-                str(request.e621_database), *request.queries, *common,
-                "--sortie", str(output),
+                "-u",
+                "-m",
+                "booruflow.cli.e621_scan",
+                str(request.e621_database),
+                *request.queries,
+                *common,
+                "--sortie",
+                str(output),
             )
         commands.append(
-            EngineCommand(
-                site, python_executable, arguments, environment, output, project_root
-            )
+            EngineCommand(site, python_executable, arguments, environment, output, project_root)
         )
     return commands

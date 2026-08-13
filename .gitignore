@@ -12,6 +12,9 @@ __pycache__/
 .ruff_cache/
 .venv/
 venv/
+build/
+dist/
+*.spec
 
 # Local databases and SQLite runtime files
 *.db

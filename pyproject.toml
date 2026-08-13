@@ -14,10 +14,12 @@ dependencies = []
 
 [project.gui-scripts]
 booruflow = "booruflow.__main__:main"
+gelbooru-tagging = "booruflow.presentation.pyside6.tagging_standalone:main"
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.8,<7"]
 dev = ["pytest>=8", "ruff>=0.9"]
+distribution = ["PyInstaller>=6.15,<7"]
 
 [tool.setuptools]
 package-dir = { "" = "src" }

@@ -21,6 +21,10 @@ The task center records long-running review, tagging, taxonomy, database,
 cleanup and Grabber operations in `var/state/task_history.json`; unfinished
 entries are reported as interrupted on the next launch.
 
+A shareable Gelbooru-only tagging edition is available through
+`Lancer-Gelbooru-Tagging.bat`. See
+[docs/gelbooru-tagging-helper.md](docs/gelbooru-tagging-helper.md).
+
 ## Repository layout
 
 - `legacy`: thin compatibility wrappers for historical CLI imports.

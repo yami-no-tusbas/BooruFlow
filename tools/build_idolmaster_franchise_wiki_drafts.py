@@ -23,6 +23,21 @@ GROUPS={
 
 BRANCHES=["idolmaster_(classic)","idolmaster_dearly_stars","idolmaster_cinderella_girls","idolmaster_million_live!","idolmaster_side-m","idolmaster_shiny_colors","idolmaster_va-liv","gakuen_idolmaster"]
 
+GROUP_LINKS={
+ "2005 - 765PRO ALLSTARS":("765PRO ALLSTARS","idolmaster_(classic)"),
+ "2009 - Dearly Stars":("Dearly Stars","idolmaster_dearly_stars"),
+ "2011 - Cinderella Girls (principal and voiced cast selection)":("Cinderella Girls","idolmaster_cinderella_girls"),
+ "2013 - Million Live!":("Million Live!","idolmaster_million_live!"),
+ "2014 - SideM":("SideM","idolmaster_side-m"),
+ "2018 - Shiny Colors: illumination STARS":("Shiny Colors","idolmaster_shiny_colors"),
+ "2018 - Shiny Colors: L'Antica":("Shiny Colors","idolmaster_shiny_colors"),
+ "2018 - Shiny Colors: Houkago Climax Girls":("Shiny Colors","idolmaster_shiny_colors"),
+ "2018 - Shiny Colors: ALSTROEMERIA":("Shiny Colors","idolmaster_shiny_colors"),
+ "2019-2023 - Later Shiny Colors units":("Shiny Colors","idolmaster_shiny_colors"),
+ "2023 - vα-liv":("vα-liv","idolmaster_va-liv"),
+ "2024 - Gakuen Idolmaster":("Gakuen Idolmaster","gakuen_idolmaster"),
+}
+
 def copyright_pages():
  return {
   "idolmaster_2":["[b]The Idolmaster 2[/b] (アイドルマスター2) is the second main 765 Production game in [[idolmaster_(classic)]]. It was released for Xbox 360 in 2011, followed by an expanded PlayStation 3 version.","","As the previous article noted, the returning idols are slightly older and use redesigned appearances. The story also introduces Jupiter, a male idol unit managed by 961 Production.","[h2]Characters[/h2]","The 765PRO cast is indexed under the 2005 group in [[List_of_Idolmaster_characters]].","","Jupiter:","* [[amagase_touma]]","* [[ijuuin_hokuto]]","* [[mitarai_shouta]]","[h2]Related tags[/h2]","* [[idolmaster]]","* [[idolmaster_(classic)]]","* [[idolmaster_1]]","* [[idolmaster_sp]]","[h2]External links[/h2]","* Official franchise portal: https://idolmaster-official.jp/"],
@@ -62,7 +77,10 @@ def main():
    elif not found:missing.append((title,tag))
  lines=["[b]The Idolmaster[/b] is a multimedia idol-raising and rhythm-game franchise created by Namco, now Bandai Namco Entertainment. The original arcade game was released on July 26, 2005 and casts the player as a producer at 765 Production who trains aspiring idols.","","As the earlier version of this article explained, the arcade game stored each player's progress on a magnetic-stripe card. Series creator Akihiro Ishihara designed its limited play sessions and persistent idols to encourage an emotional attachment between player and character. The unexpected arcade and Xbox 360 success grew into games, music, radio programs, manga, anime and live concerts performed by the voice cast.","","Most branches follow a producer and a different talent agency or school. Their casts can meet in crossover games and anniversary projects, but a tag for one branch should not automatically be added to characters or costumes from another.","[h2]Main branches in chronological order[/h2]","* [[idolmaster_(classic)]] - the 765 Production continuity begun by the 2005 arcade game; also covers [[idolmaster_1]], [[idolmaster_2]], [[idolmaster_sp]], [[idolmaster_one_for_all]], [[idolmaster_platinum_stars]] and [[idolmaster_stella_stage]].","* [[idolmaster_dearly_stars]] - 2009 Nintendo DS game centered on 876 Production.","* [[idolmaster_cinderella_girls]] - branch launched in 2011; related tags include [[idolmaster_cinderella_girls_starlight_stage]] and [[idolmaster_cinderella_girls_u149]].","* [[idolmaster_million_live!]] - branch launched in 2013 around the 765 Pro Live Theater; see [[idolmaster_million_live!_theater_days]] and [[idolmaster_million_live!_(anime)]].","* [[idolmaster_side-m]] - male-idol branch launched in 2014; see [[idolmaster_side-m_live_on_stage!]] and [[idolmaster_side-m_growing_stars]].","* [[idolmaster_shiny_colors]] - 283 Production branch launched in 2018; see [[idolmaster_shiny_colors_song_for_prism]].","* [[idolmaster_va-liv]] - virtual-idol project launched in 2023.","* [[gakuen_idolmaster]] - school-centered branch launched in 2024.","[h2]Cross-brand games[/h2]","* [[idolmaster_poplinks]]","* [[idolmaster_starlit_season]]","* [[idolmaster_tours]]","[h2]Anime and major adaptations[/h2]","* [[idolmaster_xenoglossia]] - 2007 alternate-universe mecha adaptation with a separate continuity and different voice cast.","* [[idolmaster_movie]] - film continuation of the 2011 television anime.","* [[idolmaster_cinderella_girls_u149]]","* [[idolmaster_million_live!_(anime)]]","* The Shiny Colors television anime normally uses [[idolmaster_shiny_colors]] unless a more specific established tag applies.","* [[idolmaster.kr]] - Korean live-action adaptation with an original cast.","[h2]Character index[/h2]","See [[List_of_Idolmaster_characters]] for characters grouped by the project that introduced them, in chronological branch order.","[h2]Related tags[/h2]","* [[bandai_namco_entertainment]]","* [[namco]]","[h2]External sources[/h2]","* Official franchise portal: https://idolmaster-official.jp/","* Official 20th anniversary portal: https://idolmaster-official.jp/20th_anniversary/","* Official Million Live! idol directory: https://millionlive-theaterdays.idolmaster-official.jp/idol/","* Official vα-liv portal: https://idolmaster-official.jp/va-liv"]
  list_lines=["[b]About this list:[/b]","This index groups major Idolmaster characters by the game or project in which their branch was introduced. Dates refer to the branch's debut, not every individual character's first playable appearance.","","The list uses established Gelbooru tags from the local database. It focuses on named idols and central production characters; costume variants, card names, song-specific designs and minor NPCs are excluded."]
- for title,tags in resolved.items():list_lines.append(f"[h2]{title}[/h2]"+'\n'.join(f'* [[{t}]]' for t in tags))
+ for title,tags in resolved.items():
+  label,link=GROUP_LINKS[title]
+  linked_title=title.replace(label,f"[[{link}]]")
+  list_lines.append(f"[h2]{linked_title}[/h2]"+'\n'.join(f'* [[{t}]]' for t in tags))
  list_lines += ["[h2]See also[/h2]","* [[idolmaster]]"]
  pages={'idolmaster':lines,'List_of_Idolmaster_characters':list_lines}
  pages.update(copyright_pages())

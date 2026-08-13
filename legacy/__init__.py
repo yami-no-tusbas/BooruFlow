@@ -1,1 +1,1 @@
-"""Working Tkinter application retained during the PySide6 migration."""
+"""Compatibility wrappers for historical non-GUI imports."""

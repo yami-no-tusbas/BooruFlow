@@ -1,9 +1,9 @@
 # GUI parity checklist
 
-This matrix is the retirement gate for the Tkinter interface. “Implemented”
-means the workflow exists in PySide6 and has automated coverage where the
-boundary is testable. It does not replace a live authenticated or network
-check.
+This matrix records the replacement state of the retired Tkinter interface.
+“Implemented” means the workflow exists in PySide6 and has automated coverage
+where the boundary is testable. It does not replace a live authenticated or
+network check.
 
 | Workflow | PySide6 | Automated evidence | Live validation still required |
 | --- | --- | --- | --- |
@@ -20,7 +20,6 @@ check.
 
 ## Replacement gate
 
-The legacy GUI can be archived only after every live-validation cell above is
-recorded as passed, package smoke tests succeed on the targeted platforms, and
-the default launcher has been exercised from a clean install. Destructive and
-authenticated actions remain explicitly user-confirmed.
+The non-functional legacy GUI was removed after user approval. Remaining live
+validation is a release gate for packaged builds, not a reason to retain dead
+UI code. Destructive and authenticated actions remain explicitly user-confirmed.

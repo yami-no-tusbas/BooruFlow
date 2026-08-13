@@ -19,9 +19,9 @@ from dataclasses import asdict
 from datetime import datetime
 from pathlib import Path
 
-from legacy.artist_by_tag_gui import build_tab, find_grabber_credentials
-from tools.benchmarks.grabber_load_benchmark import LoadMeasurement, monitor_load
+from booruflow.application.grabber_batches import build_tab, find_grabber_credentials
 from booruflow.cli.gelbooru_scan import fetch_counts_parallel
+from tools.benchmarks.grabber_load_benchmark import monitor_load
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_GRABBER = Path(r"D:\0ZGrabber_blacklist")
@@ -219,7 +219,11 @@ def run(args) -> Path:
     if not user_id or not api_key:
         raise RuntimeError("Identifiants Gelbooru introuvables dans le profil Grabber")
     output_dir = args.resume.resolve() if args.resume else (
-        PROJECT_ROOT / "var" / "results" / "grabber_benchmark" / datetime.now().strftime("%Y%m%d-%H%M%S")
+        PROJECT_ROOT
+        / "var"
+        / "results"
+        / "grabber_benchmark"
+        / datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005 - local run name
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     query_pool = discover_query_pool(
@@ -240,7 +244,7 @@ def run(args) -> Path:
             if (tabs, posts) in completed:
                 continue
             print(
-                f"[{datetime.now():%H:%M:%S}] Test {index}/{total_tests} : "
+                f"[{datetime.now():%H:%M:%S}] Test {index}/{total_tests} : "  # noqa: DTZ005
                 f"{tabs} onglets × {posts} posts",
                 flush=True,
             )
@@ -259,7 +263,8 @@ def run(args) -> Path:
             close_mode = stop_grabber(process)
             if measurement is None:
                 append_jsonl(results_path, {
-                    "timestamp": datetime.now().isoformat(timespec="seconds"), "tabs": tabs,
+                    "timestamp": datetime.now().isoformat(timespec="seconds"),  # noqa: DTZ005
+                    "tabs": tabs,
                     "posts_per_tab": posts, "status": "timeout", "close_mode": close_mode,
                 })
             else:

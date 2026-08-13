@@ -1,8 +1,8 @@
 # Incremental migration plan
 
-## Stage 0 - Frozen baseline
+## Stage 0 - Frozen baseline (completed)
 
-- Keep `artist_by_tag_gui.py` and its launcher operational.
+- Characterize the historical GUI before replacement.
 - Characterize pure behavior before extraction.
 - Do not move local databases or settings yet.
 
@@ -29,7 +29,7 @@ enforces this rule.
 - [x] Extract Review, Tagging, Cleanup, database-update and Grabber coordinators.
 - [x] Extract the taxonomy/organization orchestration while keeping confirmation in the shell.
 - [x] Add a persistent task center shared by long-running coordinators.
-- Keep the Tkinter launcher as a fallback.
+- [x] Remove the non-functional Tkinter launcher after PySide6 replacement.
 
 ## Stage 3 - Parity and replacement
 
@@ -37,4 +37,4 @@ enforces this rule.
 - Compare outputs from both interfaces on the same fixtures.
 - Test Windows, Linux and macOS packaging.
 - Switch the default launcher only after visual and behavioral parity.
-- Archive the Tkinter interface in a dedicated final commit.
+- [x] Archive the Tkinter interface in Git history.

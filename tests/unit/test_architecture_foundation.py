@@ -50,6 +50,15 @@ class ArchitectureFoundationTests(unittest.TestCase):
         source_root = Path(__file__).resolve().parents[2] / "src" / "booruflow"
         self.assertEqual(legacy_imports(source_root), set())
 
+    def test_retired_tkinter_gui_is_not_shipped(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        self.assertFalse((root / "legacy" / "artist_by_tag_gui.py").exists())
+        self.assertFalse((root / "Lancer-Artist-by-Tag-GUI.bat").exists())
+        for path in (root / "src" / "booruflow").rglob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            self.assertNotIn("import tkinter", source)
+            self.assertNotIn("from tkinter", source)
+
 
 if __name__ == "__main__":
     unittest.main()

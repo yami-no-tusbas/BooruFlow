@@ -4,18 +4,73 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import urllib.parse
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 
-
 STATE_NAME = "artist_by_tag_session.json"
 
 
 def compose_search_tags(prefix: str, tag: str, suffix: str) -> list[str]:
     return [token for section in (prefix, tag, suffix) for token in section.strip().split() if token]
+
+
+def remaining_review_tabs(data: dict) -> list[dict]:
+    """Return only non-empty Grabber tag tabs still awaiting review."""
+
+    return [
+        tab
+        for tab in data.get("tabs", [])
+        if isinstance(tab, dict)
+        and tab.get("type") == "tag"
+        and any(str(tag).strip() for tag in tab.get("tags", []))
+    ]
+
+
+def _credentials_from_tabs(path: Path) -> tuple[str, str]:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8-sig"))
+        for tab in data.get("tabs", []):
+            urls = tab.get("lastUrls", {}).get("gelbooru.com", {})
+            for url in urls.values():
+                query = urllib.parse.parse_qs(urllib.parse.urlparse(url).query)
+                user_id = query.get("user_id", [""])[0]
+                api_key = query.get("api_key", [""])[0]
+                if user_id and api_key:
+                    return user_id, api_key
+    except (OSError, ValueError, TypeError):
+        pass
+    return "", ""
+
+
+def find_grabber_credentials(directory: Path) -> tuple[str, str]:
+    """Find credentials already embedded in local Grabber session files."""
+
+    candidates = [directory / "tabs.json", *sorted(directory.glob("tabs_*.json"))]
+    sessions = directory / "sessions_tabs"
+    if sessions.is_dir():
+        candidates.extend(
+            sorted(sessions.rglob("tabs*.json"), key=lambda path: path.stat().st_mtime, reverse=True)
+        )
+    for candidate in candidates:
+        credentials = _credentials_from_tabs(candidate)
+        if all(credentials):
+            return credentials
+    user_id = os.getenv("GELBOORU_USER_ID", "")
+    api_key = os.getenv("GELBOORU_API_KEY", "")
+    if user_id and api_key:
+        return user_id, api_key
+    legacy_script = Path(r"D:\IGL\TagsToIGL\generate_tabs.py")
+    try:
+        source = legacy_script.read_text(encoding="utf-8-sig", errors="replace")
+    except OSError:
+        return "", ""
+    user = re.search(r"(?:USER_ID|GELBOORU_USER_ID[^,]*,)\s*[=(,]?\s*['\"]([^'\"]+)", source)
+    key = re.search(r"(?:API_KEY|GELBOORU_API_KEY[^,]*,)\s*[=(,]?\s*['\"]([^'\"]+)", source)
+    return (user.group(1), key.group(1)) if user and key else ("", "")
 
 
 def build_tab(
@@ -95,7 +150,7 @@ class GrabberSessionStore:
         filtered = [entry for entry in request.entries if entry[1] not in (unavailable or set())]
         if not filtered:
             raise ValueError("all tags are already blacklisted or ignored")
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")  # noqa: DTZ005 - local session name
         session_dir = self.directory / "sessions_tabs" / stamp
         session_dir.mkdir(parents=True, exist_ok=False)
         files: list[str] = []
@@ -113,7 +168,7 @@ class GrabberSessionStore:
             "\n".join(f"{site}\t{tag}" for site, tag in filtered) + "\n", encoding="utf-8"
         )
         state = {
-            "version": 1, "created": datetime.now().isoformat(timespec="seconds"),
+            "version": 1, "created": datetime.now().isoformat(timespec="seconds"),  # noqa: DTZ005
             "session_dir": str(session_dir), "files": files, "current": 0,
             "completed": [], "total_tags": len(filtered),
             "tabs_per_batch": request.tabs_per_batch,
@@ -134,7 +189,10 @@ class GrabberSessionStore:
         if destination.is_file():
             backup_dir = Path(state["session_dir"]) / "active_backups"
             backup_dir.mkdir(exist_ok=True)
-            shutil.copy2(destination, backup_dir / f"{datetime.now():%Y%m%d-%H%M%S-%f}-tabs.json")
+            shutil.copy2(
+                destination,
+                backup_dir / f"{datetime.now():%Y%m%d-%H%M%S-%f}-tabs.json",  # noqa: DTZ005
+            )
         temporary = destination.with_suffix(".json.tmp")
         shutil.copy2(source, temporary)
         os.replace(temporary, destination)

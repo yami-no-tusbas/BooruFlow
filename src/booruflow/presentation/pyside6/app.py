@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from pathlib import Path
 
@@ -21,31 +20,12 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def read_json(path: Path) -> dict[str, object]:
-    try:
-        data = json.loads(path.read_text(encoding="utf-8-sig"))
-        return data if isinstance(data, dict) else {}
-    except (OSError, ValueError, TypeError):
-        return {}
-
-
 def initial_settings(root: Path) -> dict[str, object]:
-    legacy = read_json(root / "config" / "artist_by_tag_gui_settings.json")
     return {
         "language": "en",
-        "gelbooru_database": str(
-            legacy.get(
-                "local_gel_db",
-                root / "data" / "databases" / "gelbooru_tags.db",
-            )
-        ),
-        "e621_database": str(
-            legacy.get(
-                "local_e621_db",
-                root / "data" / "databases" / "e621_tags.db",
-            )
-        ),
-        "grabber_directory": str(legacy.get("grabber", "")),
+        "gelbooru_database": str(root / "data" / "databases" / "gelbooru_tags.db"),
+        "e621_database": str(root / "data" / "databases" / "e621_tags.db"),
+        "grabber_directory": "",
         "output_root": str(root / "var" / "results"),
     }
 

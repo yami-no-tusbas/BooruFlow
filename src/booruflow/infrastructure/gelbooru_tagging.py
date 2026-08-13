@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import html
 import json
 import urllib.parse
 import urllib.request
@@ -14,7 +15,7 @@ def post_tags(post: dict) -> list[str]:
     value = post.get("tags", post.get("tag_string", ""))
     if isinstance(value, list):
         return [str(tag) for tag in value if str(tag).strip()]
-    return [tag for tag in str(value).split() if tag]
+    return [tag for tag in html.unescape(str(value)).split() if tag]
 
 
 def payload_posts(payload: object) -> list[dict]:
@@ -22,6 +23,8 @@ def payload_posts(payload: object) -> list[dict]:
         return [post for post in payload if isinstance(post, dict)]
     if isinstance(payload, dict):
         posts = payload.get("post", [])
+        if isinstance(posts, dict):
+            return [posts]
         if isinstance(posts, list):
             return [post for post in posts if isinstance(post, dict)]
     return []

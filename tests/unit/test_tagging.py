@@ -15,7 +15,8 @@ class TaggingTests(unittest.TestCase):
         self.assertEqual(tagging_priority(9, 5, 8), "low")
 
     def test_gelbooru_payload_shapes_and_tags(self) -> None:
-        post = {"id": 1, "tags": "blue_hair solo"}
+        post = {"id": 1, "tags": "blue_hair dragon&amp;girl solo"}
         self.assertEqual(payload_posts({"post": [post]}), [post])
+        self.assertEqual(payload_posts({"post": post}), [post])
         self.assertEqual(payload_posts([post]), [post])
-        self.assertEqual(post_tags(post), ["blue_hair", "solo"])
+        self.assertEqual(post_tags(post), ["blue_hair", "dragon&girl", "solo"])

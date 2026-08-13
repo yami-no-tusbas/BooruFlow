@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout, QWidget,
 )
 
+from booruflow.application.ports import SettingsRepository
 from booruflow.application.wiki import TEMPLATES, missing_local_tags, referenced_tags, render_wiki_preview, validate_wiki_source
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.presentation.pyside6.icons import wiki_tool_icon
@@ -25,9 +26,17 @@ from booruflow.presentation.pyside6.icons import wiki_tool_icon
 
 class WikiPage(QWidget):
     organization_tag_requested = Signal(str)
+    LAST_LOAD_DIRECTORY_KEY = "wiki_last_load_directory"
 
-    def __init__(self, catalog: LanguageCatalog, drafts_directory: Path, tag_database_path: Path | None = None) -> None:
+    def __init__(
+        self,
+        catalog: LanguageCatalog,
+        drafts_directory: Path,
+        tag_database_path: Path | None = None,
+        settings_repository: SettingsRepository | None = None,
+    ) -> None:
         super().__init__(); self.catalog = catalog; self.drafts_directory = drafts_directory; self.tag_database_path = tag_database_path
+        self.settings_repository = settings_repository
         self._active_draft_path: Path | None = None
         self._active_draft_tag = ""
         layout = QVBoxLayout(self); layout.setContentsMargins(28, 20, 28, 24); layout.setSpacing(10)
@@ -155,9 +164,32 @@ class WikiPage(QWidget):
             self.validation.setText(self.catalog.text("wiki.save_failed", error=exc))
 
     def _load_draft(self) -> None:
-        path, _filter = QFileDialog.getOpenFileName(self, self.catalog.text("wiki.load"), str(self.drafts_directory), "Wiki drafts (*.json);;All files (*)")
+        path, _filter = QFileDialog.getOpenFileName(
+            self,
+            self.catalog.text("wiki.load"),
+            str(self._initial_load_directory()),
+            "Wiki drafts (*.json);;All files (*)",
+        )
         if not path: return
-        self._load_draft_path(Path(path))
+        selected = Path(path)
+        self._remember_load_directory(selected.parent)
+        self._load_draft_path(selected)
+
+    def _initial_load_directory(self) -> Path:
+        settings = self.settings_repository.load() if self.settings_repository else {}
+        saved = str(settings.get(self.LAST_LOAD_DIRECTORY_KEY, "")).strip()
+        if saved:
+            directory = Path(saved)
+            if directory.is_dir():
+                return directory
+        return self.drafts_directory
+
+    def _remember_load_directory(self, directory: Path) -> None:
+        if not self.settings_repository or not directory.is_dir():
+            return
+        settings = self.settings_repository.load()
+        settings[self.LAST_LOAD_DIRECTORY_KEY] = str(directory.resolve())
+        self.settings_repository.save(settings)
 
     def _load_draft_path(self, path: Path) -> None:
         try:

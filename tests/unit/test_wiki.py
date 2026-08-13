@@ -96,3 +96,31 @@ class WikiPageTests(unittest.TestCase):
             self.assertEqual(json.loads(nested.read_text(encoding="utf-8"))["source"], "updated in place")
             self.assertFalse((root / "signum.json").exists())
             page.close()
+
+    def test_load_dialog_directory_is_persisted_with_safe_fallback(self) -> None:
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.infrastructure.settings import JsonSettingsRepository
+        from booruflow.presentation.pyside6.wiki_page import WikiPage
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            drafts = root / "drafts"
+            drafts.mkdir()
+            nested = drafts / "Science Adventure" / "characters"
+            nested.mkdir(parents=True)
+            repository = JsonSettingsRepository(root / "settings.json")
+            page = WikiPage(
+                LanguageCatalog(LANGUAGES, "en"), drafts,
+                settings_repository=repository,
+            )
+
+            self.assertEqual(page._initial_load_directory(), drafts)
+            page._remember_load_directory(nested)
+            self.assertEqual(page._initial_load_directory(), nested)
+            self.assertEqual(
+                repository.load()[page.LAST_LOAD_DIRECTORY_KEY], str(nested.resolve()),
+            )
+
+            nested.rmdir()
+            self.assertEqual(page._initial_load_directory(), drafts)
+            page.close()

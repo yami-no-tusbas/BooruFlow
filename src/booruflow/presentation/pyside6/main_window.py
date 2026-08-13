@@ -179,6 +179,7 @@ class MainWindow(QMainWindow):
             catalog,
             self.project_root / "var" / "wiki_drafts",
             Path(database_value) if database_value else None,
+            self.settings_repository,
         )
         self.wiki_page.organization_tag_requested.connect(self._open_organization_tag)
         add_page(self.wiki_page)

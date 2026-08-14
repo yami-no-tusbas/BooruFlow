@@ -44,6 +44,18 @@ BRANCH_INDEXES = {
         "sections": ["Fate/Grand Order", "Fate/Grand Order Arcade", "Fate/Grand Carnival"],
         "patterns": ["%(fate/grand_order)%", "%(fate/grand_order_arcade)%"],
     },
+    "list_of_lord_el-melloi_ii_case_files_characters": {
+        "title": "Lord El-Melloi II Case Files",
+        "copyrights": ["lord_el-melloi_ii_case_files"],
+        "sections": ["Lord El-Melloi II Case Files"],
+        "patterns": ["%(lord_el-melloi_ii)%"],
+    },
+    "list_of_fate_strange_fake_characters": {
+        "title": "Fate/strange Fake",
+        "copyrights": ["fate/strange_fake"],
+        "sections": ["Fate/Strange Fake"],
+        "patterns": ["%(fate/strange_fake)%"],
+    },
 }
 
 VARIANT_WORDS = re.compile(
@@ -122,6 +134,10 @@ AUDIT = [
     ("tohsaka_rin", "existing-empty", "2017-08-20", "Confirmed empty page."),
     ("matou_sakura", "existing-stale", "2019-03-07", "Confirmed short and outdated page."),
     ("emiya_shirou", "existing-stale", "2015-12-08", "Confirmed short and outdated page."),
+    ("fate/zero", "missing", "", "Wiki search redirected to account creation flow; prepare a new copyright page."),
+    ("fate/hollow_ataraxia", "missing", "", "Wiki search redirected to account creation flow; prepare a new copyright page."),
+    ("lord_el-melloi_ii_case_files", "existing-stale", "2015-08-13", "Preserve the original premise and expand the 2015 copyright page."),
+    ("fate/strange_fake", "missing", "", "Wiki search redirected to account creation flow; prepare a new copyright page."),
 ]
 
 
@@ -168,6 +184,63 @@ def portal_source() -> str:
         "* Fate 20th Anniversary official website: https://fate-20th-anniversary.com/",
     ]
     return "\n".join(lines)
+
+
+def work_sources() -> dict[str, str]:
+    return {
+        "fate/zero": "\n".join([
+            "[b]Fate/Zero[/b] is a prequel to [[fate/stay_night]], written by Gen Urobuchi under the supervision of Kinoko Nasu and illustrated by Takashi Takeuchi. The original light novels were released by TYPE-MOON between 2006 and 2007; ufotable later adapted the story as a television anime.",
+            "",
+            "Set ten years before Fate/stay night, it follows the Fourth Holy Grail War in Fuyuki. Seven Masters summon seven Servants and fight for the Grail, while Kiritsugu Emiya enters the conflict as the Einzbern family's representative and Saber's Master. The war establishes many of the events, relationships and disasters inherited by the Fifth Holy Grail War.",
+            "[h2]Principal Masters and Servants[/h2]",
+            "* [[emiya_kiritsugu]] and [[saber_(fate)]]",
+            "* [[tohsaka_tokiomi]] and [[gilgamesh_(fate)]]",
+            "* [[waver_velvet]] and [[iskandar_(fate)]]",
+            "* [[kayneth_el-melloi_archibald]] and [[diarmuid_ua_duibhne_(lancer)_(fate)]]",
+            "* [[matou_kariya]] and [[lancelot_(fate/zero)]]",
+            "* [[uryuu_ryuunosuke]] and [[gilles_de_rais_(caster)_(fate)]]",
+            "* [[kotomine_kirei]] and [[assassin_(fate/zero)]]",
+            "[h2]Other principal characters[/h2]",
+            "* [[irisviel_von_einzbern]]", "* [[hisau_maiya]]", "* [[sola-ui_nuada-re_sophia-ri]]", "* [[tohsaka_aoi]]", "* [[kotomine_risei]]",
+            "[h2]Character index[/h2]", "See [[list_of_fate_zero_characters]] for supporting characters, alternate forms, Noble Phantasms and associated terminology.",
+            "[h2]Tagging notes[/h2]",
+            "Use [[fate/zero]] for material from the novels or their anime adaptation. Add individual character tags and established weapon or Noble Phantasm tags. Use [[fate_(series)]] only when the image is franchise-wide or crosses multiple Fate branches.",
+            "[h2]Related works[/h2]", "* [[fate/stay_night]]", "* [[lord_el-melloi_ii_case_files]]", "* [[fate_(series)]]",
+            "[h2]External links[/h2]", "* Official anime website: https://www.fate-zero.jp/", "* TYPE-MOON official website: https://typemoon.com/",
+        ]),
+        "fate/hollow_ataraxia": "\n".join([
+            "[b]Fate/hollow ataraxia[/b] is a 2005 visual novel and follow-up to [[fate/stay_night]]. Rather than continuing only one of the original game's mutually exclusive routes, it places the familiar cast in a repeating four-day period that combines an everyday ensemble story with a new Holy Grail mystery.",
+            "",
+            "The principal new viewpoint character is [[bazett_fraga_mcremitz]], the originally appointed Master of Lancer. Her partnership with [[angra_mainyu_(fate)]] and the intervention of [[caren_hortensia]] gradually reveal the nature of the loop. The game also expands the lives of many supporting Fate/stay night characters through daytime and nighttime events.",
+            "[h2]Principal new characters[/h2]", "* [[bazett_fraga_mcremitz]]", "* [[angra_mainyu_(fate)]]", "* [[caren_hortensia]]", "* [[luviagelita_edelfelt]]",
+            "[h2]Character index[/h2]", "The returning and newly introduced cast is included in [[list_of_fate_stay_night_characters]]; a second Hollow Ataraxia list is unnecessary.",
+            "[h2]Tagging notes[/h2]", "Use [[fate/hollow_ataraxia]] when the work's four-day-loop context, new cast, scenes or characteristic costumes are identifiable. Tag returning characters individually and add their established alternate-form tags when applicable.",
+            "[h2]Related works[/h2]", "* [[fate/stay_night]]", "* [[fate_(series)]]",
+            "[h2]External links[/h2]", "* TYPE-MOON official website: https://typemoon.com/",
+        ]),
+        "lord_el-melloi_ii_case_files": "\n".join([
+            "[b]Lord El-Melloi II Case Files[/b] is a mystery light-novel series written by Makoto Sanda and illustrated by Mineji Sakamoto. It follows the adult [[lord_el-melloi_ii]], formerly [[waver_velvet]] of [[fate/zero]], as a professor in the Clock Tower's Department of Modern Magecraft.",
+            "",
+            "The story retains the earlier Gelbooru article's central description: Lord El-Melloi II investigates incidents involving magecraft together with [[gray_(fate)]], his apprentice and assistant whose appearance and history are connected to King Arthur. The cases emphasize the rules, families and politics of the Mage's Association rather than staging another conventional Holy Grail War.",
+            "[h2]Principal characters[/h2]", "* [[lord_el-melloi_ii]]", "* [[gray_(fate)]]", "* [[reines_el-melloi_archisorte]]", "* [[flat_escardos]]", "* [[svin_glascheit]]", "* [[yvette_l._lehrman]]", "* [[melvin_weins]]", "* [[adashino_hishiri]]",
+            "[h2]Adaptations and continuation[/h2]", "The novels received manga and anime adaptations. The television anime expands the opening cases and adapts the Rail Zeppelin arc. The story later continues under the title The Adventures of Lord El-Melloi II.",
+            "[h2]Character index[/h2]", "See [[list_of_lord_el-melloi_ii_case_files_characters]] for the consolidated cast and associated character forms.",
+            "[h2]Tagging notes[/h2]", "Use [[lord_el-melloi_ii_case_files]] for the novels, manga or anime. Add [[fate/zero]] only when the image specifically depicts Waver's Fourth Holy Grail War era rather than his adult Case Files role.",
+            "[h2]Related works[/h2]", "* [[fate/zero]]", "* [[fate/stay_night]]", "* [[fate_(series)]]",
+            "[h2]External links[/h2]", "* Official anime website: https://anime.elmelloi.com/", "* TYPE-MOON official website: https://typemoon.com/",
+        ]),
+        "fate/strange_fake": "\n".join([
+            "[b]Fate/strange Fake[/b] is a Fate spin-off written by Ryohgo Narita and illustrated by Shizuki Morii. It began as an April Fools project before being developed into an ongoing light-novel and manga series.",
+            "",
+            "The story takes place in Snowfield, Nevada, where an imitation of Fuyuki's Holy Grail War produces an incomplete False Holy Grail War. Its flawed ritual, unusual Master-Servant pairs and the later emergence of a True Holy Grail War draw magi, the Church, police and other factions into the city.",
+            "[h2]Principal characters[/h2]", "* [[tine_chelc]] and [[gilgamesh_(fate)]]", "* [[flat_escardos]] and [[jack_the_ripper_(berserker)_(fate)]]", "* [[wolf_(fate)]] and [[enkidu_(fate)]]", "* [[kuruoka_tsubaki]] and [[pale_rider_(fate)]]", "* [[orlando_reeve]] and [[francois_prelati_(fate)]]", "* [[jester_karture]] and [[no_name_assassin_(fate)]]", "* [[sigma_(fate)]] and [[watcher_(fate)]]",
+            "[h2]Anime[/h2]", "The novels received the animated special Whispers of Dawn followed by a television anime adaptation. Gelbooru uses the same copyright tag for the novels, manga and animation unless a more specific tag is established.",
+            "[h2]Character index[/h2]", "See [[list_of_fate_strange_fake_characters]] for the full locally validated cast and associated forms.",
+            "[h2]Tagging notes[/h2]", "Use [[fate/strange_fake]] for material from the Snowfield Holy Grail War. Characters shared with other Fate works should still receive their individual tags; add another copyright only when that other continuity is actually represented.",
+            "[h2]Related works[/h2]", "* [[fate/stay_night]]", "* [[fate/zero]]", "* [[lord_el-melloi_ii_case_files]]", "* [[fate_(series)]]",
+            "[h2]External links[/h2]", "* Official anime website: https://fate-strange-fake.com/", "* TYPE-MOON official website: https://typemoon.com/",
+        ]),
+    }
 
 
 def styled(tag: str, count: int) -> str:
@@ -287,6 +360,8 @@ def character_list_source(connection: sqlite3.Connection) -> str:
         "* [[list_of_fate_extra_characters]]",
         "* [[list_of_fate_apocrypha_characters]]",
         "* [[list_of_fate_grand_order_characters]]",
+        "* [[list_of_lord_el-melloi_ii_case_files_characters]]",
+        "* [[list_of_fate_strange_fake_characters]]",
     ])
     lines += [
         "[h2]Related terminology and equipment[/h2]",
@@ -324,6 +399,8 @@ def main() -> None:
         if list_bytes > 60_000:
             raise ValueError(f"Central character list is too large for Gelbooru: {list_bytes:,} bytes")
         written += int(write_json(OUT, "list_of_fate_series_characters", "general", list_source, uploaded))
+        for tag, source in work_sources().items():
+            written += int(write_json(OUT / "works", tag, "copyright", source, uploaded))
         legacy = load_legacy_sections()
         for page_tag, config in BRANCH_INDEXES.items():
             source, stats = branch_index_source(connection, page_tag, config, legacy)

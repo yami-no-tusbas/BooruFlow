@@ -43,9 +43,35 @@ CORE_CASTS = {
 }
 
 CHARACTERS = {
-    "tohsaka_rin": "Rin Tohsaka is one of the three heroines of Fate/stay night and the Master of Archer in the Fifth Holy Grail War. She is the heir to the Tohsaka line, an accomplished magus specializing in jewel magecraft, and Shirou's classmate. Her role changes substantially between the Fate, Unlimited Blade Works and Heaven's Feel routes.",
-    "matou_sakura": "Sakura Matou is one of the three heroines of Fate/stay night, Shirou's underclassman and the central heroine of Heaven's Feel. Born Sakura Tohsaka, she was adopted by the Matou family and subjected to its magecraft training. Her ordinary appearance and her Dark Sakura form must be tagged separately when identifiable.",
-    "emiya_shirou": "Shirou Emiya is the protagonist of Fate/stay night, the adopted son of Kiritsugu Emiya and a survivor of the Fuyuki fire. His ideal of becoming a hero of justice, his unusual projection magecraft and his relationship with Saber, Rin and Sakura shape the three routes.",
+    "fate_stay_night": {
+        "tohsaka_rin": "Rin Tohsaka is one of the three heroines of Fate/stay night and the Master of Archer in the Fifth Holy Grail War. She is the heir to the Tohsaka line, an accomplished magus specializing in jewel magecraft, and Shirou's classmate. Her role changes substantially between the Fate, Unlimited Blade Works and Heaven's Feel routes.",
+        "matou_sakura": "Sakura Matou is one of the three heroines of Fate/stay night, Shirou's underclassman and the central heroine of Heaven's Feel. Born Sakura Tohsaka, she was adopted by the Matou family and subjected to its magecraft training. Her ordinary appearance and her Dark Sakura form must be tagged separately when identifiable.",
+        "emiya_shirou": "Shirou Emiya is the protagonist of Fate/stay night, the adopted son of Kiritsugu Emiya and a survivor of the Fuyuki fire. His ideal of becoming a hero of justice, his unusual projection magecraft and his relationship with Saber, Rin and Sakura shape the three routes.",
+        "saber_(fate)": "Saber is Shirou Emiya's Servant in Fate/stay night and the principal heroine of the Fate route. Her true identity is Artoria Pendragon, the legendary King Arthur reinterpreted as a woman. Distinguish her ordinary Saber appearance from Saber Alter, Saber Lily and later class or event variants.",
+        "archer_(fate)": "Archer is Rin Tohsaka's Servant in the Fifth Holy Grail War. Cynical, pragmatic and exceptionally skilled with projection magecraft, he is closely connected to Shirou Emiya and is central to Unlimited Blade Works.",
+        "illyasviel_von_einzbern": "Illyasviel von Einzbern, commonly called Illya, is the Einzbern Master of Berserker in the Fifth Holy Grail War. She is the daughter of Kiritsugu Emiya and Irisviel von Einzbern and an artificial Holy Grail vessel.",
+        "kotomine_kirei": "Kirei Kotomine is the supervising priest of the Fifth Holy Grail War and a major antagonist of Fate/stay night. A former Executor and participant in the previous war, he has a long and hostile connection to Kiritsugu Emiya.",
+        "fujimura_taiga": "Taiga Fujimura is Shirou's English teacher, homeroom teacher and informal guardian. Nicknamed the Tiger of Fuyuki, she provides much of the story's everyday comedy while remaining an important member of Shirou's household.",
+        "matou_shinji": "Shinji Matou is Sakura's adoptive older brother, Shirou's schoolmate and the initial apparent Master of Rider. His resentment of his family's declining magecraft and his treatment of Sakura make him an antagonist in several routes.",
+        "matou_zouken": "Zouken Matou is the ancient head of the Matou family and a principal antagonist of Heaven's Feel. He prolonged his life through parasitic crest worms and manipulated generations of his family in pursuit of the Holy Grail.",
+        "kuzuki_souichirou": "Souichirou Kuzuki is a teacher at Homurahara Academy and the Master associated with Caster. His quiet school persona conceals the combat training of a former assassin.",
+        "mitsuzuri_ayako": "Ayako Mitsuzuri is Shirou and Rin's schoolmate and captain of the archery club. She is a capable athlete and one of the principal non-magus students in the Fate/stay night cast.",
+        "sella_(fate)": "Sella is one of the homunculus attendants responsible for Illyasviel at the Einzbern castle. She is the stricter and more openly responsible counterpart to Leysritt.",
+        "leysritt_(fate)": "Leysritt is an Einzbern homunculus and one of Illyasviel's attendants. Despite her quiet and sometimes absent-minded demeanor, she possesses considerable physical strength and is closely tied to the Grail vessel system.",
+        "medea_(fate)": "Medea is the Caster-class Servant of the Fifth Holy Grail War, based on the sorceress of Greek mythology. After escaping her original Master she forms a partnership with Souichirou Kuzuki and establishes her base at Ryuudou Temple.",
+        "medusa_(rider)_(fate)": "Medusa is the Rider-class Servant summoned by Sakura Matou and initially controlled through Shinji. Her identity derives from Greek mythology, and her Mystic Eyes and Noble Phantasm Bellerophon are central to her combat appearances.",
+        "cu_chulainn_(fate/stay_night)": "Cu Chulainn is the Lancer-class Servant of the Fifth Holy Grail War. The Irish hero is a fast, direct combatant who wields Gae Bolg and is forced to serve Kirei Kotomine during the war.",
+        "gilgamesh_(fate)": "Gilgamesh is the Archer-class Servant who survived the Fourth Holy Grail War and remains in Fuyuki. Calling himself the King of Heroes, he attacks through the Gate of Babylon and plays a major antagonistic role in Fate/stay night.",
+        "heracles_(fate)": "Heracles is Illyasviel's Berserker-class Servant. His immense strength and the multiple lives granted by God Hand make him one of the most dangerous participants in the Fifth Holy Grail War.",
+        "sasaki_kojirou_(fate)": "Sasaki Kojirou is the false Assassin who guards the gate of Ryuudou Temple. Rather than a conventional Heroic Spirit, he is a nameless swordsman summoned into the role associated with the legendary Kojirou.",
+        "hassan_of_the_cursed_arm_(fate)": "Hassan of the Cursed Arm is the true Assassin summoned during Heaven's Feel. He serves Zouken Matou and uses his altered arm and Zabaniya to steal an opponent's heart.",
+    },
+    "fate_hollow_ataraxia": {
+        "bazett_fraga_mcremitz": "Bazett Fraga McRemitz is a mage of the Fraga family and the original Master assigned to Lancer. In Fate/hollow ataraxia she becomes one of the central viewpoint characters and wields the counterattack weapon Fragarach.",
+        "caren_hortensia": "Caren Hortensia is a Church executor sent to Fuyuki after the Fifth Holy Grail War and a central character of Fate/hollow ataraxia. Her unusual constitution reacts physically to nearby demonic influence.",
+        "angra_mainyu_(fate)": "Angra Mainyu is an Avenger-class Servant whose history is bound to the corruption of the Fuyuki Holy Grail. He is central to the repeating four-day world of Fate/hollow ataraxia.",
+        "luviagelita_edelfelt": "Luviagelita Edelfelt, commonly called Luvia, is a Finnish magus and rival of Rin Tohsaka. She specializes in jewel magecraft and later appears across several Fate and wider Nasuverse works.",
+    },
 }
 
 AUDIT = [
@@ -71,7 +97,7 @@ def uploaded_names() -> set[str]:
 
 
 def write_json(folder: Path, tag: str, template: str, source: str, uploaded: set[str]) -> bool:
-    filename = f"{tag}.json"
+    filename = f"{tag.replace('/', '_')}.json"
     if filename.casefold() in uploaded:
         return False
     folder.mkdir(parents=True, exist_ok=True)
@@ -130,22 +156,15 @@ def character_list_source(connection: sqlite3.Connection) -> str:
                 lines.append(f"* {styled(tag, counts[tag])}")
                 seen.add(tag)
 
-    # Keep the large and noisy tail requested by the user, but isolate it from the curated cast.
-    rows = connection.execute(
-        "SELECT name, post_count FROM tags WHERE category = 4 AND post_count >= 5 "
-        "AND (name LIKE '%(fate)%' OR name LIKE '%(fate/%' OR name LIKE '%_(fate)') ORDER BY name"
-    ).fetchall()
-    lines.append("[h2]Extended character, form and costume index[/h2]")
-    lines.append("This intentionally broad database-derived section retains alternate classes, ascensions, costumes and music/event-specific forms. It is separated from the cast lists so these variants are not mistaken for independent principal characters.")
-    current = None
-    for name, count in rows:
-        if name in seen:
-            continue
-        letter = name[0].upper() if name and name[0].isalpha() else "#"
-        if letter != current:
-            lines.append(f"[h3]{letter}[/h3]")
-            current = letter
-        lines.append(f"* {styled(name, count)}")
+    lines.append("[h2]Branch indexes[/h2]")
+    lines.append("Costumes, ascensions, alternate classes and event-specific forms are intentionally kept out of this central page so it remains readable and fits Gelbooru's wiki body limit. They will be maintained in branch-specific indexes as each part of the franchise is audited.")
+    lines.extend([
+        "* [[list_of_fate_stay_night_characters]]",
+        "* [[list_of_fate_zero_characters]]",
+        "* [[list_of_fate_extra_characters]]",
+        "* [[list_of_fate_apocrypha_characters]]",
+        "* [[list_of_fate_grand_order_characters]]",
+    ])
     lines += [
         "[h2]Related terminology and equipment[/h2]",
         "The former page interleaved weapons, Noble Phantasms, classes and memes with people. Those subjects should be maintained in dedicated indexes; useful starting tags include [[command_spell]], [[holy_grail_(fate)]], [[saber_class_(fate)]], [[archer_class_(fate)]], [[lancer_class_(fate)]], [[rider_class_(fate)]], [[caster_class_(fate)]], [[assassin_class_(fate)]] and [[berserker_class_(fate)]].",
@@ -156,10 +175,14 @@ def character_list_source(connection: sqlite3.Connection) -> str:
     return "\n".join(lines)
 
 
-def character_source(tag: str, description: str) -> str:
+def character_source(tag: str, source: str, description: str) -> str:
+    copyright_tag = {
+        "fate_stay_night": "fate/stay_night",
+        "fate_hollow_ataraxia": "fate/hollow_ataraxia",
+    }[source]
     return "\n".join([
         "[b]Description:[/b]", description,
-        "[h2]Related tags[/h2]", f"* [[{tag}]]", "* [[fate/stay_night]]", "* [[fate_(series)]]",
+        "[h2]Related tags[/h2]", f"* [[{tag}]]", f"* [[{copyright_tag}]]", "* [[fate_(series)]]",
         "[h2]Tagging notes[/h2]",
         f"Use [[{tag}]] for the character. Add the precise work, route-specific form and established costume tags when identifiable.",
         "[h2]External links[/h2]",
@@ -172,16 +195,21 @@ def main() -> None:
     uploaded = uploaded_names()
     with sqlite3.connect(DB) as connection:
         written = int(write_json(OUT, "fate_(series)", "copyright", portal_source(), uploaded))
-        written += int(write_json(OUT, "list_of_fate_series_characters", "general", character_list_source(connection), uploaded))
-        for tag, description in CHARACTERS.items():
-            written += int(write_json(OUT / "characters" / "fate_stay_night", tag, "character", character_source(tag, description), uploaded))
+        list_source = character_list_source(connection)
+        list_bytes = len(compact(list_source).encode("utf-8"))
+        if list_bytes > 60_000:
+            raise ValueError(f"Central character list is too large for Gelbooru: {list_bytes:,} bytes")
+        written += int(write_json(OUT, "list_of_fate_series_characters", "general", list_source, uploaded))
+        for source, characters in CHARACTERS.items():
+            for tag, description in characters.items():
+                written += int(write_json(OUT / "characters" / source, tag, "character", character_source(tag, source, description), uploaded))
 
     OUT.mkdir(parents=True, exist_ok=True)
     with (OUT / "wiki_audit.tsv").open("w", encoding="utf-8", newline="") as stream:
         writer = csv.writer(stream, delimiter="\t")
         writer.writerow(["tag", "status", "last_update", "action"])
         writer.writerows(AUDIT)
-    print(f"Fate drafts written: {written}; uploaded exclusions: {len(uploaded)}")
+    print(f"Fate drafts written: {written}; central list: {list_bytes:,} bytes; uploaded exclusions: {len(uploaded)}")
 
 
 if __name__ == "__main__":

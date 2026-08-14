@@ -146,6 +146,8 @@ def character_list_source(connection: sqlite3.Connection) -> str:
     lines = [
         "This page is a consolidated index of characters and character-specific variants used across [[fate_(series)]]. A character is first listed under the branch where the version became prominent; appearances in later crossovers are not repeated unless Gelbooru has a distinct tag.",
         "",
+        "[b]About this index:[/b] Fate has too many character, costume, class and event-form tags to fit safely into a single Gelbooru wiki article. An earlier exhaustive draft exceeded the database limit for the wiki body and was rejected with a 'Data too long' error. This central page therefore presents the principal casts and links to branch-specific indexes, where the complete lists and variants can be maintained without exceeding Gelbooru's storage limit.",
+        "",
         "[b]Legend:[/b] [b]bold[/b] = 10,000+ posts; [i]italic[/i] = 1,000+ posts; * = fewer than 50 posts; ** = fewer than 25 posts. Counts come from the local Gelbooru tag database and are discovery aids, not exact franchise totals.",
     ]
     seen: set[str] = set()

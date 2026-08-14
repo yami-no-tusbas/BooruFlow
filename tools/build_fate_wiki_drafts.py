@@ -11,6 +11,48 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 DB = ROOT / "data/databases/g_tags_260810.db"
 OUT = ROOT / "var/wiki_drafts/Fate"
+LEGACY_SECTIONS = ROOT / "tools/data/fate_legacy_sections.json"
+
+BRANCH_INDEXES = {
+    "list_of_fate_stay_night_characters": {
+        "title": "Fate/stay night",
+        "copyrights": ["fate/stay_night", "fate/hollow_ataraxia"],
+        "sections": ["Fate/Stay Night", "Fate/Hollow Ataraxia"],
+        "patterns": ["%(fate/stay_night)%"],
+    },
+    "list_of_fate_zero_characters": {
+        "title": "Fate/Zero",
+        "copyrights": ["fate/zero"],
+        "sections": ["Fate/Zero"],
+        "patterns": ["%(fate/zero)%"],
+    },
+    "list_of_fate_extra_characters": {
+        "title": "Fate/Extra and the Extraverse",
+        "copyrights": ["fate/extra", "fate/extra_ccc", "fate/extra_ccc_fox_tail", "fate/extella", "fate/extella_link"],
+        "sections": ["Fate/Extra", "Fate/Extra CCC", "Fate/Extra CCC Fox Tail", "Fate/Extella", "Fate/Extella Link"],
+        "patterns": ["%(fate/extra)%", "%(fate/extella)%"],
+    },
+    "list_of_fate_apocrypha_characters": {
+        "title": "Fate/Apocrypha",
+        "copyrights": ["fate/apocrypha"],
+        "sections": ["Fate/Apocrypha"],
+        "patterns": ["%(fate/apocrypha)%"],
+    },
+    "list_of_fate_grand_order_characters": {
+        "title": "Fate/Grand Order",
+        "copyrights": ["fate/grand_order", "fate/grand_order_arcade", "fate/grand_carnival"],
+        "sections": ["Fate/Grand Order", "Fate/Grand Order Arcade", "Fate/Grand Carnival"],
+        "patterns": ["%(fate/grand_order)%", "%(fate/grand_order_arcade)%"],
+    },
+}
+
+VARIANT_WORDS = re.compile(
+    r"(?:swimsuit|summer|santa|christmas|halloween|alter|lily|bride|first_ascension|"
+    r"second_ascension|third_ascension|costume|dress|casual_wear|corrupted|adult|young|"
+    r"child|school_uniform|maid|idol|rider\)|saber\)|archer\)|lancer\)|caster\)|"
+    r"assassin\)|berserker\)|ruler\)|avenger\)|foreigner\)|mooncancer\)|alter_ego\))",
+    re.IGNORECASE,
+)
 
 WORKS = [
     ("Original Fate/stay night continuity", ["fate/stay_night", "fate/zero", "fate/hollow_ataraxia", "lord_el-melloi_ii_case_files", "fate/strange_fake"]),
@@ -141,6 +183,85 @@ def styled(tag: str, count: int) -> str:
     return link
 
 
+def load_legacy_sections() -> dict[str, list[str]]:
+    entries = json.loads(LEGACY_SECTIONS.read_text(encoding="utf-8"))
+    return {entry["heading"]: entry["tags"] for entry in entries}
+
+
+def branch_index_source(
+    connection: sqlite3.Connection,
+    page_tag: str,
+    config: dict[str, object],
+    legacy: dict[str, list[str]],
+) -> tuple[str, dict[str, object]]:
+    rows = connection.execute("SELECT name, post_count, category FROM tags").fetchall()
+    db = {name: (count, category) for name, count, category in rows}
+    discovered: set[str] = set()
+    historical: set[str] = set()
+    for heading in config["sections"]:
+        historical.update(legacy.get(heading, []))
+    discovered.update(tag for tag in historical if tag in db)
+
+    patterns = config["patterns"]
+    if patterns:
+        where = " OR ".join("name LIKE ?" for _ in patterns)
+        discovered.update(
+            name for name, in connection.execute(
+                f"SELECT name FROM tags WHERE category = 4 AND post_count >= 5 AND ({where})",
+                patterns,
+            )
+        )
+
+    copyrights = set(config["copyrights"])
+    characters = sorted(tag for tag in discovered if db[tag][1] == 4 and tag not in copyrights)
+    variants = [tag for tag in characters if VARIANT_WORDS.search(tag)]
+    principals = [tag for tag in characters if tag not in set(variants)]
+    related = sorted(tag for tag in discovered if db[tag][1] == 0)
+    invalid = sorted(historical - set(db))
+    database_additions = sorted(discovered - historical)
+
+    lines = [
+        f"This branch index covers the character tags associated with [[{config['copyrights'][0]}]] and its directly related works. It is split from [[list_of_fate_series_characters]] because the complete Fate index exceeds Gelbooru's wiki body storage limit.",
+        "",
+        "[b]Legend:[/b] [b]bold[/b] = 10,000+ posts; [i]italic[/i] = 1,000+ posts; * = fewer than 50 posts; ** = fewer than 25 posts. Counts are taken from the local Gelbooru tag database.",
+        "[h2]Principal and supporting characters[/h2]",
+    ]
+    lines.extend(f"* {styled(tag, db[tag][0])}" for tag in principals)
+    lines.append("[h2]Alternate classes, forms and costumes[/h2]")
+    lines.append("These are established Gelbooru character tags for identifiable variants. Use the base character tag as well when Gelbooru's current tag relationships call for it.")
+    lines.extend(f"* {styled(tag, db[tag][0])}" for tag in variants)
+    if related:
+        lines.append("[h2]Associated objects and terminology[/h2]")
+        lines.append("These non-character tags were present in the former combined index and are retained separately for discovery.")
+        lines.extend(f"* [[{tag}]]" for tag in related)
+    lines += [
+        "[h2]Related pages[/h2]",
+        "* [[fate_(series)]]",
+        "* [[list_of_fate_series_characters]]",
+    ]
+    lines.extend(f"* [[{tag}]]" for tag in config["copyrights"])
+    lines += [
+        "[h2]Maintenance notes[/h2]",
+        "This page was rebuilt from the former imported Fate character list and checked against the local Gelbooru tag database. Historical names not present as current tags were omitted instead of creating broken links.",
+        "[h2]External links[/h2]",
+        "* TYPE-MOON official website: https://typemoon.com/",
+        "* Fate/Grand Order official website: https://www.fate-go.jp/",
+    ]
+    source = "\n".join(lines)
+    stats = {
+        "characters": len(principals),
+        "variants": len(variants),
+        "related": len(related),
+        "invalid_historical": len(invalid),
+        "invalid_historical_tags": invalid,
+        "database_additions": database_additions,
+        "bytes": len(compact(source).encode("utf-8")),
+    }
+    if stats["bytes"] > 60_000:
+        raise ValueError(f"{page_tag} is too large for Gelbooru: {stats['bytes']:,} bytes")
+    return source, stats
+
+
 def character_list_source(connection: sqlite3.Connection) -> str:
     counts = dict(connection.execute("SELECT name, post_count FROM tags WHERE category = 4"))
     lines = [
@@ -195,6 +316,7 @@ def character_source(tag: str, source: str, description: str) -> str:
 
 def main() -> None:
     uploaded = uploaded_names()
+    branch_stats: dict[str, dict[str, object]] = {}
     with sqlite3.connect(DB) as connection:
         written = int(write_json(OUT, "fate_(series)", "copyright", portal_source(), uploaded))
         list_source = character_list_source(connection)
@@ -202,6 +324,11 @@ def main() -> None:
         if list_bytes > 60_000:
             raise ValueError(f"Central character list is too large for Gelbooru: {list_bytes:,} bytes")
         written += int(write_json(OUT, "list_of_fate_series_characters", "general", list_source, uploaded))
+        legacy = load_legacy_sections()
+        for page_tag, config in BRANCH_INDEXES.items():
+            source, stats = branch_index_source(connection, page_tag, config, legacy)
+            branch_stats[page_tag] = stats
+            written += int(write_json(OUT / "branch_indexes", page_tag, "general", source, uploaded))
         for source, characters in CHARACTERS.items():
             for tag, description in characters.items():
                 written += int(write_json(OUT / "characters" / source, tag, "character", character_source(tag, source, description), uploaded))
@@ -211,6 +338,9 @@ def main() -> None:
         writer = csv.writer(stream, delimiter="\t")
         writer.writerow(["tag", "status", "last_update", "action"])
         writer.writerows(AUDIT)
+    (OUT / "branch_index_report.json").write_text(
+        json.dumps(branch_stats, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+    )
     print(f"Fate drafts written: {written}; central list: {list_bytes:,} bytes; uploaded exclusions: {len(uploaded)}")
 
 

@@ -8,6 +8,7 @@ from PySide6.QtCore import Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
     QGroupBox,
@@ -15,6 +16,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSpinBox,
     QVBoxLayout,
     QWidget,
 )
@@ -83,6 +85,7 @@ class OptionsPage(QWidget):
     ) -> None:
         super().__init__(parent)
         self.catalog = catalog
+        self._settings = dict(settings or {})
         self._credentials = {
             "gelbooru": self._site_credentials(credentials, "gelbooru"),
             "e621": self._site_credentials(credentials, "e621"),
@@ -148,6 +151,21 @@ class OptionsPage(QWidget):
         path_form.addRow(self.grabber_directory_label, self.grabber_directory)
         path_form.addRow(self.output_root_label, self.output_root)
         layout.addWidget(self.paths_group)
+        self.image_analysis_group = QGroupBox()
+        image_analysis_form = QFormLayout(self.image_analysis_group)
+        self.download_prefetch_label = QLabel(); self.download_prefetch = QSpinBox()
+        self.download_prefetch.setRange(1, 100)
+        self.analysis_prefetch_label = QLabel(); self.analysis_prefetch = QSpinBox()
+        self.analysis_prefetch.setRange(1, 10)
+        self.wd14_enabled = QCheckBox("WD14 local")
+        self.wd14_threshold_label = QLabel("Seuil d’affichage WD14")
+        self.wd14_threshold = QDoubleSpinBox(); self.wd14_threshold.setRange(0, 1)
+        self.wd14_threshold.setDecimals(2); self.wd14_threshold.setSingleStep(0.05)
+        image_analysis_form.addRow(self.download_prefetch_label, self.download_prefetch)
+        image_analysis_form.addRow(self.analysis_prefetch_label, self.analysis_prefetch)
+        image_analysis_form.addRow("", self.wd14_enabled)
+        image_analysis_form.addRow(self.wd14_threshold_label, self.wd14_threshold)
+        layout.addWidget(self.image_analysis_group)
         self.note = QLabel()
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
@@ -176,11 +194,17 @@ class OptionsPage(QWidget):
 
     def _load_settings(self, settings: dict[str, object]) -> None:
         index = self.language.findData(str(settings.get("language", "en")))
-        self.language.setCurrentIndex(index if index >= 0 else 0)
+        self.language.setCurrentIndex(max(index, 0))
         self.gelbooru_database.edit.setText(str(settings.get("gelbooru_database", "")))
         self.e621_database.edit.setText(str(settings.get("e621_database", "")))
         self.grabber_directory.edit.setText(str(settings.get("grabber_directory", "")))
         self.output_root.edit.setText(str(settings.get("output_root", "")))
+        self.download_prefetch.setValue(int(settings.get("image_analysis_download_prefetch", 10)))
+        self.analysis_prefetch.setValue(int(settings.get("image_analysis_analysis_prefetch", 2)))
+        self.wd14_enabled.setChecked(bool(settings.get("image_analysis_wd14_enabled", True)))
+        self.wd14_threshold.setValue(float(
+            settings.get("image_analysis_wd14_display_threshold", 0.30)
+        ))
 
     def _capture_credentials(self, site: str) -> None:
         self._credentials[site] = {
@@ -203,11 +227,18 @@ class OptionsPage(QWidget):
     def _save(self) -> None:
         self._capture_credentials(self._current_site)
         settings = {
+            **self._settings,
             "language": str(self.language.currentData()),
             "gelbooru_database": self.gelbooru_database.edit.text().strip(),
             "e621_database": self.e621_database.edit.text().strip(),
             "grabber_directory": self.grabber_directory.edit.text().strip(),
             "output_root": self.output_root.edit.text().strip(),
+            "image_analysis_download_prefetch": self.download_prefetch.value(),
+            "image_analysis_analysis_prefetch": self.analysis_prefetch.value(),
+            "image_analysis_worker_heartbeat_interval": 2,
+            "image_analysis_worker_stale_timeout": 15,
+            "image_analysis_wd14_enabled": self.wd14_enabled.isChecked(),
+            "image_analysis_wd14_display_threshold": self.wd14_threshold.value(),
         }
         self.save_requested.emit(settings, self._credentials)
 
@@ -222,6 +253,9 @@ class OptionsPage(QWidget):
         self.api_key_label.setText(text("options.api_key"))
         self.show_api_key.setText(text("options.show_api_key"))
         self.paths_group.setTitle(text("options.paths"))
+        self.image_analysis_group.setTitle(text("options.image_analysis"))
+        self.download_prefetch_label.setText(text("options.download_prefetch"))
+        self.analysis_prefetch_label.setText(text("options.analysis_prefetch"))
         self.gelbooru_database_label.setText(text("options.gelbooru_database"))
         self.e621_database_label.setText(text("options.e621_database"))
         self.grabber_directory_label.setText(text("options.grabber_folder"))

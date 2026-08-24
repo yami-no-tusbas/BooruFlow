@@ -26,6 +26,7 @@ from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.settings import JsonSettingsRepository
 from booruflow.presentation.pyside6.tagging_controller import TaggingController
 from booruflow.presentation.pyside6.tagging_page import TaggingPage
+from booruflow.presentation.pyside6.ui_logging import sanitize_log_text
 
 
 def project_root() -> Path:
@@ -187,7 +188,7 @@ class StandaloneTaggingWindow(QMainWindow):
 
     def log(self, message: str) -> None:
         self.log_view.appendPlainText(
-            f"[{datetime.now():%H:%M:%S}] {message}"  # noqa: DTZ005 - local UI clock
+            f"[{datetime.now():%H:%M:%S}] {sanitize_log_text(message)}"  # noqa: DTZ005
         )
 
 

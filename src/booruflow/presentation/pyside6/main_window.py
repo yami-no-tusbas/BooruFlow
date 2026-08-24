@@ -33,6 +33,8 @@ from booruflow.presentation.pyside6.database_update_controller import DatabaseUp
 from booruflow.presentation.pyside6.grabber_controller import GrabberController
 from booruflow.presentation.pyside6.grabber_page import GrabberPage
 from booruflow.presentation.pyside6.icons import navigation_icon
+from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
 from booruflow.presentation.pyside6.options_page import OptionsPage
 from booruflow.presentation.pyside6.organization_controller import (
     OrganizationCoordinator,
@@ -43,11 +45,14 @@ from booruflow.presentation.pyside6.review_controller import (
     ReviewCoordinator,
 )
 from booruflow.presentation.pyside6.review_page import ReviewPage
+from booruflow.presentation.pyside6.similar_artists_controller import SimilarArtistsController
+from booruflow.presentation.pyside6.similar_artists_page import SimilarArtistsPage
 from booruflow.presentation.pyside6.tag_browser_page import TagBrowserPage
 from booruflow.presentation.pyside6.tagging_controller import TaggingController
 from booruflow.presentation.pyside6.tagging_page import TaggingPage
 from booruflow.presentation.pyside6.task_manager import TaskManager
 from booruflow.presentation.pyside6.task_page import TaskPage
+from booruflow.presentation.pyside6.ui_logging import sanitize_log_text
 from booruflow.presentation.pyside6.wiki_page import WikiPage
 
 
@@ -56,6 +61,8 @@ class MainWindow(QMainWindow):
         "home",
         "review",
         "tagging",
+        "image_analysis",
+        "similar_artists",
         "organization",
         "tag_browser",
         "wiki",
@@ -75,14 +82,18 @@ class MainWindow(QMainWindow):
         task_repository: TaskRepository | None = None,
         project_root: Path | None = None,
         python_executable: str | None = None,
+        start_image_worker: bool = True,
     ) -> None:
         super().__init__(parent)
+        self._early_logs: list[str] = []
         self.capabilities = capabilities
         self.catalog = catalog
         self.settings_repository = settings_repository
         self.credentials_repository = credentials_repository
         self.task_manager = TaskManager(task_repository or MemoryTaskRepository(), self)
         self.project_root = project_root or Path.cwd()
+        self.disk_log_path = self.project_root / "var" / "logs" / "booruflow.log"
+        self.disk_log_path.parent.mkdir(parents=True, exist_ok=True)
         self.python_executable = python_executable or sys.executable
         self.taxonomy_repository = TaxonomyRepository(
             self.project_root / "data" / "taxonomy" / "tag_organization.json",
@@ -111,7 +122,7 @@ class MainWindow(QMainWindow):
             self.pages.addWidget(ScrollablePageHost(page))
 
         dashboard = DashboardPage(catalog, capabilities.grabber)
-        dashboard.navigate_requested.connect(self.navigate_to)
+        dashboard.navigate_requested.connect(self.navigate_to_key)
         add_page(dashboard)
         self.review_page = ReviewPage(catalog, settings)
         self.review_coordinator = ReviewCoordinator(
@@ -144,6 +155,19 @@ class MainWindow(QMainWindow):
         self.tagging_page.start_requested.connect(self.tagging_controller.start)
         self.tagging_page.stop_requested.connect(self.tagging_controller.stop)
         add_page(self.tagging_page)
+        self.image_analysis_page = ImageAnalysisPage(catalog)
+        self.image_analysis_controller = ImageAnalysisController(
+            self.project_root, self.python_executable, self.image_analysis_page,
+            settings, self._credentials, self.log, start_image_worker, self,
+        )
+        self.tagging_controller.bind_image_analysis(self.image_analysis_controller)
+        add_page(self.image_analysis_page)
+        self.similar_artists_page = SimilarArtistsPage(catalog)
+        self.similar_artists_controller = SimilarArtistsController(
+            self.project_root, self.similar_artists_page, self.image_analysis_controller,
+            self.log, self.task_manager, self,
+        )
+        add_page(self.similar_artists_page)
         self.organization_page = OrganizationPage(catalog, self.taxonomy_repository.load())
         self.organization_coordinator = OrganizationCoordinator(
             self.project_root,
@@ -246,6 +270,9 @@ class MainWindow(QMainWindow):
         self.log_view.setMinimumHeight(120)
         self.log_view.setMaximumHeight(190)
         self.log_view.hide()
+        for early_message in self._early_logs:
+            self.log_view.appendPlainText(early_message)
+        self._early_logs.clear()
         central = QWidget()
         central_layout = QVBoxLayout(central)
         central_layout.setContentsMargins(8, 8, 8, 4)
@@ -296,6 +323,8 @@ class MainWindow(QMainWindow):
     def _navigation_changed(self, index: int) -> None:
         if index >= 0:
             self.pages.setCurrentIndex(index)
+            if hasattr(self,"image_analysis_controller"):
+                self.image_analysis_controller.set_page_active(self.NAVIGATION_KEYS[index]=="image_analysis")
             self._update_status()
 
     def _update_status(self) -> None:
@@ -409,6 +438,15 @@ class MainWindow(QMainWindow):
         self.log_button.setText(self.catalog.text("log.hide" if visible else "log.show"))
 
     def log(self, message: str) -> None:
-        self.log_view.appendPlainText(
-            f"[{datetime.now():%H:%M:%S}] {message}"  # noqa: DTZ005 - local UI clock
-        )
+        formatted = f"[{datetime.now():%H:%M:%S}] {sanitize_log_text(message)}"  # noqa: DTZ005
+        with self.disk_log_path.open("a", encoding="utf-8", buffering=1) as stream:
+            stream.write(formatted + "\n")
+        if hasattr(self, "log_view"):
+            self.log_view.appendPlainText(formatted)
+        else:
+            self._early_logs.append(formatted)
+
+    def closeEvent(self, event) -> None:
+        self.similar_artists_controller.shutdown()
+        self.image_analysis_controller.shutdown()
+        super().closeEvent(event)

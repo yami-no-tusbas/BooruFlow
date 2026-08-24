@@ -55,11 +55,10 @@ class ScrollablePageHost(QScrollArea):
 class FeatureCard:
     navigation_key: str
     description_key: str
-    target_index: int
 
 
 class DashboardPage(QWidget):
-    navigate_requested = Signal(int)
+    navigate_requested = Signal(str)
 
     def __init__(
         self,
@@ -85,14 +84,16 @@ class DashboardPage(QWidget):
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(14)
         cards = (
-            FeatureCard("review", "home.review", 1),
-            FeatureCard("tagging", "home.tagging", 2),
-            FeatureCard("organization", "home.organization", 3),
-            FeatureCard("tag_browser", "home.tag_browser", 4),
-            FeatureCard("wiki", "home.wiki", 5),
-            FeatureCard("cleanup", "home.cleanup", 6),
-            FeatureCard("options", "home.options", 7),
-            FeatureCard("grabber", "home.grabber", 8),
+            FeatureCard("review", "home.review"),
+            FeatureCard("tagging", "home.tagging"),
+            FeatureCard("image_analysis", "home.image_analysis"),
+            FeatureCard("similar_artists", "home.similar_artists"),
+            FeatureCard("organization", "home.organization"),
+            FeatureCard("tag_browser", "home.tag_browser"),
+            FeatureCard("wiki", "home.wiki"),
+            FeatureCard("cleanup", "home.cleanup"),
+            FeatureCard("options", "home.options"),
+            FeatureCard("grabber", "home.grabber"),
         )
         for position, card in enumerate(cards):
             grid.addWidget(self._card(card), position // 2, position % 2)
@@ -114,7 +115,7 @@ class DashboardPage(QWidget):
         description.setWordWrap(True)
         button = QPushButton()
         button.clicked.connect(
-            lambda _checked=False, index=card.target_index: self.navigate_requested.emit(index)
+            lambda _checked=False, key=card.navigation_key: self.navigate_requested.emit(key)
         )
         row = QHBoxLayout()
         row.addStretch(1)

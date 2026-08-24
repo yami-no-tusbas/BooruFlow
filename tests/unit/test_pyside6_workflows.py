@@ -43,6 +43,318 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertTrue(critical.content.isHidden())
         page.close()
 
+    def test_tagging_local_review_selection_shortcuts_and_copy_lists(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        page.show()
+        QApplication.processEvents()
+        page.show_local_review(
+            "Analyse disponible", None, ["solo"],
+            [{"id": 17, "tag": "blue_hair", "confidence": "0.900",
+              "decision": "unreviewed", "match": "exact"}],
+            ["blue_hair"], ["blue_hair", "unknown_tag"],
+        )
+        captured = []
+        page.decision_requested.connect(lambda oid, state: captured.append((oid, state)))
+        page.suggestions.selectRow(0); page.suggestions.setFocus()
+        QTest.keyClick(page.suggestions, Qt.Key.Key_A)
+        self.assertEqual(captured, [(17, "accepted")])
+        QTest.keyClick(page.suggestions, Qt.Key.Key_R)
+        self.assertEqual(captured[-1], (17, "rejected"))
+        page.copy_button.click()
+        self.assertEqual(QApplication.clipboard().text(), " blue_hair")
+        page.copy_all_button.click()
+        self.assertEqual(QApplication.clipboard().text(), " blue_hair unknown_tag")
+        self.assertEqual(page.zoom.itemData(3), 400)
+        page.close()
+
+    def test_tagging_selects_first_then_advances_in_visible_order(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        page.show(); QApplication.processEvents()
+        rows = [
+            {"id": oid, "tag": tag, "confidence": confidence,
+             "decision": "unreviewed", "match": "exact"}
+            for oid, tag, confidence in ((30, "c", "0.3"), (10, "a", "0.9"), (20, "b", "0.6"))
+        ]
+        page.show_local_review("Analyse disponible", None, [], rows, [], [])
+        self.assertEqual(page._selected_observation_id(), 10)
+        page._emit_decision("accepted")
+        page.show_local_review("Analyse disponible", None, [], [rows[0], rows[2]], [], [])
+        self.assertEqual(page._selected_observation_id(), 20)
+        page._emit_decision("rejected")
+        page.show_local_review("Analyse disponible", None, [], [rows[0]], [], [])
+        self.assertEqual(page._selected_observation_id(), 30)
+        page._emit_decision("accepted")
+        page.show_local_review("Analyse disponible", None, [], [], [], [])
+        self.assertIsNone(page._selected_observation_id())
+        page.close()
+
+    def test_tagging_suggestion_sorting_and_decision_filters(self) -> None:
+        from PySide6.QtCore import Qt
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        rows = [
+            {"id": 1, "tag": "zeta", "confidence": "0.100", "decision": "accepted", "match": "mapping → z"},
+            {"id": 2, "tag": "Alpha", "confidence": "0.950", "decision": "unreviewed", "match": "introuvable localement"},
+            {"id": 3, "tag": "beta", "confidence": "0.800", "decision": "rejected", "match": "déjà présent"},
+            {"id": 4, "tag": "gamma", "confidence": "0.700", "decision": "unreviewed", "match": "exact"},
+        ]
+        page.show_local_review("Analyse disponible", None, [], rows, [], [])
+        self.assertEqual(page.decision_filter.currentData(), "unreviewed")
+        self.assertEqual([page.suggestions.item(r, 4).text() for r in range(2)], ["2", "4"])
+
+        page.decision_filter.setCurrentIndex(0)
+        cases = (
+            (0, ["Alpha", "beta", "gamma", "zeta"]),
+            (1, ["0.100", "0.700", "0.800", "0.950"]),
+            (2, ["unreviewed", "unreviewed", "accepted", "rejected"]),
+            (3, ["exact", "mapping → z", "déjà présent", "introuvable localement"]),
+        )
+        for column, expected in cases:
+            page.suggestions.sortItems(column, Qt.SortOrder.AscendingOrder)
+            self.assertEqual(
+                [page.suggestions.item(r, column).text() for r in range(4)], expected,
+            )
+        for index, expected_count in ((1, 2), (2, 1), (3, 1)):
+            page.decision_filter.setCurrentIndex(index)
+            self.assertEqual(page.suggestions.rowCount(), expected_count)
+        page.close()
+
+    def test_tagging_existing_pending_and_failed_are_not_automatically_requeued(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.domain.image_analysis import AnalysisState
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        controller = TaggingController(self.catalog(), page, dict, lambda *_args, **_kwargs: None)
+        items = {
+            "8": SimpleNamespace(id=8, state=AnalysisState.PENDING, cached_path=None, last_error=None),
+            "9": SimpleNamespace(id=9, state=AnalysisState.FAILED, cached_path=None, last_error="boom"),
+        }
+        added = []
+        repository = SimpleNamespace(
+            item_by_remote_source=lambda _site, post_id: items.get(post_id),
+            source_tags=lambda _item_id: (), observations=lambda _item_id: [],
+        )
+        controller.image_analysis = SimpleNamespace(
+            repository=repository, add_remote_ids=lambda *_args, **_kwargs: added.append(True),
+            settings={},
+        )
+        page._select_post({"id": 8, "tags": "solo"})
+        self.assertIn("attente", page.analysis_state.text())
+        self.assertFalse(page.analyze_button.isEnabled())
+        page._select_post({"id": 9, "tags": "solo"})
+        self.assertIn("boom", page.analysis_state.text())
+        self.assertEqual(page.analyze_button.text(), "Réessayer")
+        self.assertTrue(page.analyze_button.isEnabled())
+        self.assertEqual(added, [])
+        page.close()
+
+    def test_tagging_pool_selected_skipped_reopens_without_model_run(self) -> None:
+        from types import SimpleNamespace
+        from booruflow.domain.image_analysis import AnalysisItem, AnalysisState, InputKind, SourceReference
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+        with tempfile.TemporaryDirectory() as temporary:
+            repository=ImageAnalysisRepository(Path(temporary)/"state.sqlite");item_id=repository.add_item(AnalysisItem(SourceReference(InputKind.LOCAL_FILE,original_path=Path("x.png")),cached_path=Path("x.png"),content_sha256="f"*64,mime_type="image/png",width=1,height=1));repository.transition(item_id,AnalysisState.PROCESSING);repository.transition(item_id,AnalysisState.READY_FOR_REVIEW);repository.finish_review(item_id,AnalysisState.SKIPPED);repository.add_to_tagging_pool([item_id],"test")
+            page=TaggingPage(self.catalog(), {});controller=TaggingController(self.catalog(),page,dict,lambda *_args,**_kwargs:None);controller.image_analysis=SimpleNamespace(repository=repository);controller.refresh_pool();page.pool_table.selectRow(0);page.pool_reopen.click();self.app.processEvents()
+            self.assertEqual(repository.get_item(item_id).state,AnalysisState.READY_FOR_REVIEW);self.assertEqual(repository.connection.execute("SELECT COUNT(*) FROM model_runs").fetchone()[0],0);page.close();repository.close()
+
+    def test_tagging_space_opens_and_empty_copy_does_not_replace_clipboard(self) -> None:
+        from PySide6.QtCore import QCoreApplication, QEvent, Qt
+        from PySide6.QtGui import QKeyEvent
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        page.current_post_id = 42
+        page.show(); QApplication.processEvents()
+        page.show_local_review("Analyse disponible", None, [], [], [], [])
+        QApplication.clipboard().setText("unchanged")
+        with patch("booruflow.presentation.pyside6.tagging_page.QDesktopServices.openUrl") as opened:
+            page.suggestions.setFocus()
+            QTest.keyClick(page.suggestions, Qt.Key.Key_Space)
+            self.assertEqual(opened.call_count, 1)
+            repeated = QKeyEvent(
+                QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier,
+                " ", True, 2,
+            )
+            QCoreApplication.sendEvent(page.suggestions, repeated)
+            self.assertEqual(opened.call_count, 1)
+        self.assertEqual(QApplication.clipboard().text(), "unchanged")
+        page.query.setFocus(); page.query.clear()
+        with patch("booruflow.presentation.pyside6.tagging_page.QDesktopServices.openUrl") as opened:
+            QTest.keyClick(page.query, Qt.Key.Key_Space)
+            self.assertEqual(page.query.text(), " ")
+            opened.assert_not_called()
+        page.close()
+
+    def test_second_tagging_result_enters_pending_then_ready_review(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.domain.image_analysis import AnalysisState
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        logs = []
+        controller = TaggingController(self.catalog(), page, dict, logs.append)
+        items = {
+            "1": SimpleNamespace(
+                id=1, state=AnalysisState.REVIEWED, cached_path=None, last_error=None,
+            )
+        }
+        repository = SimpleNamespace(
+            item_by_remote_source=lambda _site, post_id: items.get(post_id),
+            item_queue_visible=lambda _item_id: False,
+            source_tags=lambda _item_id: (), observations=lambda _item_id: [],
+        )
+        def add_remote(_site, post_ids, **_kwargs):
+            items[post_ids[0]] = SimpleNamespace(
+                id=2, state=AnalysisState.PENDING, cached_path=None, last_error=None,
+            )
+            return [2]
+        controller.image_analysis = SimpleNamespace(
+            repository=repository, add_remote_ids=add_remote, settings={},
+        )
+        page._select_post({"id": 1, "tags": "solo"})
+        self.assertIn("cache réutilisé", page.analysis_state.text())
+        with patch("booruflow.presentation.pyside6.tagging_page.QDesktopServices.openUrl"):
+            page._copy_and_open()
+        page._select_post({"id": 2, "tags": "solo"})
+        self.assertIn("Analyse en attente", page.analysis_state.text())
+        items["2"].state = AnalysisState.READY_FOR_REVIEW
+        controller._poll_current()
+        self.assertEqual(page.analysis_state.text(), "Analyse disponible")
+        joined = "\n".join(logs)
+        self.assertIn("Local analysis requested", joined)
+        self.assertIn("No existing item found", joined)
+        self.assertIn("ready_for_review", joined)
+        page.close()
+
+    def test_tagging_search_and_review_are_mutually_exclusive_and_restore_scroll(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        page.resize(1280, 720); page.show(); QApplication.processEvents()
+        posts = [
+            {"id": value, "tag_count": 4, "priority": "critical", "tags": "solo"}
+            for value in range(1, 14)
+        ]
+        page.show_results(posts); QApplication.processEvents()
+        self.assertIs(page.mode_stack.currentWidget(), page.search_view)
+        self.assertTrue(page.search_view.isVisible()); self.assertFalse(page.review.isVisible())
+        page.results_scroll.verticalScrollBar().setValue(80)
+        page._open_result(3); QApplication.processEvents()
+        self.assertIs(page.mode_stack.currentWidget(), page.review)
+        self.assertFalse(page.search_view.isVisible()); self.assertTrue(page.review.isVisible())
+        self.assertIn("Post 4 / 13", page.result_counter.text())
+        page.next_button.click(); self.assertEqual(page.current_post_id, 5)
+        page.previous_button.click(); self.assertEqual(page.current_post_id, 4)
+        page.suggestions.setFocus(); QTest.keyClick(page.suggestions, Qt.Key.Key_Escape)
+        self.assertIs(page.mode_stack.currentWidget(), page.search_view)
+        page._open_result(3)
+        page.show_search(); QApplication.processEvents()
+        self.assertEqual(page.results_scroll.verticalScrollBar().value(), page._search_scroll_value)
+        self.assertEqual(len(page.result_posts), 13)
+        page.close()
+
+    def test_tagging_review_navigation_and_space_advance_then_finish(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        posts = [
+            {"id": value, "tag_count": 4, "priority": "critical", "tags": "solo"}
+            for value in (10, 20)
+        ]
+        page.show_results(posts); page._open_result(0); page.show_local_review(
+            "Analyse disponible", None, [], [], ["chair"], ["chair"]
+        )
+        with patch("booruflow.presentation.pyside6.tagging_page.QDesktopServices.openUrl") as opened:
+            page.suggestions.setFocus(); QTest.keyClick(page.suggestions, Qt.Key.Key_Space)
+            self.assertEqual(opened.call_count, 1)
+            self.assertEqual(page.current_post_id, 20)
+            self.assertIs(page.mode_stack.currentWidget(), page.review)
+            page.show_local_review("Analyse disponible", None, [], [], ["indoors"], ["indoors"])
+            QTest.keyClick(page.suggestions, Qt.Key.Key_Space)
+            self.assertEqual(opened.call_count, 2)
+        self.assertIs(page.mode_stack.currentWidget(), page.search_view)
+        self.assertIn("Tous les résultats", page.state.text())
+        self.assertEqual(page.processed_in_session, {10, 20})
+        page.close()
+
+    def test_tagging_review_action_bar_stays_inside_1280_by_720(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {}); page.show()
+        page._select_post({"id": 42, "tags": "solo blue_hair"})
+        page.show_local_review("Analyse disponible", None, ["solo"], [], [], [])
+        for width, height in ((1280, 720), (1600, 900), (1920, 1080)):
+            page.resize(width, height); QApplication.processEvents()
+            bottom = page.action_bar.mapTo(page, page.action_bar.rect().bottomLeft()).y()
+            self.assertTrue(page.action_bar.isVisible())
+            self.assertGreater(page.action_bar.height(), 0)
+            self.assertLessEqual(bottom, page.rect().bottom())
+            self.assertEqual(page.mode_stack.currentWidget(), page.review)
+            for button in (
+                page.analyze_button, page.accept_button, page.reject_button,
+                page.copy_open_button, page.open_button,
+            ):
+                self.assertGreater(button.width(), 0, button.text())
+                self.assertGreater(button.height(), 0, button.text())
+        page.close()
+
+    def test_tagging_non_analyzed_action_becomes_ready_with_first_suggestion_selected(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {}); page.show(); QApplication.processEvents()
+        requested = []; page.analyze_requested.connect(requested.append)
+        page._select_post({"id": 147, "tags": "solo"})
+        page.show_local_review("Non analysée", None, ["solo"], [], [], [])
+        self.assertTrue(page.analyze_button.isVisible()); self.assertTrue(page.analyze_button.isEnabled())
+        self.assertFalse(page.accept_button.isEnabled()); self.assertFalse(page.reject_button.isEnabled())
+        page.analyze_button.click(); self.assertEqual(requested, [147])
+        page.set_analysis_request_state("Analyse en attente…", True)
+        self.assertFalse(page.analyze_button.isEnabled())
+        page.show_local_review(
+            "Analyse disponible", None, ["solo"],
+            [{"id": 9, "tag": "chair", "confidence": "0.9",
+              "decision": "unreviewed", "match": "exact"}],
+            ["chair"], ["chair"],
+        )
+        self.assertEqual(page._selected_observation_id(), 9)
+        self.assertTrue(page.accept_button.isEnabled()); self.assertTrue(page.reject_button.isEnabled())
+        self.assertTrue(page.map_button.isEnabled()); self.assertTrue(page.copy_button.isEnabled())
+        self.assertTrue(page.copy_open_button.isEnabled()); self.assertTrue(page.open_button.isEnabled())
+        page.close()
+
     def test_tag_browser_sorts_post_counts_as_numbers(self) -> None:
         from PySide6.QtCore import Qt
 

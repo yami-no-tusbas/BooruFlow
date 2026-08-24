@@ -27,6 +27,19 @@ def initial_settings(root: Path) -> dict[str, object]:
         "e621_database": str(root / "data" / "databases" / "e621_tags.db"),
         "grabber_directory": "",
         "output_root": str(root / "var" / "results"),
+        "image_analysis_download_prefetch": 10,
+        "image_analysis_analysis_prefetch": 2,
+        "image_analysis_worker_heartbeat_interval": 2,
+        "image_analysis_worker_stale_timeout": 15,
+        "image_analysis_wd14_enabled": True,
+        "image_analysis_wd14_model_id": "SmilingWolf/wd-vit-tagger-v3",
+        "image_analysis_wd14_model_directory": str(
+            root / "var" / "models" / "image_analysis" / "wd-vit-tagger-v3"
+        ),
+        "image_analysis_wd14_store_threshold": 0.10,
+        "image_analysis_wd14_display_threshold": 0.30,
+        "image_analysis_worker_recycle_after": 100,
+        "image_analysis_drop_confirmation_threshold": 250,
     }
 
 

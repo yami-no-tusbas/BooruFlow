@@ -5,11 +5,24 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtWidgets import QInputDialog, QMessageBox
 
-from booruflow.application.tagging import TaggingRequest
-from booruflow.infrastructure.gelbooru_tagging import GelbooruTaggingScanner
+from booruflow.application.tagging import (
+    LocalMatchState,
+    TaggingRequest,
+    analysis_resume_action,
+    is_rating_observation,
+    match_local_tag,
+    tags_to_add,
+)
+from booruflow.domain.image_analysis import DecisionState
+from booruflow.infrastructure.gelbooru_tagging import GelbooruTaggingScanner, post_tags
+from booruflow.infrastructure.image_sources import GelbooruPostProvider, ImageSourceError
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.infrastructure.tag_browser import TagSearch, search_tags
+from booruflow.infrastructure.tag_category_lookup import LocalTagCategoryLookup
 from booruflow.presentation.pyside6.task_manager import TaskManager
+from booruflow.presentation.pyside6.ui_logging import log_event
 
 
 class TaggingWorker(QThread):
@@ -56,6 +69,265 @@ class TaggingController(QObject):
         self.task_manager = task_manager
         self.task_id: str | None = None
         self.worker: TaggingWorker | None = None
+        self.image_analysis = None
+        self.current_post_id: int | None = None
+        self.current_post: dict = {}
+        self._last_polled_state: tuple | None = None
+        self._requested_post_id: int | None = None
+        page.post_selected.connect(self.select_post)
+        page.analyze_requested.connect(self.analyze)
+        page.decision_requested.connect(self.decide)
+        page.mapping_requested.connect(self.map_selected)
+        page.refresh_metadata_requested.connect(self.refresh_metadata)
+        page.activity_logged.connect(self._page_activity)
+        page.pool_refresh_requested.connect(self.refresh_pool)
+        page.pool_reopen_requested.connect(self.reopen_pool_items)
+
+    def _log(self, message: str, *, level: str = "INFO", item_id: int | None = None) -> None:
+        context = f"gelbooru:{self.current_post_id or '-'}"
+        if item_id is not None:
+            context += f" item:{item_id}"
+        self.log(log_event("Tagging", message, level=level, context=context))
+
+    def refresh_pool(self) -> None:
+        if self.image_analysis and hasattr(self.image_analysis.repository, "tagging_pool"):
+            self.page.show_tagging_pool(self.image_analysis.repository.tagging_pool())
+
+    def reopen_pool_items(self, item_ids: list[int]) -> None:
+        if not self.image_analysis:
+            return
+        reopened = self.image_analysis.repository.requeue_skipped_many(item_ids)
+        self._log(f"{reopened} item(s) reopened without WD14")
+        self.refresh_pool()
+
+    def _page_activity(self, action: str, detail: str) -> None:
+        self._log(f"{action}: {detail}")
+
+    def bind_image_analysis(self, controller) -> None:
+        self.image_analysis = controller
+        controller.timer.timeout.connect(self._poll_current)
+
+    def _poll_current(self) -> None:
+        if self.current_post_id is None or not self.image_analysis: return
+        try:
+            item = self.image_analysis.repository.item_by_remote_source(
+                "gelbooru", str(self.current_post_id)
+            )
+            signature = None if item is None else (
+                item.id, item.state.value, str(item.cached_path or "")
+            )
+            if signature != self._last_polled_state:
+                self._last_polled_state = signature
+                if item is not None:
+                    self._log(f"Analysis state changed to {item.state.value}", item_id=item.id)
+                self.refresh_local_review()
+        except Exception as exc:  # noqa: BLE001 - timer boundary
+            self._log(f"Could not follow analysis state: {exc}", level="ERROR")
+            self.page.set_analysis_request_state(f"Erreur : {exc}", False)
+
+    def select_post(self, post_id: int, post: dict) -> None:
+        self.current_post_id = post_id; self.current_post = dict(post)
+        self._last_polled_state = None
+        self._requested_post_id = None
+        self._log("Selected post")
+        try:
+            item = self.image_analysis.repository.item_by_remote_source(
+                "gelbooru", str(post_id)
+            ) if self.image_analysis else None
+            if item is None:
+                self.page.set_analysis_request_state("Analyse en attente…", True)
+                self._log("No existing analysis; automatic local analysis requested")
+                self.analyze(post_id)
+            else:
+                self.refresh_local_review()
+                self._last_polled_state = (
+                    item.id, item.state.value, str(item.cached_path or "")
+                )
+                if item.state.value in {"ready_for_review", "reviewed"}:
+                    self.page.analysis_state.setText("Analyse disponible — cache réutilisé")
+        except Exception as exc:  # noqa: BLE001 - Qt signal boundary
+            self._log(f"Could not open local review: {exc}", level="ERROR")
+            self.page.set_analysis_request_state(f"Erreur : {exc}", False)
+
+    def analyze(self, post_id: int) -> None:
+        if not self.image_analysis: return
+        self._requested_post_id = post_id
+        self.page.set_analysis_request_state("Analyse en attente…", True)
+        self._log("Local analysis requested; looking for existing AnalysisItem")
+        try:
+            repository = self.image_analysis.repository
+            known = repository.item_by_remote_source("gelbooru", str(post_id))
+            if known is None:
+                self._log("No existing item found; creating analysis source")
+                ids = self.image_analysis.add_remote_ids(
+                    "gelbooru", [str(post_id)], priority=100
+                )
+                if hasattr(repository, "add_to_tagging_pool"): repository.add_to_tagging_pool(ids, "tagging_remote")
+                self._log(f"Item queued: {ids[0] if ids else 'pending lookup'}")
+            else:
+                visible = repository.item_queue_visible(known.id)
+                self._log(
+                    f"Existing analysis found; state={known.state.value}; queue_visible={int(visible)}",
+                    item_id=known.id,
+                )
+                action = analysis_resume_action(known.state.value)
+                if hasattr(repository, "add_to_tagging_pool"): repository.add_to_tagging_pool([known.id], "tagging_remote")
+                if action == "restore_review":
+                    repository.requeue_skipped(known.id)
+                    self._log("Skipped analysis restored as ready", item_id=known.id)
+                elif action == "retry":
+                    repository.request_analysis(known.id, 100)
+                    self.image_analysis.retry(known.id)
+                    self._log("Failed analysis requeued", item_id=known.id)
+                elif action == "restore_pending":
+                    repository.request_analysis(known.id, 100)
+                    self.image_analysis._start_source_preparation()
+                    self._log("Pending analysis made queue-visible", item_id=known.id)
+                elif action == "reuse":
+                    self._log("Existing analysis reused", item_id=known.id)
+            self._last_polled_state = None
+            self.refresh_pool()
+            self.refresh_local_review()
+        except Exception as exc:  # noqa: BLE001 - Qt action boundary must surface every failure
+            self._log(f"Local analysis failed: {exc}", level="ERROR")
+            self.page.set_analysis_request_state(f"Erreur : {exc}", False)
+
+    def _local_names(self, names: list[str]) -> set[str]:
+        path_value = str(self.image_analysis.settings.get("gelbooru_database", ""))
+        if not path_value: return set()
+        from pathlib import Path
+        database = Path(path_value)
+        result: set[str] = set()
+        for name in names:
+            try:
+                result.update(row.name for row in search_tags(
+                    database, TagSearch(text=name, mode="exact", limit=2)
+                ))
+            except (FileNotFoundError, ValueError):
+                return set()
+        return result
+
+    def refresh_local_review(self) -> None:
+        if not self.image_analysis or not self.current_post_id: return
+        repository = self.image_analysis.repository
+        item = repository.item_by_remote_source("gelbooru", str(self.current_post_id))
+        current_tags = set(post_tags(self.current_post))
+        if item is None:
+            self.page.show_local_review("Non analysée", None, sorted(current_tags), [], [], [])
+            return
+        persisted_tags = {tag.name for tag in repository.source_tags(item.id) if tag.source.value == "gelbooru"}
+        if persisted_tags:
+            current_tags = persisted_tags
+        observations = [
+            row for row in repository.observations(item.id) if row[1].source.value == "wd14"
+        ]
+        names = [
+            observation.reviewed_name or observation.name
+            for _oid, observation in observations
+            if not is_rating_observation(observation.name, observation.category)
+        ]
+        local = self._local_names(names)
+        matches = [] ; rows = [] ; accepted_all = []
+        summary = repository.tag_review_summary(item.id, sorted(current_tags))
+        for tag in sorted(current_tags):
+            rows.append({"id": f"existing:{tag}", "tag": tag, "confidence": "", "decision": "remove" if tag in summary["removals"] else "keep", "match": "Existant"})
+        for observation_id, observation in observations:
+            name = observation.reviewed_name or observation.name
+            if is_rating_observation(observation.name, observation.category):
+                continue
+            mapping = repository.tag_mapping("wd14", observation.name, "gelbooru")
+            match = match_local_tag(name, local, current_tags, mapping)
+            if observation.decision is DecisionState.ACCEPTED:
+                matches.append(match); accepted_all.append(name)
+            rows.append({
+                "id": observation_id, "tag": name,
+                "confidence": "" if observation.confidence is None else f"{observation.confidence:.3f}",
+                "decision": observation.decision.value,
+                "match": {
+                    LocalMatchState.EXACT: "exact", LocalMatchState.MAPPING: f"mapping → {match.target_tag}",
+                    LocalMatchState.MISSING: "introuvable localement",
+                    LocalMatchState.ALREADY_PRESENT: "déjà présent",
+                }[match.state],
+            })
+        labels = {
+            "pending": "Analyse en attente", "processing": "Analyse en cours",
+            "ready_for_review": "Analyse disponible", "reviewed": "Déjà analysée",
+            "failed": f"Erreur d’analyse : {item.last_error or 'inconnue'}",
+            "skipped": "Analyse ignorée",
+        }
+        if item.state.value == "pending" and hasattr(repository, "scheduler_diagnostic"):
+            diagnostic = repository.scheduler_diagnostic(
+                int(self.image_analysis.policy.analysis_prefetch)
+            )
+            labels["pending"] = {
+                "prefetch_limit": "Analyse en attente — file de préchargement pleine",
+                "interactive_eligible": "Analyse en attente — worker occupé",
+                "no_eligible_pending_item": "Analyse en attente — source en préparation",
+            }.get(str(diagnostic["reason"]), "Analyse en attente")
+        self.page.show_local_review(labels[item.state.value], item.cached_path,
+                                    sorted(current_tags), rows, tags_to_add(matches), summary["final_tags"])
+        if item.state.value in {"ready_for_review", "reviewed"}:
+            self._log("Opening local review", item_id=item.id)
+
+    def decide(self, observation_id: int, value: str) -> None:
+        if not self.image_analysis: return
+        decision = DecisionState.ACCEPTED if value == "accepted" else DecisionState.REJECTED
+        try:
+            self.image_analysis.workflow.decide(observation_id, decision, None)
+            self._log(f"Observation {observation_id} {decision.value}")
+            self.refresh_local_review()
+        except Exception as exc:  # noqa: BLE001 - Qt action boundary
+            self._log(f"Could not save decision {observation_id}: {exc}", level="ERROR")
+            self.page.analysis_state.setText(f"Erreur de décision : {exc}")
+
+    def map_selected(self, observation_id: int) -> None:
+        if not self.image_analysis: return
+        item = self.image_analysis.repository.item_by_remote_source(
+            "gelbooru", str(self.current_post_id)
+        )
+        if item is None: return
+        row = next(
+            (value for value in self.image_analysis.repository.observations(item.id)
+             if value[0] == observation_id),
+            None,
+        )
+        if row is None: return
+        source = row[1].name
+        target, accepted = QInputDialog.getText(self.page, "Associer le tag", f"Tag Gelbooru pour {source} :")
+        if not accepted or not target.strip(): return
+        if not self._local_names([target.strip()]):
+            self._log(f"Mapping rejected; local tag not found: {target.strip()}", level="WARNING")
+            QMessageBox.warning(self.page, "Association impossible", "Ce tag est absent de la base locale.")
+            return
+        self.image_analysis.repository.set_tag_mapping("wd14", source, "gelbooru", target.strip())
+        self._log(f"Mapping saved: {source} -> {target.strip()}")
+        try:
+            self.refresh_local_review()
+        except Exception as exc:  # noqa: BLE001 - Qt action boundary
+            self._log(f"Could not refresh mapping results: {exc}", level="ERROR")
+
+    def refresh_metadata(self, post_id: int) -> None:
+        if not self.image_analysis: return
+        repository = self.image_analysis.repository
+        item = repository.item_by_remote_source("gelbooru", str(post_id))
+        if item is None: return
+        credentials = self.credentials().get("gelbooru", {})
+        credentials = credentials if isinstance(credentials, dict) else {}
+        from pathlib import Path
+        database_value = str(self.image_analysis.settings.get("gelbooru_database", ""))
+        lookup = LocalTagCategoryLookup(Path(database_value)) if database_value else None
+        try:
+            normalized = GelbooruPostProvider(
+                str(credentials.get("user_id", "")), str(credentials.get("api_key", "")),
+                category_lookup=lookup,
+            ).fetch_post(str(post_id))
+            self._log("Metadata request finished")
+            repository.replace_source_metadata(item.id, "gelbooru", normalized.tags, normalized.artist_tags)
+            self.current_post["tags"] = " ".join(tag.name for tag in normalized.tags)
+            self.refresh_local_review()
+        except (ImageSourceError, OSError, ValueError) as exc:
+            self._log(f"Metadata refresh failed; cached data kept: {exc}", level="WARNING")
+            self.page.analysis_state.setText(f"Actualisation impossible, données conservées : {exc}")
 
     def start(self, request: TaggingRequest) -> None:
         gelbooru = self.credentials().get("gelbooru", {})

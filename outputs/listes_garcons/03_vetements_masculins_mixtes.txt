@@ -1,0 +1,6 @@
+fundoshi
+loincloth
+swim_trunks
+briefs
+boxers
+jockstrap

@@ -15,17 +15,38 @@ dependencies = []
 [project.gui-scripts]
 booruflow = "booruflow.__main__:main"
 gelbooru-tagging = "booruflow.presentation.pyside6.tagging_standalone:main"
+booruflow-similar = "booruflow.cli.similar_artists:main"
 
 [project.optional-dependencies]
 gui = ["PySide6>=6.8,<7"]
 dev = ["pytest>=8", "ruff>=0.9"]
 distribution = ["PyInstaller>=6.15,<7"]
+image-analysis = ["Pillow>=10,<13"]
+image-analysis-wd14 = [
+    "numpy>=1.26,<3",
+    "onnxruntime-gpu[cuda,cudnn]>=1.27,<2",
+]
+image-analysis-author-id = [
+    "Pillow>=10,<13",
+    "numpy>=1.26,<3",
+    "onnx>=1.17,<2",
+    "onnxruntime-gpu[cuda,cudnn]>=1.27,<2",
+]
+image-analysis-openclip = [
+    "Pillow>=10,<13",
+    "numpy>=1.26,<3",
+    "torch>=2.5,<3",
+    "open-clip-torch>=2.29,<4",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+"booruflow.infrastructure.schema" = ["*.sql"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

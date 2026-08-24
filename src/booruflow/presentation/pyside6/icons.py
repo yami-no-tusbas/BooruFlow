@@ -11,6 +11,8 @@ NAVIGATION_COLORS = {
     "home": "#3B82F6",
     "review": "#10B981",
     "tagging": "#F59E0B",
+    "image_analysis": "#7C3AED",
+    "similar_artists": "#D946EF",
     "organization": "#8B5CF6",
     "tag_browser": "#0F766E",
     "wiki": "#EC4899",
@@ -51,6 +53,23 @@ def _organization(painter: QPainter) -> None:
     painter.drawLine(QPointF(21, 14), QPointF(21, 21))
     for point in (QPointF(15, 7), QPointF(9, 22), QPointF(21, 22)):
         painter.drawEllipse(point, 2.5, 2.5)
+
+
+def _image_analysis(painter: QPainter) -> None:
+    painter.drawRoundedRect(QRectF(6, 7, 18, 16), 2, 2)
+    painter.drawEllipse(QPointF(19, 11), 2, 2)
+    painter.drawPolyline(
+        QPolygonF([QPointF(8, 20), QPointF(13, 14), QPointF(17, 18), QPointF(20, 15), QPointF(23, 20)])
+    )
+
+
+def _similar_artists(painter: QPainter) -> None:
+    painter.drawEllipse(QPointF(10, 12), 3, 3)
+    painter.drawEllipse(QPointF(20, 10), 3, 3)
+    painter.drawEllipse(QPointF(17, 20), 3, 3)
+    painter.drawLine(QPointF(13, 12), QPointF(17, 10))
+    painter.drawLine(QPointF(12, 15), QPointF(15, 18))
+    painter.drawLine(QPointF(19, 13), QPointF(18, 17))
 
 
 def _tag_browser(painter: QPainter) -> None:
@@ -99,6 +118,8 @@ _DRAWERS: dict[str, Callable[[QPainter], None]] = {
     "home": _home,
     "review": _review,
     "tagging": _tagging,
+    "image_analysis": _image_analysis,
+    "similar_artists": _similar_artists,
     "organization": _organization,
     "tag_browser": _tag_browser,
     "wiki": _wiki,

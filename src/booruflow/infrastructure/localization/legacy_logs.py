@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import re
 
-
 _EN_REPLACEMENTS = (
     ("Calculs terminés.", "Calculations completed."),
     ("Terminé.", "Completed."),

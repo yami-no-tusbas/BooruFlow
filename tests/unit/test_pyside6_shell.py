@@ -42,22 +42,28 @@ class PySide6ShellTests(unittest.TestCase):
             OrganizationCoordinator,
         )
         from booruflow.presentation.pyside6.review_controller import ReviewCoordinator
+        from booruflow.presentation.pyside6.similar_artists_controller import (
+            SimilarArtistsController,
+        )
         from booruflow.presentation.pyside6.tagging_controller import TaggingController
-        from booruflow.presentation.pyside6.similar_artists_controller import SimilarArtistsController
 
         window = self.window()
-        self.assertEqual(window.navigation.count(), 12)
-        self.assertEqual(window.pages.count(), 12)
+        self.assertEqual(window.navigation.count(), 13)
+        self.assertEqual(window.pages.count(), 13)
+        self.assertEqual(window.navigation.item(2).data(256), "tagging")
+        self.assertNotIn("tagging_legacy", window.NAVIGATION_KEYS)
         self.assertEqual(window.navigation.item(3).data(256), "image_analysis")
-        self.assertEqual(window.navigation.item(4).data(256), "similar_artists")
-        self.assertEqual(window.navigation.item(6).data(256), "tag_browser")
-        self.assertEqual(window.navigation.item(7).data(256), "wiki")
-        self.assertEqual(window.navigation.item(11).data(256), "tasks")
+        self.assertEqual(window.navigation.item(4).data(256), "auto_organize")
+        self.assertEqual(window.navigation.item(5).data(256), "similar_artists")
+        self.assertEqual(window.navigation.item(7).data(256), "tag_browser")
+        self.assertEqual(window.navigation.item(8).data(256), "wiki")
+        self.assertEqual(window.navigation.item(12).data(256), "tasks")
         self.assertEqual(window.navigation.currentRow(), 0)
         self.assertIsInstance(window.database_controller, DatabaseUpdateController)
         self.assertIsInstance(window.grabber_controller, GrabberController)
         self.assertIsInstance(window.cleanup_controller, CleanupController)
         self.assertIsInstance(window.tagging_controller, TaggingController)
+        self.assertIs(window.tagging_controller.image_analysis, window.image_analysis_controller)
         self.assertIsInstance(window.similar_artists_controller, SimilarArtistsController)
         self.assertIsInstance(window.review_coordinator, ReviewCoordinator)
         self.assertIsInstance(window.organization_coordinator, OrganizationCoordinator)
@@ -95,6 +101,19 @@ class PySide6ShellTests(unittest.TestCase):
         self.assertIn("Échec français 🚀", copied)
         window.close()
 
+    def test_debug_logs_are_hidden_by_default_but_remain_accessible(self) -> None:
+        window = self.window()
+        window.log("[DEBUG] [Worker] internal detail")
+        window.log("[ERROR] [AutoOrganize] visible failure")
+        self.assertNotIn("internal detail", window.log_view.toPlainText())
+        self.assertIn("visible failure", window.log_view.toPlainText())
+        window.debug_log_toggle.setChecked(True)
+        self.assertIn("internal detail", window.log_view.toPlainText())
+        self.assertIsNotNone(window.disk_log_path)
+        disk=window.disk_log_path.read_text(encoding="utf-8")
+        self.assertIn("internal detail",disk)
+        window.close()
+
     def test_dashboard_cards_navigate_by_stable_key(self) -> None:
         window = self.window()
         dashboard = window.content_pages[0]
@@ -120,14 +139,15 @@ class PySide6ShellTests(unittest.TestCase):
 
     def test_image_analysis_action_bar_stays_inside_main_viewport(self) -> None:
         window = self.window(); page = window.image_analysis_page
-        window.navigation.setCurrentRow(3); window.show()
+        image_analysis_index = window.NAVIGATION_KEYS.index("image_analysis")
+        window.navigation.setCurrentRow(image_analysis_index); window.show()
         buttons = (
             page.manual_add, page.accept, page.reject, page.accept_above,
             page.retry_button, page.skip_button, page.complete_button,
         )
         for width, height in ((1280, 720), (1600, 900), (1920, 1080)):
             window.resize(width, height); self.app.processEvents()
-            host = window.pages.widget(3)
+            host = window.pages.widget(image_analysis_index)
             self.assertEqual(host.verticalScrollBar().maximum(), 0)
             self.assertEqual(host.horizontalScrollBar().maximum(), 0)
             self.assertTrue(page.action_bar.isVisible())

@@ -8,7 +8,7 @@ import sqlite3
 import urllib.parse
 import urllib.request
 from collections import Counter
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from booruflow.infrastructure.wiki_tag_importer import tag_definition_details
@@ -166,13 +166,13 @@ def fetch_tag_details(
         definition, resolved_wiki_url, wiki_tags = tag_definition_details(board, tag, wiki_url)
         details.update({"definition": definition, "wiki_url": resolved_wiki_url, "wiki_tags": wiki_tags})
         online = True
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - independent remote source boundary
         errors.append(str(exc))
     try:
         sample_data = _e621_samples(tag) if board == "e621" else _gelbooru_samples(tag, user_id, api_key, tag_database_path)
         details.update(sample_data)
         online = True
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - independent remote source boundary
         errors.append(str(exc))
     details.update({
         "board": board,
@@ -180,7 +180,7 @@ def fetch_tag_details(
         "online": online,
         "errors": errors,
         "cached": bool(cached) and not online,
-        "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
     })
     if online:
         cache.save(board, tag, {key: value for key, value in details.items() if key not in {"errors", "cached", "online"}})

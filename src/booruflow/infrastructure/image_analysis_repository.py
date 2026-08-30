@@ -16,13 +16,14 @@ from booruflow.domain.image_analysis import (
     DecisionState,
     InputKind,
     ObservationSource,
+    PublishState,
     SourceReference,
     SourceTag,
     TagObservation,
     validate_transition,
 )
 
-SCHEMA_VERSION = 14
+SCHEMA_VERSION = 19
 
 
 def utc_now() -> str:
@@ -165,6 +166,39 @@ class ImageAnalysisRepository:
             migration = files("booruflow.infrastructure.schema").joinpath("image_analysis_v14.sql").read_text(encoding="utf-8")
             with self.connection:
                 self.connection.executescript(migration)
+            version = 14
+        if version == 14:
+            migration = files("booruflow.infrastructure.schema").joinpath("image_analysis_v15.sql").read_text(encoding="utf-8")
+            with self.connection:
+                self.connection.executescript(migration)
+            version = 15
+        if version == 15:
+            migration = files("booruflow.infrastructure.schema").joinpath("image_analysis_v16.sql").read_text(encoding="utf-8")
+            with self.connection:
+                self.connection.executescript(migration)
+            version = 16
+        if version == 16:
+            migration = files("booruflow.infrastructure.schema").joinpath("image_analysis_v17.sql").read_text(encoding="utf-8")
+            with self.connection:
+                self.connection.executescript(migration)
+            version = 17
+        if version == 17:
+            migration = files("booruflow.infrastructure.schema").joinpath("image_analysis_v18.sql").read_text(encoding="utf-8")
+            with self.connection:
+                self.connection.executescript(migration)
+            version = 18
+        if version == 18:
+            columns = {
+                str(row[1]) for row in self.connection.execute(
+                    "PRAGMA table_info(tagging_review_batch_entries)"
+                )
+            }
+            with self.connection:
+                if "batch_visible" not in columns:
+                    migration = files("booruflow.infrastructure.schema").joinpath("image_analysis_v19.sql").read_text(encoding="utf-8")
+                    self.connection.executescript(migration)
+                else:
+                    self.connection.execute("PRAGMA user_version=19")
 
     def close(self) -> None:
         self.connection.close()
@@ -935,8 +969,10 @@ class ImageAnalysisRepository:
             parameters = values
         return list(self.connection.execute(
             f"""SELECT i.id,i.state,i.analysis_requested,i.queue_visible,i.cached_path,
-                       i.source_site,i.source_post_id,i.review_active
-                FROM analysis_items i JOIN tagging_pool_items p ON p.item_id=i.id {condition}
+                       i.source_site,i.source_post_id,i.review_active,
+                       b.publish_state,b.reviewed_at
+                FROM analysis_items i JOIN tagging_pool_items p ON p.item_id=i.id
+                LEFT JOIN tagging_review_batch_entries b ON b.item_id=i.id {condition}
                 ORDER BY i.updated_at DESC,i.id DESC""",
             parameters,
         ))
@@ -946,6 +982,263 @@ class ImageAnalysisRepository:
         with self.connection:
             self.connection.executemany("INSERT OR IGNORE INTO tagging_pool_items(item_id,source,added_at) VALUES(?,?,?)", ((item_id, source, now) for item_id in values))
         return len(values)
+
+    @staticmethod
+    def _stable_tags(values: list[str] | tuple[str, ...]) -> list[str]:
+        return sorted({str(value).strip() for value in values if str(value).strip()})
+
+    def save_review_batch_entry(
+        self,
+        item_id: int,
+        *,
+        original_tags: list[str] | tuple[str, ...],
+        additions: list[str] | tuple[str, ...],
+        removals: list[str] | tuple[str, ...],
+        reviewed_final_tags: list[str] | tuple[str, ...],
+    ) -> PublishState:
+        """Create or update the one durable publication-review snapshot for an item.
+
+        A local item has no speculative remote target and remains ``reviewed``.
+        A remote item returns to ``pending_publish`` only when its desired final
+        tags differ from the snapshot saved by its last successful publication.
+        """
+        item = self.connection.execute(
+            "SELECT source_site,source_post_id FROM analysis_items WHERE id=?", (item_id,)
+        ).fetchone()
+        if item is None:
+            raise KeyError(item_id)
+        site = str(item["source_site"]) if item["source_site"] else None
+        post_id = str(item["source_post_id"]) if item["source_post_id"] else None
+        default_state = (
+            PublishState.PENDING_PUBLISH if site is not None and post_id is not None
+            else PublishState.REVIEWED
+        )
+        stable_final_tags = self._stable_tags(reviewed_final_tags)
+        previous = self.connection.execute(
+            """SELECT publish_state,published_final_tags_json,published_verified_at
+               FROM tagging_review_batch_entries WHERE item_id=?""",
+            (item_id,),
+        ).fetchone()
+        published_final_tags = None
+        if (
+            previous is not None
+            and previous["published_final_tags_json"] is not None
+            and previous["published_verified_at"] is not None
+        ):
+            published_final_tags = self._stable_tags(
+                json.loads(previous["published_final_tags_json"])
+            )
+        state = default_state
+        if site is not None and post_id is not None and published_final_tags is not None:
+            state = (
+                PublishState.PUBLISHED
+                if stable_final_tags == published_final_tags
+                else PublishState.PENDING_PUBLISH
+            )
+        snapshot = (
+            json.dumps(self._stable_tags(original_tags)),
+            json.dumps(self._stable_tags(additions)),
+            json.dumps(self._stable_tags(removals)),
+            json.dumps(stable_final_tags),
+        )
+        with self.connection:
+            self.connection.execute(
+                """INSERT INTO tagging_review_batch_entries(
+                       item_id,site,post_id,original_tags_json,additions_json,
+                       removals_json,reviewed_final_tags_json,reviewed_at,publish_state
+                   ) VALUES(?,?,?,?,?,?,?,?,?)
+                   ON CONFLICT(item_id) DO UPDATE SET
+                       site=excluded.site,post_id=excluded.post_id,
+                       original_tags_json=excluded.original_tags_json,
+                       additions_json=excluded.additions_json,
+                       removals_json=excluded.removals_json,
+                       reviewed_final_tags_json=excluded.reviewed_final_tags_json,
+                       reviewed_at=excluded.reviewed_at,publish_state=excluded.publish_state,
+                       batch_visible=1""",
+                (item_id, site, post_id, *snapshot, utc_now(), state.value),
+            )
+        return state
+
+    def batch_entry(self, item_id: int) -> dict[str, object] | None:
+        row = self.connection.execute(
+            "SELECT * FROM tagging_review_batch_entries WHERE item_id=?", (item_id,)
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "item_id": int(row["item_id"]), "site": row["site"], "post_id": row["post_id"],
+            "original_tags": json.loads(row["original_tags_json"]),
+            "additions": json.loads(row["additions_json"]),
+            "removals": json.loads(row["removals_json"]),
+            "reviewed_final_tags": json.loads(row["reviewed_final_tags_json"]),
+            "reviewed_at": str(row["reviewed_at"]),
+            "publish_state": PublishState(str(row["publish_state"])),
+            "publish_attempts": int(row["publish_attempts"]),
+            "last_error": row["last_error"],
+            "last_attempt_at": row["last_attempt_at"],
+            "published_at": row["published_at"],
+            "published_verified_at": row["published_verified_at"],
+            "published_final_tags": (
+                json.loads(row["published_final_tags_json"])
+                if row["published_final_tags_json"] is not None else None
+            ),
+        }
+
+    def list_batch_entries(
+        self, publish_state: PublishState | None = None
+    ) -> list[dict[str, object]]:
+        condition = " WHERE batch_visible=1"
+        if publish_state is not None:
+            condition += " AND publish_state=?"
+        parameters = (publish_state.value,) if publish_state is not None else ()
+        rows = self.connection.execute(
+            f"SELECT item_id FROM tagging_review_batch_entries{condition} "
+            "ORDER BY CASE publish_state "
+            "WHEN 'pending_publish' THEN 0 WHEN 'failed' THEN 1 "
+            "WHEN 'reviewed' THEN 2 WHEN 'published' THEN 3 ELSE 4 END, "
+            "reviewed_at DESC,item_id DESC", parameters,
+        )
+        return [entry for row in rows if (entry := self.batch_entry(int(row["item_id"]))) is not None]
+
+    def remove_batch_entry(self, item_id: int) -> bool:
+        with self.connection:
+            row = self.connection.execute(
+                "SELECT publish_state FROM tagging_review_batch_entries WHERE item_id=?",
+                (item_id,),
+            ).fetchone()
+            if row is not None and row["publish_state"] == PublishState.PUBLISHED.value:
+                return bool(self.connection.execute(
+                    "UPDATE tagging_review_batch_entries SET batch_visible=0 WHERE item_id=?",
+                    (item_id,),
+                ).rowcount)
+            return bool(self.connection.execute(
+                "DELETE FROM tagging_review_batch_entries WHERE item_id=?", (item_id,)
+            ).rowcount)
+
+    def reviewed_remote_post_ids(self) -> set[int]:
+        rows = self.connection.execute(
+            "SELECT post_id FROM tagging_review_batch_entries "
+            "WHERE site='gelbooru' AND post_id IS NOT NULL"
+        )
+        return {int(row["post_id"]) for row in rows}
+
+    def update_publish_state(self, item_id: int, state: PublishState) -> None:
+        now = utc_now()
+        with self.connection:
+            if state is PublishState.PUBLISHED:
+                changed = self.connection.execute(
+                    """UPDATE tagging_review_batch_entries
+                       SET publish_state=?,
+                           published_final_tags_json=reviewed_final_tags_json,
+                           published_at=COALESCE(published_at, ?),
+                           published_verified_at=COALESCE(published_verified_at, ?)
+                       WHERE item_id=?""",
+                    (state.value, now, now, item_id),
+                ).rowcount
+            else:
+                changed = self.connection.execute(
+                    "UPDATE tagging_review_batch_entries SET publish_state=? WHERE item_id=?",
+                    (state.value, item_id),
+                ).rowcount
+        if not changed:
+            raise KeyError(item_id)
+
+    def begin_publish_attempt(self, item_id: int) -> int:
+        """Atomically reserve one remote attempt before its fresh fetch and POST."""
+        with self.connection:
+            changed = self.connection.execute(
+                """UPDATE tagging_review_batch_entries
+                   SET publish_state=?, publish_attempts=publish_attempts+1,
+                       last_attempt_at=?, last_error=NULL
+                   WHERE item_id=? AND publish_state=?""",
+                (PublishState.PUBLISHING.value, utc_now(), item_id, PublishState.PENDING_PUBLISH.value),
+            ).rowcount
+        if not changed:
+            raise ValueError(f"batch entry {item_id} is not pending publication")
+        entry = self.batch_entry(item_id)
+        assert entry is not None
+        return int(entry["publish_attempts"])
+
+    def publish_succeeded(self, item_id: int) -> None:
+        now = utc_now()
+        with self.connection:
+            changed = self.connection.execute(
+                """UPDATE tagging_review_batch_entries
+                   SET publish_state=?, published_at=?, last_error=NULL,
+                       published_final_tags_json=reviewed_final_tags_json,
+                       published_verified_at=?
+                   WHERE item_id=? AND publish_state=?""",
+                (
+                    PublishState.PUBLISHED.value, now, now, item_id,
+                    PublishState.PUBLISHING.value,
+                ),
+            ).rowcount
+        if not changed:
+            raise ValueError(f"batch entry {item_id} is not publishing")
+
+    def publish_failed(self, item_id: int, error: str) -> None:
+        with self.connection:
+            changed = self.connection.execute(
+                """UPDATE tagging_review_batch_entries SET publish_state=?, last_error=?
+                   WHERE item_id=? AND publish_state=?""",
+                (PublishState.FAILED.value, str(error)[:2000], item_id, PublishState.PUBLISHING.value),
+            ).rowcount
+        if not changed:
+            raise ValueError(f"batch entry {item_id} is not publishing")
+
+    def publish_deferred(self, item_id: int, error: str) -> None:
+        """Return a globally blocked, pre-submit attempt directly to the retryable queue."""
+        with self.connection:
+            changed = self.connection.execute(
+                """UPDATE tagging_review_batch_entries SET publish_state=?, last_error=?
+                   WHERE item_id=? AND publish_state=?""",
+                (
+                    PublishState.PENDING_PUBLISH.value, str(error)[:2000], item_id,
+                    PublishState.PUBLISHING.value,
+                ),
+            ).rowcount
+        if not changed:
+            raise ValueError(f"batch entry {item_id} is not publishing")
+
+    def recover_interrupted_publishes(self) -> int:
+        """Make a crash-interrupted request retryable; remote success remains unknown."""
+        with self.connection:
+            return self.connection.execute(
+                """UPDATE tagging_review_batch_entries SET publish_state=?,
+                   last_error=COALESCE(last_error || ' · ', '') || 'Publication interrompue avant confirmation; à vérifier puis réessayer.'
+                   WHERE publish_state=?""",
+                (PublishState.PENDING_PUBLISH.value, PublishState.PUBLISHING.value),
+            ).rowcount
+
+    def retry_failed_publishes(self, item_ids: object) -> int:
+        values = tuple(dict.fromkeys(int(item_id) for item_id in item_ids))
+        if not values:
+            return 0
+        placeholders = ",".join("?" for _ in values)
+        with self.connection:
+            return self.connection.execute(
+                f"UPDATE tagging_review_batch_entries SET publish_state=? WHERE publish_state=? AND item_id IN ({placeholders})",
+                (PublishState.PENDING_PUBLISH.value, PublishState.FAILED.value, *values),
+            ).rowcount
+
+    def next_tagging_pool_item(
+        self, current_item_id: int, scope: str = "all"
+    ) -> sqlite3.Row | None:
+        conditions = ["p.item_id<>?", "b.item_id IS NULL", "i.state IN ('ready_for_review','reviewed')"]
+        if scope == "remote":
+            conditions.append("i.source_site IS NOT NULL")
+        elif scope == "local":
+            conditions.append("i.source_site IS NULL")
+        elif scope != "all":
+            raise ValueError(f"unknown tagging pool scope: {scope}")
+        return self.connection.execute(
+            f"""SELECT i.id,i.source_site,i.source_post_id,i.state
+                FROM tagging_pool_items p JOIN analysis_items i ON i.id=p.item_id
+                LEFT JOIN tagging_review_batch_entries b ON b.item_id=i.id
+                WHERE {' AND '.join(conditions)}
+                ORDER BY p.added_at,i.id LIMIT 1""",
+            (current_item_id,),
+        ).fetchone()
 
     def activate_next_review(self) -> AnalysisItem | None:
         self.connection.execute("BEGIN IMMEDIATE")
@@ -1455,6 +1748,15 @@ class ImageAnalysisRepository:
                    DO UPDATE SET decision=excluded.decision,updated_at=excluded.updated_at""",
                 (item_id, tag_name, decision, now, now),
             )
+
+    def existing_tag_decision(self, item_id: int, tag_name: str) -> str:
+        """Return the current logical decision, including the implicit KEEP default."""
+        row = self.connection.execute(
+            """SELECT decision FROM tag_review_entries
+               WHERE item_id=? AND tag_name=? AND origin='existing'""",
+            (item_id, tag_name),
+        ).fetchone()
+        return str(row["decision"]) if row is not None else "keep"
 
     def tag_review_summary(self, item_id: int, original_tags: list[str] | tuple[str, ...]) -> dict[str, list[str]]:
         decisions = {str(row["tag_name"]): str(row["decision"]) for row in self.connection.execute("SELECT tag_name,decision FROM tag_review_entries WHERE item_id=? AND origin='existing'", (item_id,))}

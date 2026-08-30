@@ -21,7 +21,7 @@ class ReviewRequest:
     gelbooru_database: Path
     e621_database: Path
     output_root: Path
-    grabber_directory: Path | None = None
+    blacklist_file: Path | None = None
 
     def __post_init__(self) -> None:
         if not self.queries:
@@ -58,16 +58,8 @@ def build_review_commands(
     python_executable: str,
     credentials: dict[str, object] | None = None,
 ) -> list[EngineCommand]:
-    blacklist = (
-        request.grabber_directory / "blacklist.txt"
-        if request.grabber_directory
-        else project_root / "config" / "blacklist.txt"
-    )
-    ignore = (
-        request.grabber_directory / "ignore.txt"
-        if request.grabber_directory
-        else project_root / "config" / "ignore.txt"
-    )
+    blacklist = request.blacklist_file or project_root / "config" / "blacklist.txt"
+    ignore = project_root / "config" / "ignore.txt"
     common = (
         "--pages",
         str(request.pages),

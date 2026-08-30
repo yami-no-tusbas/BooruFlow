@@ -129,9 +129,9 @@ def _atomic_json(path: Path, data: dict) -> None:
 
 
 class GrabberSessionStore:
-    def __init__(self, grabber_directory: Path) -> None:
-        self.directory = grabber_directory
-        self.state_path = grabber_directory / STATE_NAME
+    def __init__(self, workspace_directory: Path) -> None:
+        self.directory = workspace_directory
+        self.state_path = workspace_directory / STATE_NAME
 
     def load(self) -> dict | None:
         try:

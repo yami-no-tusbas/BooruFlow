@@ -551,6 +551,64 @@ class ImageAnalysisUiTests(unittest.TestCase):
         from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
         page=ImageAnalysisPage(LanguageCatalog(LANGUAGES,"en"));logs=[];controller=ImageAnalysisController(self.root,"python",page,{},dict,logs.append,auto_start_worker=False);page.show_sources=MagicMock();controller.set_page_active(False);controller.refresh();self.assertFalse(page.show_sources.called);self.assertTrue(controller._page_dirty);controller.set_page_active(True);self.app.processEvents();self.assertTrue(page.show_sources.called);logs.clear();controller._log_slow_refresh(250,"model=240ms");controller._log_slow_refresh(260,"model=250ms");controller._log_slow_refresh(270,"model=260ms");self.assertEqual(len(logs),1);controller.shutdown();page.close()
 
+    def test_image_worker_double_start_is_prevented_and_interpreter_is_logged(self)->None:
+        from unittest.mock import MagicMock
+
+        from PySide6.QtCore import QProcess
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+        page=ImageAnalysisPage(LanguageCatalog(LANGUAGES,"en"));logs=[]
+        controller=ImageAnalysisController(self.root,r"D:\python\BooruFlow\.venv\Scripts\pythonw.exe",page,{"image_analysis_wd14_enabled":False},dict,logs.append,auto_start_worker=False)
+        process=MagicMock(); process.state.side_effect=[QProcess.ProcessState.NotRunning,QProcess.ProcessState.Running]
+        controller.process=process; controller.start_worker(); session=controller._worker_session_id; controller.start_worker()
+        process.start.assert_called_once(); self.assertEqual(controller._worker_session_id,session)
+        self.assertTrue(any("interpreter='D:\\\\python\\\\BooruFlow" in line for line in logs))
+        process.state.return_value=QProcess.ProcessState.NotRunning; process.state.side_effect=None
+        controller.shutdown(); page.close()
+
+    def test_image_worker_shutdown_uses_cooperative_stop_before_fallback(self)->None:
+        from unittest.mock import MagicMock, patch
+
+        from PySide6.QtCore import QProcess
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+        page=ImageAnalysisPage(LanguageCatalog(LANGUAGES,"en")); controller=ImageAnalysisController(self.root,"python",page,{},dict,lambda _line:None,auto_start_worker=False)
+        process=MagicMock(); process.state.return_value=QProcess.ProcessState.Running; process.processId.return_value=111
+        process.waitForFinished.side_effect=[False,False,True]; controller.process=process; controller._worker_pid=222
+        with patch("booruflow.presentation.pyside6.image_analysis_controller._pid_is_running",return_value=True), patch("booruflow.presentation.pyside6.image_analysis_controller._force_stop_pid",return_value=True) as fallback:
+            controller.shutdown()
+        process.write.assert_called_once_with(b"STOP\n"); process.terminate.assert_called_once(); process.kill.assert_called_once(); fallback.assert_called_once_with(222)
+        page.close()
+
+    def test_image_worker_exposes_ready_and_startup_timeout_states(self)->None:
+        from unittest.mock import MagicMock
+
+        from PySide6.QtCore import QProcess
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+        page=ImageAnalysisPage(LanguageCatalog(LANGUAGES,"en")); logs=[]
+        controller=ImageAnalysisController(self.root,"python",page,{},dict,logs.append,auto_start_worker=False)
+        states=[]; controller.worker_state_changed.connect(lambda state,detail:states.append((state,detail)))
+        controller._set_worker_state("starting","ImageAnalysis starting")
+        controller._handle_worker_line("READY session pid=321")
+        self.assertEqual(controller.worker_startup_state,"ready")
+        self.assertEqual(controller._worker_pid,321)
+        process=MagicMock(); process.state.return_value=QProcess.ProcessState.Running
+        controller.process=process; controller._set_worker_state("starting","ImageAnalysis starting")
+        controller._worker_startup_timed_out()
+        self.assertEqual(controller.worker_startup_state,"startup_timeout")
+        process.write.assert_called_once_with(b"STOP\n")
+        self.assertIn("délai de démarrage",page.worker_state.text())
+        self.assertEqual([state for state,_detail in states],["starting","ready","starting","startup_timeout"])
+        process.state.return_value=QProcess.ProcessState.NotRunning
+        controller.shutdown(); page.close()
+
 
 if __name__ == "__main__":
     unittest.main()

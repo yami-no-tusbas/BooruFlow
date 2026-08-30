@@ -184,7 +184,10 @@ class GelbooruPostProvider:
                     self._remote_category_cache[str(row["name"])]=type_names.get(int(row.get("type",0)),"general")
 
     def _normalize(self,post:dict,post_id:str)->NormalizedPost:
-        file_url = str(post.get("file_url") or post.get("sample_url") or "").strip()
+        file_url = str(post.get("file_url") or "").strip()
+        if Path(urllib.parse.urlparse(file_url).path).suffix.casefold() in {".webm", ".mp4", ".mov", ".mkv"}:
+            file_url = str(post.get("sample_url") or post.get("preview_url") or "").strip()
+        file_url = file_url or str(post.get("sample_url") or post.get("preview_url") or "").strip()
         if not file_url:
             raise ImageSourceError(f"Gelbooru post {post_id} has no image URL")
         raw_tags = post.get("tags", post.get("tag_string", ""))

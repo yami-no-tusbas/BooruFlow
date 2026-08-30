@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import sys
-from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (
+    QCheckBox,
     QLabel,
     QListWidget,
     QListWidgetItem,
@@ -22,11 +22,29 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from booruflow.application.batch_publisher import PUBLISH_DELAY_SECONDS
 from booruflow.application.capabilities import ApplicationCapabilities
 from booruflow.application.ports import SettingsRepository
 from booruflow.application.tasks import MemoryTaskRepository, TaskRepository
 from booruflow.application.taxonomy import TaxonomyRepository
+from booruflow.infrastructure.browser_launcher import BrowserLauncher
+from booruflow.infrastructure.embedded_gelbooru import (
+    EmbeddedGelbooruBridge,
+    EmbeddedGelbooruEditTransport,
+    EmbeddedGelbooruProfile,
+    EmbeddedGelbooruSessionFactory,
+    GelbooruSessionDialog,
+    LazyGelbooruEditTransport,
+)
+from booruflow.infrastructure.gelbooru_browser_transport import (
+    BrowserGelbooruEditTransport,
+    BrowserGelbooruSessionFactory,
+)
+from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+from booruflow.infrastructure.image_sources import GelbooruPostProvider
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.presentation.pyside6.auto_organize_controller import AutoOrganizeController
+from booruflow.presentation.pyside6.auto_organize_page import AutoOrganizePage
 from booruflow.presentation.pyside6.cleanup_controller import CleanupController
 from booruflow.presentation.pyside6.cleanup_page import CleanupPage
 from booruflow.presentation.pyside6.database_update_controller import DatabaseUpdateController
@@ -48,20 +66,22 @@ from booruflow.presentation.pyside6.review_page import ReviewPage
 from booruflow.presentation.pyside6.similar_artists_controller import SimilarArtistsController
 from booruflow.presentation.pyside6.similar_artists_page import SimilarArtistsPage
 from booruflow.presentation.pyside6.tag_browser_page import TagBrowserPage
-from booruflow.presentation.pyside6.tagging_controller import TaggingController
+from booruflow.presentation.pyside6.tagging_controller import SessionTestWorker, TaggingController
 from booruflow.presentation.pyside6.tagging_page import TaggingPage
 from booruflow.presentation.pyside6.task_manager import TaskManager
 from booruflow.presentation.pyside6.task_page import TaskPage
-from booruflow.presentation.pyside6.ui_logging import sanitize_log_text
+from booruflow.presentation.pyside6.ui_logging import RunLog
 from booruflow.presentation.pyside6.wiki_page import WikiPage
 
 
 class MainWindow(QMainWindow):
+    diagnostic_log_requested = Signal(str)
     NAVIGATION_KEYS = (
         "home",
         "review",
         "tagging",
         "image_analysis",
+        "auto_organize",
         "similar_artists",
         "organization",
         "tag_browser",
@@ -86,20 +106,40 @@ class MainWindow(QMainWindow):
     ) -> None:
         super().__init__(parent)
         self._early_logs: list[str] = []
+        self._log_history: list[str] = []
+        self._show_debug_logs = False
+        self._embedded_form_diagnostic_active = False
+        self._embedded_http_diagnostic_active = False
         self.capabilities = capabilities
         self.catalog = catalog
         self.settings_repository = settings_repository
         self.credentials_repository = credentials_repository
         self.task_manager = TaskManager(task_repository or MemoryTaskRepository(), self)
         self.project_root = project_root or Path.cwd()
-        self.disk_log_path = self.project_root / "var" / "logs" / "booruflow.log"
-        self.disk_log_path.parent.mkdir(parents=True, exist_ok=True)
+        self._run_log = RunLog.create(self.project_root)
+        self.disk_log_path = self._run_log.path
         self.python_executable = python_executable or sys.executable
         self.taxonomy_repository = TaxonomyRepository(
             self.project_root / "data" / "taxonomy" / "tag_organization.json",
             self.project_root / "data" / "databases",
         )
         settings = settings_repository.load() if settings_repository else {}
+        self.browser_launcher = BrowserLauncher(self.project_root / "var", settings)
+        self.gelbooru_session_factory = BrowserGelbooruSessionFactory(self.browser_launcher)
+        self.embedded_gelbooru_profile = EmbeddedGelbooruProfile(
+            self.project_root / "var", self, log=self.log
+        )
+        self.embedded_gelbooru_bridge = EmbeddedGelbooruBridge(
+            self.embedded_gelbooru_profile, self,
+            pre_save_delay_seconds=PUBLISH_DELAY_SECONDS,
+            log=self.log
+        )
+        self.embedded_gelbooru_session_factory = EmbeddedGelbooruSessionFactory(
+            self.embedded_gelbooru_bridge
+        )
+        self.gelbooru_session_dialog: GelbooruSessionDialog | None = None
+        self.publish_backend = str(settings.get("gelbooru_publish_backend", "embedded"))
+        self.options_session_test_worker: SessionTestWorker | None = None
         credentials = credentials_repository.load() if credentials_repository else {}
         self.resize(1120, 760)
         self.setMinimumSize(860, 600)
@@ -143,7 +183,7 @@ class MainWindow(QMainWindow):
         self.review_page.autocomplete_requested.connect(self.review_coordinator.autocomplete)
         self.review_page.grabber_tags_requested.connect(self._review_results_to_grabber)
         add_page(self.review_page)
-        self.tagging_page = TaggingPage(catalog, settings)
+        self.tagging_page = TaggingPage(catalog, settings, self.browser_launcher)
         self.tagging_controller = TaggingController(
             self.catalog,
             self.tagging_page,
@@ -151,9 +191,15 @@ class MainWindow(QMainWindow):
             self.log,
             self.task_manager,
             self,
+            publisher_factory=self._build_gelbooru_publisher,
+            session_factory_provider=self._active_gelbooru_session_factory,
+            publication_backend_provider=lambda: self.publish_backend,
+            diagnostic_mode_provider=self._embedded_form_diagnostic_enabled,
+            http_diagnostic_mode_provider=self._embedded_http_diagnostic_enabled,
         )
         self.tagging_page.start_requested.connect(self.tagging_controller.start)
         self.tagging_page.stop_requested.connect(self.tagging_controller.stop)
+        self.tagging_page.query_saved.connect(self._save_tagging_query)
         add_page(self.tagging_page)
         self.image_analysis_page = ImageAnalysisPage(catalog)
         self.image_analysis_controller = ImageAnalysisController(
@@ -162,13 +208,24 @@ class MainWindow(QMainWindow):
         )
         self.tagging_controller.bind_image_analysis(self.image_analysis_controller)
         add_page(self.image_analysis_page)
+        self.auto_organize_page = AutoOrganizePage(catalog)
+        self.auto_organize_controller = AutoOrganizeController(
+            self.project_root, self.auto_organize_page, self.log, self,
+            Path(str(settings.get("gelbooru_database", "")))
+            if str(settings.get("gelbooru_database", "")) else None,
+            credential_provider=self._credentials,
+        )
+        self.auto_organize_page.analyze_requested.connect(self.auto_organize_controller.analyze)
+        self.auto_organize_page.stop_requested.connect(self.auto_organize_controller.stop)
+        self.auto_organize_page.execute_requested.connect(self.auto_organize_controller.execute)
+        add_page(self.auto_organize_page)
         self.similar_artists_page = SimilarArtistsPage(catalog)
         self.similar_artists_controller = SimilarArtistsController(
             self.project_root, self.similar_artists_page, self.image_analysis_controller,
-            self.log, self.task_manager, self,
+            self.log, self.task_manager, self, browser_launcher=self.browser_launcher,
         )
         add_page(self.similar_artists_page)
-        self.organization_page = OrganizationPage(catalog, self.taxonomy_repository.load())
+        self.organization_page = OrganizationPage(catalog, self.taxonomy_repository.load(), self.browser_launcher)
         self.organization_coordinator = OrganizationCoordinator(
             self.project_root,
             self.catalog,
@@ -204,6 +261,7 @@ class MainWindow(QMainWindow):
             self.project_root / "var" / "wiki_drafts",
             Path(database_value) if database_value else None,
             self.settings_repository,
+            self.browser_launcher,
         )
         self.wiki_page.organization_tag_requested.connect(self._open_organization_tag)
         add_page(self.wiki_page)
@@ -240,6 +298,12 @@ class MainWindow(QMainWindow):
         self.database_process = self.database_controller.process
         options.database_update_requested.connect(self.database_controller.start)
         options.database_stop_requested.connect(self.database_controller.stop)
+        options.browser_test_requested.connect(self._test_browser)
+        options.browser_reset_requested.connect(self._reset_browser_profile)
+        options.publication_backend_changed.connect(self._select_publish_backend)
+        options.embedded_session_open_requested.connect(self._open_gelbooru_session)
+        options.embedded_session_test_requested.connect(self._test_gelbooru_session)
+        options.embedded_session_reset_requested.connect(self._reset_embedded_session)
         self.grabber_page = GrabberPage(catalog, settings, capabilities.grabber.available)
         self.grabber_controller = GrabberController(
             self.catalog,
@@ -271,7 +335,8 @@ class MainWindow(QMainWindow):
         self.log_view.setMaximumHeight(190)
         self.log_view.hide()
         for early_message in self._early_logs:
-            self.log_view.appendPlainText(early_message)
+            if self._show_debug_logs or "[DEBUG]" not in early_message:
+                self.log_view.appendPlainText(early_message)
         self._early_logs.clear()
         central = QWidget()
         central_layout = QVBoxLayout(central)
@@ -289,10 +354,17 @@ class MainWindow(QMainWindow):
         status_bar.addWidget(self.status_label, 1)
         self.log_button = QPushButton()
         self.log_button.clicked.connect(self.toggle_log)
+        self.debug_log_toggle = QCheckBox("Afficher DEBUG")
+        self.debug_log_toggle.setChecked(False)
+        self.debug_log_toggle.toggled.connect(self._set_debug_logs_visible)
         self.clear_log_button = QPushButton()
-        self.clear_log_button.clicked.connect(self.log_view.clear)
+        self.clear_log_button.clicked.connect(self._clear_visible_logs)
+        status_bar.addPermanentWidget(self.debug_log_toggle)
         status_bar.addPermanentWidget(self.log_button)
         status_bar.addPermanentWidget(self.clear_log_button)
+        self.diagnostic_log_requested.connect(
+            self.log, Qt.ConnectionType.QueuedConnection
+        )
 
         self.navigation.currentRowChanged.connect(self._navigation_changed)
         self.navigation.setCurrentRow(0)
@@ -429,6 +501,8 @@ class MainWindow(QMainWindow):
             }
         )
         self.wiki_page.tag_database_path = Path(database) if database else None
+        self.browser_launcher.update_settings(settings)
+        self._select_publish_backend(str(settings.get("gelbooru_publish_backend", "embedded")))
         self.status_label.setText(self.catalog.text("status.saved"))
         self.log(self.catalog.text("log.options_saved"))
 
@@ -438,15 +512,198 @@ class MainWindow(QMainWindow):
         self.log_button.setText(self.catalog.text("log.hide" if visible else "log.show"))
 
     def log(self, message: str) -> None:
-        formatted = f"[{datetime.now():%H:%M:%S}] {sanitize_log_text(message)}"  # noqa: DTZ005
-        with self.disk_log_path.open("a", encoding="utf-8", buffering=1) as stream:
-            stream.write(formatted + "\n")
+        formatted = self._run_log.format(message)
+        self._log_history.append(formatted)
+        if len(self._log_history) > 2_000:
+            del self._log_history[:-2_000]
+        self._run_log.write(formatted)
         if hasattr(self, "log_view"):
-            self.log_view.appendPlainText(formatted)
+            if self._show_debug_logs or "[DEBUG]" not in formatted:
+                self.log_view.appendPlainText(formatted)
         else:
             self._early_logs.append(formatted)
 
+    def log_threadsafe(self, message: str) -> None:
+        self.diagnostic_log_requested.emit(message)
+
+    def _set_debug_logs_visible(self, visible: bool) -> None:
+        self._show_debug_logs = bool(visible)
+        self._refresh_log_view()
+
+    def _refresh_log_view(self) -> None:
+        self.log_view.setPlainText("\n".join(
+            line for line in self._log_history
+            if self._show_debug_logs or "[DEBUG]" not in line
+        ))
+        scrollbar = self.log_view.verticalScrollBar()
+        scrollbar.setValue(scrollbar.maximum())
+
+    def _clear_visible_logs(self) -> None:
+        self._log_history.clear()
+        self._early_logs.clear()
+        self.log_view.clear()
+
     def closeEvent(self, event) -> None:
+        if not self.auto_organize_controller.shutdown():
+            event.ignore()
+            return
         self.similar_artists_controller.shutdown()
         self.image_analysis_controller.shutdown()
+        self.browser_launcher.close()
+        self.embedded_gelbooru_bridge.cancel()
         super().closeEvent(event)
+
+    def _test_browser(self, settings: dict) -> None:
+        previous = self.browser_launcher.settings
+        self.browser_launcher.update_settings(settings)
+        self.browser_launcher.open("https://gelbooru.com/")
+        self.browser_launcher.update_settings(previous)
+
+    def _save_tagging_query(self, query: str) -> None:
+        if self.settings_repository is None: return
+        settings = self.settings_repository.load()
+        settings["tagging_query"] = query
+        self.settings_repository.save(settings)
+
+    def _build_gelbooru_publisher(self):
+        """Build the selected publisher in the worker without exposing web cookies."""
+        from booruflow.application.batch_publisher import BatchPublisher
+        from booruflow.application.publish_preparation import PublishPreparationService
+
+        repository = ImageAnalysisRepository(self.image_analysis_controller.database)
+        credentials = self._credentials().get("gelbooru", {})
+        credentials = credentials if isinstance(credentials, dict) else {}
+        provider = GelbooruPostProvider(
+            str(credentials.get("user_id", "")), str(credentials.get("api_key", ""))
+        )
+        factory = self._active_gelbooru_session_factory()
+        if factory is None:
+            raise RuntimeError("Publication Gelbooru désactivée dans les options.")
+        preparation = PublishPreparationService(
+            repository, provider, log=self.log_threadsafe
+        )
+        selected_transport = (
+            EmbeddedGelbooruEditTransport(
+                diagnostic_only=self._embedded_form_diagnostic_enabled(),
+                http_diagnostic=self._embedded_http_diagnostic_enabled(),
+            )
+            if self.publish_backend == "embedded"
+            else BrowserGelbooruEditTransport()
+        )
+        transport = LazyGelbooruEditTransport(factory, selected_transport)
+        return BatchPublisher(
+            repository, preparation, transport, object(),
+            delay_seconds=(0.0 if self.publish_backend == "embedded"
+                           else PUBLISH_DELAY_SECONDS),
+            log=self.log_threadsafe,
+        )
+
+    def _active_gelbooru_session_factory(self):
+        if self.publish_backend == "embedded":
+            return self.embedded_gelbooru_session_factory
+        if self.publish_backend == "cdp":
+            return self.gelbooru_session_factory
+        return None
+
+    def _embedded_form_diagnostic_enabled(self) -> bool:
+        return bool(
+            self.publish_backend == "embedded"
+            and self._embedded_form_diagnostic_active
+        )
+
+    def _set_embedded_form_diagnostic_active(self, enabled: bool) -> None:
+        self._embedded_form_diagnostic_active = bool(enabled)
+
+    def _embedded_http_diagnostic_enabled(self) -> bool:
+        return bool(
+            self.publish_backend == "embedded"
+            and self._embedded_http_diagnostic_active
+        )
+
+    def _set_embedded_http_diagnostic_active(self, enabled: bool) -> None:
+        self._embedded_http_diagnostic_active = bool(enabled)
+
+    def _select_publish_backend(self, backend: str) -> None:
+        self.publish_backend = backend if backend in {"embedded", "cdp", "disabled"} else "embedded"
+
+    def _open_gelbooru_session(self) -> None:
+        if self.publish_backend == "cdp":
+            try:
+                self.gelbooru_session_factory.open()
+                self.log("Gelbooru session open: backend=browser-cdp")
+            except Exception as exc:  # noqa: BLE001 - visible UI boundary
+                message = f"Session Gelbooru non disponible : {exc}"
+                self.options_page.show_embedded_session_test_result(message)
+                self.log(message)
+            return
+        if self.publish_backend == "disabled":
+            self.options_page.show_embedded_session_test_result(
+                "Publication Gelbooru désactivée."
+            )
+            return
+        if self.gelbooru_session_dialog is None:
+            self.gelbooru_session_dialog = GelbooruSessionDialog(
+                self.embedded_gelbooru_profile, self, log=self.log
+            )
+            self.gelbooru_session_dialog.manual_diagnostic.toggled.connect(
+                self._set_embedded_form_diagnostic_active
+            )
+            self.gelbooru_session_dialog.http_diagnostic_state_changed.connect(
+                self._set_embedded_http_diagnostic_active
+            )
+        self.gelbooru_session_dialog.show()
+        self.gelbooru_session_dialog.raise_()
+        self.gelbooru_session_dialog.activateWindow()
+
+    def _test_gelbooru_session(self) -> None:
+        if (
+            self.options_session_test_worker is not None
+            and self.options_session_test_worker.isRunning()
+        ):
+            return
+        factory = self._active_gelbooru_session_factory()
+        if factory is None:
+            self.options_page.show_embedded_session_test_result(
+                "Publication Gelbooru désactivée."
+            )
+            return
+        backend = "browser-cdp" if self.publish_backend == "cdp" else "embedded"
+        self.log(f"Gelbooru session test: backend={backend}")
+        self.options_page.set_embedded_session_test_running(True)
+        self.options_session_test_worker = SessionTestWorker(factory)
+        self.options_session_test_worker.completed.connect(
+            lambda result, selected=backend: self._session_test_finished(selected, result)
+        )
+        self.options_session_test_worker.start()
+
+    def _session_test_finished(self, backend: str, result: str) -> None:
+        self.options_page.show_embedded_session_test_result(result)
+        state = (
+            "authenticated" if result == "Session Gelbooru valide."
+            else "unauthenticated" if "non connectée" in result
+            else "unknown"
+        )
+        self.log(f"Gelbooru {backend} session: result={state}")
+
+    def _reset_embedded_session(self) -> None:
+        if QMessageBox.question(
+            self, "Réinitialiser la session Gelbooru",
+            "Supprimer uniquement les cookies et données de session du navigateur Gelbooru intégré ?",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        self.embedded_gelbooru_profile.reset_session()
+        QMessageBox.information(
+            self, "Réinitialiser la session Gelbooru", "La session Gelbooru intégrée a été réinitialisée."
+        )
+
+    def _reset_browser_profile(self) -> None:
+        if QMessageBox.question(
+            self,
+            "Reset dedicated profile",
+            "Delete the dedicated Gelbooru browser profile? Browser data in that isolated profile will be removed.",
+        ) != QMessageBox.StandardButton.Yes:
+            return
+        if self.browser_launcher.reset_dedicated_profile():
+            QMessageBox.information(self, "Reset dedicated profile", "The dedicated profile was reset.")
+        else:
+            QMessageBox.warning(self, "Reset dedicated profile", "No supported dedicated browser profile was found.")

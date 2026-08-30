@@ -18,10 +18,14 @@ gelbooru-tagging = "booruflow.presentation.pyside6.tagging_standalone:main"
 booruflow-similar = "booruflow.cli.similar_artists:main"
 
 [project.optional-dependencies]
-gui = ["PySide6>=6.8,<7"]
+gui = [
+    "PySide6>=6.8,<7",
+    "PySide6-Addons>=6.8,<7", # QtWebEngine, kept on the matching PySide6 stack
+]
 dev = ["pytest>=8", "ruff>=0.9"]
 distribution = ["PyInstaller>=6.15,<7"]
 image-analysis = ["Pillow>=10,<13"]
+browser-cdp = ["websocket-client>=1.8,<2"]
 image-analysis-wd14 = [
     "numpy>=1.26,<3",
     "onnxruntime-gpu[cuda,cudnn]>=1.27,<2",
@@ -55,3 +59,4 @@ python_files = ["test_*.py"]
 [tool.ruff]
 line-length = 100
 target-version = "py312"
+extend-exclude = ["src/booruflow/presentation/pyside6/similar_artists_controller - Copie.py"]

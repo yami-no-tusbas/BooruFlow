@@ -5,7 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence, QPixmap, QShortcut
+from PySide6.QtGui import QAction, QKeySequence, QMovie, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -46,11 +46,22 @@ class ScaledImageLabel(QScrollArea):
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setMinimumSize(260, 220)
         self._source = QPixmap()
+        self._movie: QMovie | None = None
         self._zoom = 0
 
     def set_image(self, path: Path | None) -> None:
+        if self._movie is not None:
+            self._movie.stop(); self._movie = None; self.label.setMovie(None)
         self._source = QPixmap(str(path)) if path else QPixmap()
         self._render()
+
+    def set_animated_image(self, path: Path | None) -> bool:
+        self.set_image(None)
+        if path is None or path.suffix.casefold() != ".gif": return False
+        movie = QMovie(str(path))
+        if not movie.isValid(): return False
+        self._movie = movie; self.label.setMovie(movie); movie.start()
+        return True
 
     def set_zoom(self, percent: int) -> None:
         self._zoom = max(0, int(percent)); self._render()

@@ -91,9 +91,9 @@ class CleanupController(QObject):
 
     def paths(self) -> tuple[Path, Path]:
         settings = self.settings_repository.load() if self.settings_repository else {}
-        grabber = Path(str(settings.get("grabber_directory", "")))
+        blacklist = Path(str(settings.get("blacklist_file", "")))
         output = Path(str(settings.get("output_root", self.project_root / "var" / "results")))
-        return grabber / "blacklist.txt", output
+        return blacklist, output
 
     def start(self, roots: tuple[Path, ...]) -> None:
         blacklist, output = self.paths()

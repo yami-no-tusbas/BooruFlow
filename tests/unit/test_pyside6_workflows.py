@@ -43,6 +43,179 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertTrue(critical.content.isHidden())
         page.close()
 
+    def test_batch_publish_controls_exclude_local_and_enable_explicit_failed_retry(self) -> None:
+        from booruflow.domain.image_analysis import PublishState
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        entries = [
+            {"item_id": 1, "site": None, "post_id": None, "additions": [], "removals": [], "reviewed_at": "now", "publish_state": PublishState.REVIEWED},
+            {"item_id": 2, "site": "gelbooru", "post_id": "22", "additions": ["a"], "removals": [], "reviewed_at": "now", "publish_state": PublishState.PENDING_PUBLISH},
+            {"item_id": 3, "site": "gelbooru", "post_id": "23", "additions": [], "removals": ["b"], "reviewed_at": "now", "publish_state": PublishState.FAILED},
+        ]
+        page.show_batch_entries(entries)
+        self.assertTrue(page.batch_publish_button.isEnabled())
+        page.batch_table.selectRow(2)
+        self.assertTrue(page.batch_retry_button.isEnabled())
+        page.set_batch_publish_running(True)
+        self.assertFalse(page.batch_publish_button.isEnabled())
+        self.assertFalse(page.batch_retry_button.isEnabled())
+        page.close()
+
+    def test_batch_publish_button_tracks_reopened_published_review_state(self) -> None:
+        from booruflow.domain.image_analysis import PublishState
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        entry = {
+            "item_id": 1, "site": "gelbooru", "post_id": "14772833",
+            "additions": [], "removals": [], "reviewed_at": "now",
+            "publish_state": PublishState.PUBLISHED,
+        }
+
+        page.show_batch_entries([entry])
+        self.assertFalse(page.batch_publish_button.isEnabled())
+        self.assertIn("0 en attente", page.batch_counts.text())
+
+        changed = dict(
+            entry,
+            additions=["new_tag"],
+            publish_state=PublishState.PENDING_PUBLISH,
+        )
+        page.show_batch_entries([changed])
+        self.assertTrue(page.batch_publish_button.isEnabled())
+        self.assertIn("1 en attente", page.batch_counts.text())
+        page.batch_filter.setCurrentIndex(page.batch_filter.findData("pending_publish"))
+        self.assertEqual(page.batch_table.rowCount(), 1)
+        self.assertEqual(page.batch_table.item(0, 2).text(), "new_tag")
+        self.assertFalse(page.batch_retry_button.isEnabled())
+        page.close()
+
+    def test_revalidating_changed_published_review_refreshes_batch_as_pending(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.domain.image_analysis import (
+            AnalysisItem,
+            InputKind,
+            ObservationSource,
+            SourceReference,
+            SourceTag,
+        )
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = ImageAnalysisRepository(Path(temporary) / "state.sqlite")
+            item_id = repository.add_item(
+                AnalysisItem(SourceReference(
+                    InputKind.GELBOORU_POST, site="gelbooru", post_id="14772833"
+                )),
+                (SourceTag("solo", ObservationSource.GELBOORU, "general"),),
+            )
+            repository.add_to_tagging_pool([item_id], "test")
+            repository.save_review_batch_entry(
+                item_id, original_tags=["solo"], additions=[], removals=[],
+                reviewed_final_tags=["solo"],
+            )
+            repository.begin_publish_attempt(item_id)
+            repository.publish_succeeded(item_id)
+            previous = repository.batch_entry(item_id)
+            repository.add_manual_observation(item_id, "new_tag")
+            logs = []
+            page = TaggingPage(self.catalog(), {})
+            controller = TaggingController(self.catalog(), page, dict, logs.append)
+            controller.image_analysis = SimpleNamespace(repository=repository, settings={})
+            controller.select_post(14772833, {"id": 14772833, "tags": "solo"})
+
+            controller.validate_current_review()
+
+            changed = repository.batch_entry(item_id)
+            self.assertEqual(changed["publish_state"].value, "pending_publish")
+            self.assertEqual(changed["additions"], ["new_tag"])
+            self.assertEqual(changed["published_at"], previous["published_at"])
+            self.assertEqual(changed["publish_attempts"], previous["publish_attempts"])
+            self.assertTrue(page.batch_publish_button.isEnabled())
+            self.assertIn("Review snapshot saved (pending_publish)", "\n".join(logs))
+            page.close()
+            repository.close()
+
+    def test_batch_session_test_is_non_destructive_and_reports_validation(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        calls = []
+        factory = SimpleNamespace(validate=lambda: calls.append("validate"))
+        page = TaggingPage(self.catalog(), {})
+        controller = TaggingController(
+            self.catalog(), page, dict, lambda *_args, **_kwargs: None, session_factory=factory
+        )
+        page.batch_session_test_button.click()
+        from PySide6.QtTest import QTest
+        for _attempt in range(50):
+            if calls and controller.session_test_worker.isFinished():
+                break
+            QTest.qWait(10)
+        QTest.qWait(20)
+        self.assertEqual(calls, ["validate"])
+        self.assertIn("valide", page.batch_status.text())
+        self.assertIsNotNone(controller)
+        page.close()
+
+    def test_batch_session_test_distinguishes_logged_out_and_unknown(self) -> None:
+        from types import SimpleNamespace
+
+        from PySide6.QtTest import QTest
+
+        from booruflow.infrastructure.gelbooru_edit_transport import (
+            GelbooruSessionExpiredError,
+            GelbooruSessionUnknownError,
+        )
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        for error, expected in (
+            (GelbooruSessionExpiredError("logout"), "non connectée"),
+            (GelbooruSessionUnknownError("unknown"), "indéterminé"),
+        ):
+            def validate(error=error):
+                raise error
+            page = TaggingPage(self.catalog(), {})
+            controller = TaggingController(
+                self.catalog(), page, dict, lambda *_args, **_kwargs: None,
+                session_factory=SimpleNamespace(validate=validate),
+            )
+            page.batch_session_test_button.click()
+            for _attempt in range(50):
+                if controller.session_test_worker.isFinished():
+                    break
+                QTest.qWait(10)
+            QTest.qWait(20)
+            self.assertIn(expected, page.batch_status.text())
+            page.close()
+
+    def test_tagging_legacy_keeps_review_copy_and_configured_browser_flow(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_legacy_page import TaggingLegacyPage
+
+        opened = []
+        browser = type("Browser", (), {"open": lambda _self, url: opened.append(url) or True})()
+        page = TaggingLegacyPage(self.catalog(), {}, browser)
+        page._select_post({"id": 42, "tags": "solo blue_hair"})
+        page.show_local_review(
+            "Analyse disponible", None, ["solo", "blue_hair"],
+            [{"id": 7, "tag": "long_hair", "confidence": "0.900", "decision": "accepted", "match": "exact"}],
+            [], ["blue_hair", "long_hair", "solo"],
+        )
+        page.copy_button.click()
+        self.assertEqual(QApplication.clipboard().text(), "blue_hair long_hair solo")
+        page.open_button.click()
+        self.assertEqual(opened, ["https://gelbooru.com/index.php?page=post&s=view&id=42"])
+        page.close()
+
     def test_tagging_local_review_selection_shortcuts_and_copy_lists(self) -> None:
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
@@ -52,6 +225,7 @@ class PySide6WorkflowTests(unittest.TestCase):
 
         page = TaggingPage(self.catalog(), {})
         page.show()
+        page.activateWindow()
         QApplication.processEvents()
         page.show_local_review(
             "Analyse disponible", None, ["solo"],
@@ -67,10 +241,227 @@ class PySide6WorkflowTests(unittest.TestCase):
         QTest.keyClick(page.suggestions, Qt.Key.Key_R)
         self.assertEqual(captured[-1], (17, "rejected"))
         page.copy_button.click()
-        self.assertEqual(QApplication.clipboard().text(), " blue_hair")
+        self.assertEqual(QApplication.clipboard().text(), "blue_hair unknown_tag")
         page.copy_all_button.click()
-        self.assertEqual(QApplication.clipboard().text(), " blue_hair unknown_tag")
+        self.assertEqual(QApplication.clipboard().text(), "blue_hair unknown_tag")
         self.assertEqual(page.zoom.itemData(3), 400)
+        page.close()
+
+    def test_tagging_bulk_shortcut_emits_every_selected_mixed_review_row(self) -> None:
+        from PySide6.QtCore import QItemSelectionModel
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        page.show_local_review(
+            "Analyse disponible", None, ["absurdres", "solo"],
+            [
+                {"id": "existing:absurdres", "tag": "absurdres", "confidence": "", "decision": "keep", "match": "Existant"},
+                {"id": "existing:solo", "tag": "solo", "confidence": "", "decision": "keep", "match": "Existant"},
+                {"id": 17, "tag": "blue_hair", "confidence": "0.900", "decision": "unreviewed", "match": "exact"},
+                {"id": 23, "tag": "long_hair", "confidence": "0.800", "decision": "unreviewed", "match": "exact"},
+            ], [], ["absurdres", "solo"],
+        )
+        page.decision_filter.setCurrentIndex(0)
+        page.suggestions.clearSelection()
+        for row in range(page.suggestions.rowCount()):
+            page.suggestions.selectionModel().select(
+                page.suggestions.model().index(row, 0),
+                QItemSelectionModel.SelectionFlag.Select | QItemSelectionModel.SelectionFlag.Rows,
+            )
+        captured = []
+        page.decision_requested.connect(lambda tokens, decision: captured.append((tokens, decision)))
+        page._emit_decision("rejected")
+        self.assertEqual(captured, [(["17", "23", "existing:absurdres", "existing:solo"], "rejected")])
+        page.close()
+
+    def test_tagging_final_tags_field_and_primary_clipboard_are_complete_and_stable(self) -> None:
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        final_tags = ["a", "c", "d"]  # original a/c, removed b, accepted WD14 d
+        page.show_local_review(
+            "Analyse disponible", None, ["a", "b", "c"],
+            [
+                {"id": "existing:a", "tag": "a", "confidence": "", "decision": "keep", "match": "Existant"},
+                {"id": "existing:b", "tag": "b", "confidence": "", "decision": "remove", "match": "Existant"},
+                {"id": 11, "tag": "d", "confidence": "0.9", "decision": "accepted", "match": "exact"},
+            ], ["d"], final_tags,
+        )
+        self.assertEqual(page.tags_to_add.text(), "a c d")
+        page.copy_button.click()
+        self.assertEqual(QApplication.clipboard().text(), "a c d")
+        page.show_local_review("Analyse disponible", None, ["a", "b", "c"], [], [], final_tags)
+        self.assertEqual(page.tags_to_add.text(), "a c d")
+        self.assertEqual(page._clipboard_text("final"), "a c d")
+        page.close()
+
+    def test_new_tagging_undo_shortcuts_are_limited_to_the_review_table(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+        from PySide6.QtWidgets import QApplication
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        page.show(); QApplication.processEvents()
+        page.show_local_review(
+            "Analyse disponible", None, [],
+            [{"id": 1, "tag": "robot", "confidence": "0.8", "decision": "unreviewed", "match": "exact"}],
+            [], [],
+        )
+        events = []
+        page.undo_requested.connect(lambda: events.append("undo"))
+        page.redo_requested.connect(lambda: events.append("redo"))
+        page.suggestions.setFocus()
+        QTest.keyClick(page.suggestions, Qt.Key.Key_Z, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(
+            page.suggestions, Qt.Key.Key_Z,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QTest.keyClick(page.suggestions, Qt.Key.Key_Y, Qt.KeyboardModifier.ControlModifier)
+        self.assertEqual(events, ["undo", "redo", "redo"])
+        page.manual_tag.setFocus()
+        QTest.keyClick(page.manual_tag, Qt.Key.Key_Y, Qt.KeyboardModifier.ControlModifier)
+        QTest.keyClick(
+            page.manual_tag, Qt.Key.Key_Z,
+            Qt.KeyboardModifier.ControlModifier | Qt.KeyboardModifier.ShiftModifier,
+        )
+        QTest.keyRelease(page.manual_tag, Qt.Key.Key_Control)
+        QTest.keyRelease(page.manual_tag, Qt.Key.Key_Shift)
+        self.assertEqual(events, ["undo", "redo", "redo"])
+        page.close()
+
+    def test_new_tagging_manual_entry_has_shared_mouse_keyboard_completer(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        page.show_local_review("Analyse disponible", None, [], [], [], [])
+        lookups = []
+        additions = []
+        page.manual_lookup_requested.connect(lookups.append)
+        page.manual_add_requested.connect(additions.append)
+        page.manual_tag.setFocus()
+        QTest.keyClicks(page.manual_tag, "b")
+        QTest.qWait(300)
+        self.assertEqual(lookups, [])
+        QTest.keyClicks(page.manual_tag, "l")
+        QTest.qWait(100)
+        QTest.keyClicks(page.manual_tag, "u")
+        QTest.qWait(100)
+        QTest.keyClicks(page.manual_tag, "e")
+        QTest.qWait(300)
+        self.assertEqual(lookups, ["blue"])
+        page.set_manual_suggestions(["blue_hair", "blue_eyes"])
+        self.assertEqual(page.manual_suggestion_model.stringList(), ["blue_hair", "blue_eyes"])
+        page.manual_completer.activated[str].emit("blue_hair")
+        self.assertEqual(page.manual_tag.text(), "blue_hair")
+        QTest.keyClick(page.manual_tag, Qt.Key.Key_Return)
+        self.assertEqual(additions, ["blue_hair"])
+        page.manual_tag.setText("blue_eyes")
+        page.manual_add.click()
+        self.assertEqual(additions[-1], "blue_eyes")
+        page.show_local_review("Analyse en attente", None, [], [], [], [])
+        self.assertFalse(page.manual_tag.isEnabled())
+        self.assertFalse(page.manual_add.isEnabled())
+        page.close()
+
+    def test_batch_view_formats_entries_filters_and_counts_without_network(self) -> None:
+        from booruflow.domain.image_analysis import PublishState
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        entries = [
+            {"item_id": 1, "site": "gelbooru", "post_id": "10", "additions": ["blue_hair"],
+             "removals": ["ball"], "reviewed_final_tags": ["blue_hair"],
+             "reviewed_at": "2026-08-25T10:00:00+00:00", "publish_state": PublishState.PENDING_PUBLISH},
+            {"item_id": 2, "site": None, "post_id": None, "additions": [], "removals": [],
+             "reviewed_final_tags": ["solo"], "reviewed_at": "2026-08-25T09:00:00+00:00",
+             "publish_state": PublishState.REVIEWED},
+            {"item_id": 3, "site": "gelbooru", "post_id": "11", "additions": [], "removals": [],
+             "reviewed_final_tags": [], "reviewed_at": "2026-08-25T08:00:00+00:00",
+             "publish_state": PublishState.PUBLISHED},
+            {"item_id": 4, "site": "gelbooru", "post_id": "12", "additions": [], "removals": [],
+             "reviewed_final_tags": [], "reviewed_at": "2026-08-25T07:00:00+00:00",
+             "publish_state": PublishState.FAILED},
+        ]
+        requested = []
+        page.batch_refresh_requested.connect(lambda: requested.append(True))
+        page.show_batch()
+        self.assertEqual(requested, [True])
+        page.show_batch_entries(entries)
+        self.assertEqual(page.batch_table.rowCount(), 4)
+        page.batch_table.setColumnWidth(2, 77)
+        page.show_batch_entries(entries)
+        self.assertEqual(page.batch_table.columnWidth(2), 77)
+        self.assertEqual(page.batch_table.item(0, 2).text(), "blue_hair")
+        self.assertEqual(page.batch_table.item(1, 2).text(), "—")
+        self.assertIn("1 en attente", page.batch_counts.text())
+        self.assertIn("1 locaux", page.batch_counts.text())
+        page.batch_filter.setCurrentIndex(1)
+        self.assertEqual(page.batch_table.rowCount(), 1)
+        page.batch_filter.setCurrentIndex(4)
+        self.assertEqual(page.batch_table.rowCount(), 1)
+        page.batch_table.selectRow(0)
+        self.assertFalse(page.batch_open_button.isEnabled())
+        self.assertTrue(page.batch_remove_button.isEnabled())
+        page.batch_filter.setCurrentIndex(2)
+        page.batch_table.selectRow(0)
+        self.assertTrue(page.batch_remove_button.isEnabled())
+        page.close()
+
+    def test_tagging_suggestion_columns_include_numeric_category_in_requested_order(self) -> None:
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        labels = [
+            page.suggestions.horizontalHeaderItem(column).text()
+            for column in range(5)
+        ]
+        self.assertEqual(labels, [
+            "Tag", "Confiance", "Origine / correspondance", "Catégorie", "Décision",
+        ])
+        page.decision_filter.setCurrentIndex(page.decision_filter.findData("all"))
+        page.show_local_review(
+            "Analyse disponible", None, [],
+            [{"id": 1, "tag": "solo", "confidence": "0.972", "match": "exact",
+              "category": "0", "decision": "accepted"}],
+            [], [],
+        )
+        self.assertEqual(
+            [page.suggestions.item(0, column).text() for column in range(5)],
+            ["solo", "0.972", "exact", "0", "accepted"],
+        )
+        page.close()
+
+    def test_tagging_duplicate_existing_wd14_row_uses_existing_token_for_remove(self) -> None:
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        page.show_local_review(
+            "Analyse disponible", None, ["cyborg", "cyberpunk"],
+            [
+                {"id": "existing:cyborg", "tag": "cyborg", "confidence": "0.800", "decision": "keep", "match": "Existant · également détecté par WD14"},
+                {"id": "existing:cyberpunk", "tag": "cyberpunk", "confidence": "", "decision": "keep", "match": "Existant"},
+                {"id": 23, "tag": "robot", "confidence": "0.700", "decision": "unreviewed", "match": "exact"},
+            ], [], ["cyborg", "cyberpunk"],
+        )
+        page.decision_filter.setCurrentIndex(0)
+        row = next(
+            index for index in range(page.suggestions.rowCount())
+            if page.suggestions.item(index, 0).text() == "cyborg"
+        )
+        page.suggestions.clearSelection()
+        page.suggestions.selectRow(row)
+        captured = []
+        page.decision_requested.connect(lambda token, decision: captured.append((token, decision)))
+        page._emit_decision("rejected")
+        self.assertEqual(captured, [("existing:cyborg", "rejected")])
         page.close()
 
     def test_tagging_selects_first_then_advances_in_visible_order(self) -> None:
@@ -112,14 +503,14 @@ class PySide6WorkflowTests(unittest.TestCase):
         ]
         page.show_local_review("Analyse disponible", None, [], rows, [], [])
         self.assertEqual(page.decision_filter.currentData(), "unreviewed")
-        self.assertEqual([page.suggestions.item(r, 4).text() for r in range(2)], ["2", "4"])
+        self.assertEqual([page.suggestions.item(r, 5).text() for r in range(2)], ["2", "4"])
 
         page.decision_filter.setCurrentIndex(0)
         cases = (
             (0, ["Alpha", "beta", "gamma", "zeta"]),
             (1, ["0.100", "0.700", "0.800", "0.950"]),
-            (2, ["unreviewed", "unreviewed", "accepted", "rejected"]),
-            (3, ["exact", "mapping → z", "déjà présent", "introuvable localement"]),
+            (2, ["exact", "mapping → z", "déjà présent", "introuvable localement"]),
+            (4, ["unreviewed", "unreviewed", "accepted", "rejected"]),
         )
         for column, expected in cases:
             page.suggestions.sortItems(column, Qt.SortOrder.AscendingOrder)
@@ -163,18 +554,234 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertEqual(added, [])
         page.close()
 
-    def test_tagging_pool_selected_skipped_reopens_without_model_run(self) -> None:
+    def test_legacy_page_has_no_obsolete_pool_panel(self) -> None:
+        from booruflow.presentation.pyside6.tagging_legacy_page import TaggingLegacyPage
+
+        page = TaggingLegacyPage(self.catalog(), {})
+        self.assertFalse(hasattr(page, "pool_table"))
+        page.close()
+
+    def test_space_saves_batch_snapshot_and_advances_without_browser_or_network(self) -> None:
         from types import SimpleNamespace
-        from booruflow.domain.image_analysis import AnalysisItem, AnalysisState, InputKind, SourceReference
+
+        from booruflow.domain.image_analysis import (
+            AnalysisItem,
+            AnalysisState,
+            InputKind,
+            ObservationSource,
+            SourceReference,
+            SourceTag,
+        )
         from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
         from booruflow.presentation.pyside6.tagging_controller import TaggingController
         from booruflow.presentation.pyside6.tagging_page import TaggingPage
-        with tempfile.TemporaryDirectory() as temporary:
-            repository=ImageAnalysisRepository(Path(temporary)/"state.sqlite");item_id=repository.add_item(AnalysisItem(SourceReference(InputKind.LOCAL_FILE,original_path=Path("x.png")),cached_path=Path("x.png"),content_sha256="f"*64,mime_type="image/png",width=1,height=1));repository.transition(item_id,AnalysisState.PROCESSING);repository.transition(item_id,AnalysisState.READY_FOR_REVIEW);repository.finish_review(item_id,AnalysisState.SKIPPED);repository.add_to_tagging_pool([item_id],"test")
-            page=TaggingPage(self.catalog(), {});controller=TaggingController(self.catalog(),page,dict,lambda *_args,**_kwargs:None);controller.image_analysis=SimpleNamespace(repository=repository);controller.refresh_pool();page.pool_table.selectRow(0);page.pool_reopen.click();self.app.processEvents()
-            self.assertEqual(repository.get_item(item_id).state,AnalysisState.READY_FOR_REVIEW);self.assertEqual(repository.connection.execute("SELECT COUNT(*) FROM model_runs").fetchone()[0],0);page.close();repository.close()
 
-    def test_tagging_space_opens_and_empty_copy_does_not_replace_clipboard(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = ImageAnalysisRepository(Path(temporary) / "state.sqlite")
+            first = repository.add_item(
+                AnalysisItem(
+                    SourceReference(InputKind.GELBOORU_POST, site="gelbooru", post_id="101"),
+                    state=AnalysisState.READY_FOR_REVIEW,
+                ),
+                (SourceTag("ball", ObservationSource.GELBOORU, "general"),
+                 SourceTag("foo", ObservationSource.GELBOORU, "general")),
+            )
+            second = repository.add_item(
+                AnalysisItem(
+                    SourceReference(InputKind.GELBOORU_POST, site="gelbooru", post_id="202"),
+                    state=AnalysisState.READY_FOR_REVIEW,
+                ),
+                (SourceTag("solo", ObservationSource.GELBOORU, "general"),),
+            )
+            repository.add_to_tagging_pool([first, second], "test")
+            opened = []
+            browser = SimpleNamespace(open=lambda url: opened.append(url))
+            page = TaggingPage(self.catalog(), {}, browser)
+            controller = TaggingController(self.catalog(), page, dict, lambda *_args, **_kwargs: None)
+            controller.image_analysis = SimpleNamespace(repository=repository, settings={})
+            controller.refresh_pool()
+            page._select_post({"id": 101, "tags": "ball foo"})
+            repository.set_existing_tag_decision(first, "ball", "remove")
+
+            page._copy_and_open()
+
+            entry = repository.batch_entry(first)
+            self.assertEqual(entry["original_tags"], ["ball", "foo"])
+            self.assertEqual(entry["removals"], ["ball"])
+            self.assertEqual(entry["reviewed_final_tags"], ["foo"])
+            self.assertEqual(entry["publish_state"].value, "pending_publish")
+            self.assertEqual(repository.get_item(first).state, AnalysisState.REVIEWED)
+            self.assertEqual(page.current_post_id, 202)
+            self.assertEqual(opened, [])
+
+            page._copy_and_open()
+            self.assertEqual(len(repository.list_batch_entries()), 2)
+            self.assertIn("pool terminé", page.analysis_state.text())
+
+            page._select_post({"id": 101, "tags": "ball foo"})
+            repository.set_existing_tag_decision(first, "ball", "keep")
+            page._copy_and_open()
+            self.assertEqual(len(repository.list_batch_entries()), 2)
+            self.assertEqual(repository.batch_entry(first)["removals"], [])
+            self.assertEqual(repository.batch_entry(first)["reviewed_final_tags"], ["ball", "foo"])
+            self.assertEqual(opened, [])
+            page.close()
+            repository.close()
+
+    def test_batch_actions_review_remove_and_open_use_persisted_entries_only(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.domain.image_analysis import (
+            AnalysisItem,
+            InputKind,
+            ObservationSource,
+            PublishState,
+            SourceReference,
+            SourceTag,
+        )
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = ImageAnalysisRepository(Path(temporary) / "state.sqlite")
+            remote = repository.add_item(
+                AnalysisItem(SourceReference(
+                    InputKind.GELBOORU_POST, site="gelbooru", post_id="121"
+                )),
+                (SourceTag("solo", ObservationSource.GELBOORU, "general"),),
+            )
+            local = repository.add_item(AnalysisItem(
+                SourceReference(InputKind.LOCAL_FILE, original_path=Path("local.png"))
+            ))
+            for item_id, original in ((remote, ["solo"]), (local, ["chair"])):
+                repository.save_review_batch_entry(
+                    item_id, original_tags=original, additions=[], removals=[],
+                    reviewed_final_tags=original,
+                )
+            opened = []
+            page = TaggingPage(self.catalog(), {}, SimpleNamespace(open=opened.append))
+            controller = TaggingController(self.catalog(), page, dict, lambda *_args, **_kwargs: None)
+            controller.image_analysis = SimpleNamespace(repository=repository, settings={})
+
+            page.show_batch()
+            self.assertEqual(page.batch_table.rowCount(), 2)
+            remote_row = next(
+                row for row in range(page.batch_table.rowCount())
+                if page.batch_table.item(row, 6).text() == str(remote)
+            )
+            page.batch_table.selectRow(remote_row)
+            page.batch_review_button.click()
+            self.assertEqual(page.current_post_id, 121)
+            self.assertIsNotNone(repository.batch_entry(remote))
+            page.show_batch()
+            remote_row = next(
+                row for row in range(page.batch_table.rowCount())
+                if page.batch_table.item(row, 6).text() == str(remote)
+            )
+            page.batch_table.selectRow(remote_row)
+            page.batch_open_button.click()
+            self.assertEqual(opened, ["https://gelbooru.com/index.php?page=post&s=view&id=121"])
+
+            local_row = next(
+                row for row in range(page.batch_table.rowCount())
+                if page.batch_table.item(row, 6).text() == str(local)
+            )
+            page.batch_table.clearSelection()
+            page.batch_table.selectRow(local_row)
+            self.assertFalse(page.batch_open_button.isEnabled())
+            page.batch_review_button.click()
+            self.assertIs(page.mode_stack.currentWidget(), page.review)
+            self.assertEqual(page.review_title.text(), f"Fichier local #{local}")
+            self.assertIsNotNone(repository.batch_entry(local))
+            page.show_batch()
+            local_row = next(
+                row for row in range(page.batch_table.rowCount())
+                if page.batch_table.item(row, 6).text() == str(local)
+            )
+            page.batch_table.selectRow(local_row)
+            page.batch_remove_button.click()
+            self.assertIsNone(repository.batch_entry(local))
+            self.assertIsNotNone(repository.get_item(local))
+            self.assertIsNotNone(repository.batch_entry(remote))
+            self.assertEqual(opened, ["https://gelbooru.com/index.php?page=post&s=view&id=121"])
+            repository.update_publish_state(remote, PublishState.PUBLISHED)
+            page.show_batch()
+            published_row = next(
+                row for row in range(page.batch_table.rowCount())
+                if page.batch_table.item(row, 6).text() == str(remote)
+            )
+            page.batch_table.selectRow(published_row)
+            self.assertTrue(page.batch_remove_button.isEnabled())
+            page.batch_remove_button.click()
+            self.assertNotIn(
+                remote,
+                {int(entry["item_id"]) for entry in repository.list_batch_entries()},
+            )
+            self.assertEqual(
+                repository.batch_entry(remote)["publish_state"], PublishState.PUBLISHED
+            )
+            self.assertEqual(opened, ["https://gelbooru.com/index.php?page=post&s=view&id=121"])
+            page.close()
+            repository.close()
+
+    def test_space_uses_manual_selection_and_persisted_checks_when_advancing(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.domain.image_analysis import (
+            AnalysisItem,
+            AnalysisState,
+            InputKind,
+            ObservationSource,
+            SourceReference,
+            SourceTag,
+        )
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = ImageAnalysisRepository(Path(temporary) / "state.sqlite")
+            item_ids = []
+            posts = []
+            for post_id in (101, 202, 303):
+                item_ids.append(repository.add_item(
+                    AnalysisItem(
+                        SourceReference(
+                            InputKind.GELBOORU_POST, site="gelbooru",
+                            post_id=str(post_id),
+                        ),
+                        state=AnalysisState.READY_FOR_REVIEW,
+                    ),
+                    (SourceTag("solo", ObservationSource.GELBOORU, "general"),),
+                ))
+                posts.append({"id": post_id, "tags": "solo", "priority": "low"})
+            repository.add_to_tagging_pool(item_ids, "test")
+            page = TaggingPage(self.catalog(), {})
+            controller = TaggingController(
+                self.catalog(), page, dict, lambda *_args, **_kwargs: None
+            )
+            controller.image_analysis = SimpleNamespace(repository=repository, settings={})
+            page.show_results(posts)
+
+            page._select_post(posts[0]); page._copy_and_open()
+            self.assertIsNotNone(repository.batch_entry(item_ids[0]))
+            self.assertEqual(page.current_post_id, 202)
+            self.assertIn("✓", page.result_buttons[101].text())
+
+            page._select_post(posts[2]); page._copy_and_open()
+            self.assertIsNotNone(repository.batch_entry(item_ids[2]))
+            self.assertIsNone(repository.batch_entry(item_ids[1]))
+            self.assertEqual(page.current_post_id, 202)
+            self.assertNotEqual(page.current_post_id, 101)
+
+            page.show_results(posts)
+            controller.refresh_batch()
+            self.assertIn("✓", page.result_buttons[101].text())
+            self.assertIn("✓", page.result_buttons[303].text())
+            page.close(); repository.close()
+
+    def test_tagging_space_never_opens_browser_or_replaces_clipboard(self) -> None:
         from PySide6.QtCore import QCoreApplication, QEvent, Qt
         from PySide6.QtGui import QKeyEvent
         from PySide6.QtTest import QTest
@@ -187,19 +794,19 @@ class PySide6WorkflowTests(unittest.TestCase):
         page.show(); QApplication.processEvents()
         page.show_local_review("Analyse disponible", None, [], [], [], [])
         QApplication.clipboard().setText("unchanged")
-        with patch("booruflow.presentation.pyside6.tagging_page.QDesktopServices.openUrl") as opened:
+        with patch("booruflow.presentation.pyside6.tagging_legacy_page.QDesktopServices.openUrl") as opened:
             page.suggestions.setFocus()
             QTest.keyClick(page.suggestions, Qt.Key.Key_Space)
-            self.assertEqual(opened.call_count, 1)
+            opened.assert_not_called()
             repeated = QKeyEvent(
                 QEvent.Type.KeyPress, Qt.Key.Key_Space, Qt.KeyboardModifier.NoModifier,
                 " ", True, 2,
             )
             QCoreApplication.sendEvent(page.suggestions, repeated)
-            self.assertEqual(opened.call_count, 1)
+            opened.assert_not_called()
         self.assertEqual(QApplication.clipboard().text(), "unchanged")
         page.query.setFocus(); page.query.clear()
-        with patch("booruflow.presentation.pyside6.tagging_page.QDesktopServices.openUrl") as opened:
+        with patch("booruflow.presentation.pyside6.tagging_legacy_page.QDesktopServices.openUrl") as opened:
             QTest.keyClick(page.query, Qt.Key.Key_Space)
             self.assertEqual(page.query.text(), " ")
             opened.assert_not_called()
@@ -235,7 +842,7 @@ class PySide6WorkflowTests(unittest.TestCase):
         )
         page._select_post({"id": 1, "tags": "solo"})
         self.assertIn("cache réutilisé", page.analysis_state.text())
-        with patch("booruflow.presentation.pyside6.tagging_page.QDesktopServices.openUrl"):
+        with patch("booruflow.presentation.pyside6.tagging_legacy_page.QDesktopServices.openUrl"):
             page._copy_and_open()
         page._select_post({"id": 2, "tags": "solo"})
         self.assertIn("Analyse en attente", page.analysis_state.text())
@@ -246,6 +853,36 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertIn("Local analysis requested", joined)
         self.assertIn("No existing item found", joined)
         self.assertIn("ready_for_review", joined)
+        page.close()
+
+    def test_legacy_tagging_surfaces_image_analysis_startup_timeout(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.domain.image_analysis import AnalysisState
+        from booruflow.presentation.pyside6.tagging_legacy_controller import TaggingLegacyController
+        from booruflow.presentation.pyside6.tagging_legacy_page import TaggingLegacyPage
+
+        page = TaggingLegacyPage(self.catalog(), {})
+        controller = TaggingLegacyController(self.catalog(), page, dict, lambda _line: None)
+        item = SimpleNamespace(
+            id=2, state=AnalysisState.PENDING, cached_path=None, last_error=None,
+        )
+        repository = SimpleNamespace(
+            item_by_remote_source=lambda _site, _post_id: item,
+            source_tags=lambda _item_id: (), observations=lambda _item_id: [],
+        )
+        controller.image_analysis = SimpleNamespace(
+            repository=repository, settings={},
+            worker_startup_state="startup_timeout",
+            worker_startup_detail="ImageAnalysis startup timeout after 30 s",
+        )
+        page._select_post({"id": 4511, "tags": "solo"})
+        self.assertEqual(controller.current_post_id, 4511)
+        controller._image_analysis_state_changed(
+            "startup_timeout", controller.image_analysis.worker_startup_detail
+        )
+        self.assertIn("délai de démarrage ImageAnalysis dépassé", page.analysis_state.text())
+        self.assertTrue(page.analyze_button.isEnabled())
         page.close()
 
     def test_tagging_search_and_review_are_mutually_exclusive_and_restore_scroll(self) -> None:
@@ -279,7 +916,7 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertEqual(len(page.result_posts), 13)
         page.close()
 
-    def test_tagging_review_navigation_and_space_advance_then_finish(self) -> None:
+    def test_tagging_space_without_controller_never_uses_legacy_browser_flow(self) -> None:
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QTest
 
@@ -293,17 +930,44 @@ class PySide6WorkflowTests(unittest.TestCase):
         page.show_results(posts); page._open_result(0); page.show_local_review(
             "Analyse disponible", None, [], [], ["chair"], ["chair"]
         )
-        with patch("booruflow.presentation.pyside6.tagging_page.QDesktopServices.openUrl") as opened:
+        with patch("booruflow.presentation.pyside6.tagging_legacy_page.QDesktopServices.openUrl") as opened:
             page.suggestions.setFocus(); QTest.keyClick(page.suggestions, Qt.Key.Key_Space)
-            self.assertEqual(opened.call_count, 1)
-            self.assertEqual(page.current_post_id, 20)
-            self.assertIs(page.mode_stack.currentWidget(), page.review)
-            page.show_local_review("Analyse disponible", None, [], [], ["indoors"], ["indoors"])
-            QTest.keyClick(page.suggestions, Qt.Key.Key_Space)
-            self.assertEqual(opened.call_count, 2)
-        self.assertIs(page.mode_stack.currentWidget(), page.search_view)
-        self.assertIn("Tous les résultats", page.state.text())
-        self.assertEqual(page.processed_in_session, {10, 20})
+            opened.assert_not_called()
+        self.assertIs(page.mode_stack.currentWidget(), page.review)
+        self.assertEqual(page.current_post_id, 10)
+        self.assertEqual(page.processed_in_session, set())
+        page.close()
+
+    def test_legacy_video_error_exposes_a_clickable_current_post_link(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.presentation.pyside6.tagging_legacy_page import TaggingLegacyPage
+
+        opened: list[str] = []
+        page = TaggingLegacyPage(self.catalog(), {}, SimpleNamespace(open=opened.append))
+        page.show(); page._select_post({"id": 14772833, "tags": "solo"})
+        page._video_error()
+        self.assertIn("Lecture vidéo impossible", page.analysis_state.text())
+        self.assertEqual(page.video_error_link.text(), "Ouvrir le post #14772833")
+        self.assertTrue(page.video_error_link.isVisible())
+        page.video_error_link.click()
+        self.assertEqual(opened, ["https://gelbooru.com/index.php?page=post&s=view&id=14772833"])
+        page.close()
+
+    def test_legacy_video_error_link_is_replaced_when_the_post_changes(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.presentation.pyside6.tagging_legacy_page import TaggingLegacyPage
+
+        opened: list[str] = []
+        page = TaggingLegacyPage(self.catalog(), {}, SimpleNamespace(open=opened.append))
+        page.show(); page._select_post({"id": 14772833, "tags": "solo"}); page._video_error()
+        page._select_post({"id": 42, "tags": "solo"})
+        self.assertFalse(page.video_error_link.isVisible())
+        page._video_error()
+        self.assertEqual(page.video_error_link.text(), "Ouvrir le post #42")
+        page.video_error_link.click()
+        self.assertEqual(opened, ["https://gelbooru.com/index.php?page=post&s=view&id=42"])
         page.close()
 
     def test_tagging_review_action_bar_stays_inside_1280_by_720(self) -> None:

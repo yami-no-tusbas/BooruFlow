@@ -228,11 +228,11 @@ def ask_queries() -> list[str]:
         if not line or line.casefold() in {"fin", "end", "stop"}:
             break
 
-        # Autorise aussi plusieurs recherches sur une ligne, séparées par ;
+        # Also allow several searches on one line when separated by semicolons.
         parts = [part.strip() for part in line.split(";") if part.strip()]
         queries.extend(parts)
 
-    # Supprime les doublons tout en gardant l'ordre d'origine.
+    # Remove duplicates while preserving their original order.
     unique_queries: list[str] = []
     seen: set[str] = set()
 
@@ -372,9 +372,8 @@ def load_blacklisted_artists(
         if not line or line.startswith(("#", "//")):
             continue
 
-        # Une règle Grabber peut contenir plusieurs éléments séparés par
-        # des espaces. On ne conserve que les éléments qui correspondent
-        # exactement à un artiste de la base.
+        # A Grabber rule may contain several elements separated by
+        # spaces. Keep only elements that exactly match an artist in the database.
         for token in line.split():
             if token in artist_names:
                 excluded.add(token)
@@ -483,11 +482,11 @@ def load_ignore_file(
                 ignored_queries.add(normalize_query(value))
             continue
 
-        # Une ligne simple correspondant exactement à un artiste est un artiste.
+        # A plain line that exactly matches an artist is itself an artist rule.
         if line in artist_names:
             ignored_artists.add(line)
         else:
-            # Sinon, c'est une recherche, y compris une combinaison de tags.
+            # Otherwise it is a search, including a combination of tags.
             ignored_queries.add(normalize_query(line))
 
     print(
@@ -537,7 +536,7 @@ def load_cumulative_progress(
     queries: list[str],
     start_page: int,
 ) -> dict[str, Any]:
-    """Charge uniquement une continuation exacte, sans risquer de compter deux fois."""
+    """Load only an exact continuation without risking duplicate counts."""
     if start_page <= 1 or not path.is_file():
         return {"version": 1, "queries": queries, "next_page": 1, "data": {}}
     try:

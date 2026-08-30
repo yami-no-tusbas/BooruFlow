@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -38,7 +39,10 @@ class GrabberController(QObject):
 
     def store(self) -> GrabberSessionStore | None:
         settings = self.settings_repository.load() if self.settings_repository else {}
-        directory = Path(str(settings.get("grabber_directory", "")).strip())
+        executable = str(settings.get("grabber_executable", "")).strip() or shutil.which(
+            "Grabber.exe"
+        )
+        directory = Path(executable).parent if executable else Path()
         if not (directory / "Grabber.exe").is_file():
             self.page.state.setText(self.catalog.text("grabber.missing", path=directory))
             return None
@@ -68,9 +72,9 @@ class GrabberController(QObject):
         ):
             self.page.state.setText(self.catalog.text("review.credentials_missing"))
             return
-        unavailable = self.tag_file(store.directory / "blacklist.txt") | self.tag_file(
-            store.directory / "ignore.txt"
-        )
+        settings = self.settings_repository.load() if self.settings_repository else {}
+        blacklist = Path(str(settings.get("blacklist_file", "")))
+        unavailable = self.tag_file(blacklist)
         try:
             self.state, skipped = store.create(
                 request,

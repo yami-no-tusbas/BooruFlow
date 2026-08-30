@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -7,6 +8,7 @@ import time
 import unittest
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 from PIL import Image
 
@@ -18,7 +20,8 @@ from booruflow.infrastructure.classic_image_analysis import (
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
 from booruflow.infrastructure.image_sources import ImageSourceService
 from booruflow.infrastructure.wd14 import WD14Result, WD14Tag
-from booruflow.worker.image_analysis import ImageAnalysisWorker, _watch_parent
+from booruflow.worker import image_analysis as worker_module
+from booruflow.worker.image_analysis import ImageAnalysisWorker, _merge_results, _watch_parent
 
 
 class WorkerLifecycleTests(unittest.TestCase):
@@ -48,7 +51,9 @@ class WorkerLifecycleTests(unittest.TestCase):
             self.assertIn("parent_pid received=0", trace)
             self.assertIn("SQLite connected", trace)
             self.assertIn("worker session created", trace)
-            self.assertIn("watchdog initialized non-blocking", trace)
+            self.assertIn("early parent watchdog started", trace)
+            self.assertIn("cooperative stop watcher started", trace)
+            self.assertIn("interpreter=", trace)
             self.assertIn("[INFO] [Worker] Worker started", completed.stdout)
             self.assertIn("READY ", completed.stdout)
 
@@ -59,6 +64,72 @@ class WorkerLifecycleTests(unittest.TestCase):
         _watch_parent(2_147_483_647, threading.Event(), messages.append)
 
         self.assertTrue(any("watchdog disabled" in message for message in messages))
+
+    def test_bootstrap_stops_cooperatively_and_leaves_no_worker_process(self) -> None:
+        from booruflow.presentation.pyside6.image_analysis_controller import _pid_is_running
+
+        with tempfile.TemporaryDirectory() as temporary:
+            process=subprocess.Popen([
+                sys.executable,"-u","-m","booruflow.worker.image_analysis_bootstrap",
+                "--database",str(Path(temporary)/"state.sqlite"),"--parent-pid",str(os.getpid()),
+                "--poll-interval","0.5",
+            ],stdin=subprocess.PIPE,stdout=subprocess.PIPE,stderr=subprocess.STDOUT,text=True)
+            output=[]; worker_pid=0; deadline=time.monotonic()+10
+            assert process.stdout is not None
+            while time.monotonic()<deadline:
+                line=process.stdout.readline(); output.append(line)
+                match=re.search(r"READY .* pid=(\d+)",line)
+                if match:
+                    worker_pid=int(match.group(1)); break
+            self.assertGreater(worker_pid,0,"".join(output))
+            assert process.stdin is not None
+            process.stdin.write("STOP\n"); process.stdin.flush(); process.wait(timeout=10)
+            self.assertEqual(process.returncode,0)
+            deadline=time.monotonic()+2
+            while _pid_is_running(worker_pid) and time.monotonic()<deadline: time.sleep(0.02)
+            self.assertFalse(_pid_is_running(worker_pid))
+
+    def test_stop_during_controlled_wd14_prepare_closes_backend_before_exit(self) -> None:
+        stop=threading.Event(); traces=[]; closed=[]
+        class ControlledWD14:
+            def __init__(self,_config): pass
+            def prepare(self,trace): trace("controlled WD14 prepare"); stop.set()
+            def close(self): closed.append(True)
+        with tempfile.TemporaryDirectory() as temporary, patch.object(worker_module,"WD14Backend",ControlledWD14):
+            root=Path(temporary)
+            code=worker_module.main([
+                "--database",str(root/"state.sqlite"),"--wd14-enabled",
+                "--wd14-model-directory",str(root/"model"),"--once",
+            ],bootstrap_log=traces.append,external_stop=stop,parent_watchdog_started=True)
+        self.assertEqual(code,0); self.assertEqual(closed,[True])
+        self.assertIn("stop observed after WD14 prepare",traces)
+
+    def test_stdin_watcher_starts_only_after_wd14_prepare(self) -> None:
+        started=[]; during_prepare=[]
+        class ControlledWD14:
+            def __init__(self,_config):
+                self.provider="CPUExecutionProvider";self.device="CPU";self.runtime="test"
+                self.runtime_diagnostic=type("Diagnostic",(),{
+                    "runtime_version":"test","expected_cuda":"","expected_cudnn":"",
+                    "cuda_runtime_installed":False,"cudnn_installed":False,
+                    "gpu_devices":(),"effective_provider":"CPUExecutionProvider",
+                })()
+            def prepare(self,_trace): during_prepare.extend(started)
+            def close(self): pass
+        class DeferredThread:
+            def __init__(self,target,args=(),daemon=None): self.target=target
+            def start(self): started.append(self.target)
+        with tempfile.TemporaryDirectory() as temporary, \
+             patch.object(worker_module,"WD14Backend",ControlledWD14), \
+             patch.object(worker_module.threading,"Thread",DeferredThread):
+            root=Path(temporary)
+            code=worker_module.main([
+                "--database",str(root/"state.sqlite"),"--wd14-enabled",
+                "--wd14-model-directory",str(root/"model"),"--once",
+            ],parent_watchdog_started=True)
+        self.assertEqual(code,0)
+        self.assertNotIn(worker_module._watch_stdin,during_prepare)
+        self.assertIn(worker_module._watch_stdin,started)
 
 
 class FakeWD14:
@@ -139,6 +210,30 @@ class ImageAnalysisWorkerTests(unittest.TestCase):
         self.assertEqual(observations[0][1].name, "blue_hair")
         self.assertEqual(observations[0][1].raw_tag_name, "blue hair")
         self.assertEqual(observations[0][1].category, "general")
+
+    def test_wd14_multi_frame_merge_keeps_each_best_score_deterministically(self) -> None:
+        first = WD14Result((
+            WD14Tag("character_a", "character", 0.62),
+            WD14Tag("blue_hair", "general", 0.80),
+            WD14Tag("safe", "rating", 0.99),
+        ))
+        second = WD14Result((
+            WD14Tag("character_a", "character", 0.91),
+            WD14Tag("smile", "general", 0.70),
+            WD14Tag("safe", "rating", 0.95),
+        ))
+        expected = _merge_results([first, second])
+        reversed_result = _merge_results([second, first])
+        self.assertEqual(expected, reversed_result)
+        self.assertEqual(
+            {(tag.raw_name, tag.category): tag.score for tag in expected.predictions},
+            {
+                ("blue_hair", "general"): 0.80,
+                ("character_a", "character"): 0.91,
+                ("safe", "rating"): 0.99,
+                ("smile", "general"): 0.70,
+            },
+        )
 
     def test_interactive_item_reaches_ready_despite_two_ready_prefetch_items(self) -> None:
         for name in ("ready-one.png", "ready-two.png"):

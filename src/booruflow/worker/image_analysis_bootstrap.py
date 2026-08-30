@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sys
+import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -32,14 +33,61 @@ def bootstrap_log(message: str) -> None:
     print(f"BOOTSTRAP {message}", flush=True)
 
 
+def _watch_parent_early(parent_pid: int) -> None:
+    """Watch the GUI before importing ONNX/PySide worker dependencies."""
+    if parent_pid <= 0:
+        return
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel32.OpenProcess.restype = wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel32.WaitForSingleObject.restype = wintypes.DWORD
+        kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+        kernel32.CloseHandle.restype = wintypes.BOOL
+        handle = kernel32.OpenProcess(0x00100000, False, parent_pid)
+        if not handle:
+            bootstrap_log(
+                f"parent unavailable before worker import error={ctypes.get_last_error()}"
+            )
+            os._exit(0)
+        bootstrap_log("early parent watchdog armed")
+        try:
+            if kernel32.WaitForSingleObject(handle, 0xFFFFFFFF) == 0:
+                bootstrap_log("parent exit detected")
+                os._exit(0)
+        finally:
+            kernel32.CloseHandle(handle)
+        return
+    while True:
+        try:
+            os.kill(parent_pid, 0)
+        except OSError:
+            os._exit(0)
+        threading.Event().wait(1.0)
+
+
 def main() -> int:
     bootstrap_log("process entry")
     bootstrap_log(f"argv={sys.argv!r}")
-    bootstrap_log(f"parent_pid received={_argument_value('--parent-pid') or '0'}")
+    parent_pid = int(_argument_value("--parent-pid") or 0)
+    bootstrap_log(f"parent_pid received={parent_pid}")
+    bootstrap_log(
+        f"interpreter={sys.executable!r} base_interpreter={getattr(sys, '_base_executable', sys.executable)!r}"
+    )
+    stop = threading.Event()
+    threading.Thread(target=_watch_parent_early, args=(parent_pid,), daemon=True).start()
+    bootstrap_log("early parent watchdog started")
     bootstrap_log("import worker module begin")
     from booruflow.worker.image_analysis import main as worker_main
     bootstrap_log("import worker module complete")
-    return worker_main(sys.argv[1:], bootstrap_log=bootstrap_log)
+    return worker_main(
+        sys.argv[1:], bootstrap_log=bootstrap_log,
+        external_stop=stop, parent_watchdog_started=True,
+    )
 
 
 if __name__ == "__main__":

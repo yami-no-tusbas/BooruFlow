@@ -25,7 +25,7 @@ class ReviewRequestTests(unittest.TestCase):
             "gelbooru_database": root / "gel.db",
             "e621_database": root / "e621.db",
             "output_root": root / "results",
-            "grabber_directory": root / "grabber",
+            "blacklist_file": root / "chosen-blacklist.txt",
         }
         values.update(changes)
         return ReviewRequest(**values)
@@ -68,6 +68,19 @@ class ReviewRequestTests(unittest.TestCase):
             ("-u", "-m", "booruflow.cli.e621_scan"),
         )
         self.assertFalse(any("legacy" in argument for argument in command.arguments))
+
+    def test_command_uses_selected_blacklist_file_directly(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            request = self.request(root)
+            command = build_review_commands(request, root, "python")[0]
+
+        blacklist_index = command.arguments.index("--blacklist")
+        ignore_index = command.arguments.index("--ignore")
+        self.assertEqual(command.arguments[blacklist_index + 1], str(request.blacklist_file))
+        self.assertEqual(
+            command.arguments[ignore_index + 1], str(root / "config" / "ignore.txt")
+        )
 
     def test_legacy_parser_has_no_hardcoded_credentials(self) -> None:
         from booruflow.cli.gelbooru_scan import parse_args

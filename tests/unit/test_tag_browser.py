@@ -1,3 +1,4 @@
+import re
 import sqlite3
 import tempfile
 import unittest
@@ -36,7 +37,7 @@ class TagBrowserTests(unittest.TestCase):
         self.assertEqual([row.name for row in rows], ["cat_ears"])
 
     def test_invalid_regex_is_reported(self) -> None:
-        with self.assertRaises(Exception):
+        with self.assertRaises(re.error):
             search_tags(self.database, TagSearch(text="[", mode="regex"))
 
     def test_e621_schema_without_ambiguous_column_is_supported(self) -> None:

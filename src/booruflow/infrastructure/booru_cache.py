@@ -221,8 +221,8 @@ class BooruCache:
             if not isinstance(tag_categories, dict):
                 tag_categories = {}
             if "raw_json" in self._post_columns:
-                # Compatibilité avec les caches v1 : ne plus recopier la
-                # réponse API complète, qui n'est jamais relue.
+                # v1 cache compatibility: stop copying the complete API response,
+                # which is never read back.
                 self.connection.execute(
                     """
                     INSERT INTO posts(
@@ -521,7 +521,7 @@ class BooruCache:
         return None if row is None else int(row[0])
 
     def next_missing_page(self, query_key: str, first_page: int = 1) -> int:
-        """Retourne la première page Gelbooru absente à partir de first_page."""
+        """Return the first missing Gelbooru page at or after ``first_page``."""
         if not self.site.startswith("gelbooru:"):
             return first_page
         expected = first_page

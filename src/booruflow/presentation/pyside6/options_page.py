@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QDoubleSpinBox,
     QFileDialog,
     QFormLayout,
+    QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -22,6 +23,7 @@ from PySide6.QtWidgets import (
 )
 
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.infrastructure.settings import migrate_blacklist_setting
 
 
 class PathRow(QWidget):
@@ -31,11 +33,15 @@ class PathRow(QWidget):
         catalog: LanguageCatalog,
         *,
         directory: bool = False,
+        dialog_title_key: str = "options.choose_database",
+        file_filter_key: str = "options.database_filter",
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.catalog = catalog
         self.directory = directory
+        self.dialog_title_key = dialog_title_key
+        self.file_filter_key = file_filter_key
         self.edit = QLineEdit()
         self.button = QPushButton()
         self.action = QPushButton()
@@ -62,9 +68,9 @@ class PathRow(QWidget):
         else:
             selected, _filter = QFileDialog.getOpenFileName(
                 self,
-                self.catalog.text("options.choose_database"),
+                self.catalog.text(self.dialog_title_key),
                 start,
-                self.catalog.text("options.database_filter"),
+                self.catalog.text(self.file_filter_key),
             )
         if selected:
             self.edit.setText(selected)
@@ -75,6 +81,12 @@ class OptionsPage(QWidget):
     language_changed = Signal(str)
     database_update_requested = Signal(str, str)
     database_stop_requested = Signal()
+    browser_test_requested = Signal(dict)
+    browser_reset_requested = Signal()
+    embedded_session_open_requested = Signal()
+    embedded_session_test_requested = Signal()
+    embedded_session_reset_requested = Signal()
+    publication_backend_changed = Signal(str)
 
     def __init__(
         self,
@@ -133,24 +145,88 @@ class OptionsPage(QWidget):
         layout.addWidget(self.sites_group)
 
         self.paths_group = QGroupBox()
-        path_form = QFormLayout(self.paths_group)
+        path_grid = QGridLayout(self.paths_group)
+        path_grid.setColumnMinimumWidth(0, 190)
+        path_grid.setColumnStretch(1, 1)
         self.gelbooru_database_label = QLabel()
         self.e621_database_label = QLabel()
-        self.grabber_directory_label = QLabel()
+        self.blacklist_file_label = QLabel()
         self.output_root_label = QLabel()
         self.gelbooru_database = PathRow(catalog)
         self.e621_database = PathRow(catalog)
-        self.grabber_directory = PathRow(catalog, directory=True)
+        self.blacklist_file = PathRow(
+            catalog,
+            dialog_title_key="options.choose_blacklist",
+            file_filter_key="options.text_filter",
+        )
         self.output_root = PathRow(catalog, directory=True)
         self.gelbooru_database.action.show()
         self.e621_database.action.show()
         self.gelbooru_database.action_requested.connect(lambda: self._database_action("gelbooru"))
         self.e621_database.action_requested.connect(lambda: self._database_action("e621"))
-        path_form.addRow(self.gelbooru_database_label, self.gelbooru_database)
-        path_form.addRow(self.e621_database_label, self.e621_database)
-        path_form.addRow(self.grabber_directory_label, self.grabber_directory)
-        path_form.addRow(self.output_root_label, self.output_root)
+        path_grid.addWidget(self.gelbooru_database_label, 0, 0)
+        path_grid.addWidget(self.gelbooru_database, 0, 1)
+        path_grid.addWidget(self.e621_database_label, 1, 0)
+        path_grid.addWidget(self.e621_database, 1, 1)
+        path_grid.addWidget(self.blacklist_file_label, 2, 0)
+        path_grid.addWidget(self.blacklist_file, 2, 1)
+        path_grid.addWidget(self.output_root_label, 3, 0)
+        path_grid.addWidget(self.output_root, 3, 1)
         layout.addWidget(self.paths_group)
+        self.browser_group = QGroupBox("Navigateur pour ouvrir les posts Gelbooru")
+        browser_form = QFormLayout(self.browser_group)
+        self.browser_mode = QComboBox()
+        self.browser_mode.addItem("System default browser", "system")
+        self.browser_mode.addItem("Dedicated browser profile", "dedicated")
+        self.browser_mode.addItem("Custom command", "custom")
+        self.browser_command = QLineEdit()
+        self.browser_command.setPlaceholderText('"C:\\Path\\browser.exe" {url}')
+        self.browser_command_label = QLabel("Command template")
+        self.clear_browser_profile = QCheckBox("Clear profile on close")
+        self.reset_browser_profile = QPushButton("Reset dedicated profile")
+        self.test_browser = QPushButton("Test Gelbooru browser")
+        self.browser_explanation = QLabel(
+            "BooruFlow only controls how Gelbooru pages are opened. It does not read "
+            "your browser cookies, passwords, history, or tabs."
+        )
+        self.browser_explanation.setWordWrap(True)
+        browser_form.addRow("Open Gelbooru with", self.browser_mode)
+        browser_form.addRow(self.browser_command_label, self.browser_command)
+        browser_form.addRow("", self.clear_browser_profile)
+        browser_form.addRow("", self.reset_browser_profile)
+        browser_form.addRow("", self.test_browser)
+        browser_form.addRow("", self.browser_explanation)
+        layout.addWidget(self.browser_group)
+        self.browser_mode.currentIndexChanged.connect(self._update_browser_fields)
+        self.browser_command.textChanged.connect(self._update_browser_fields)
+        self.test_browser.clicked.connect(lambda: self.browser_test_requested.emit(self._browser_settings()))
+        self.reset_browser_profile.clicked.connect(self.browser_reset_requested.emit)
+        self.publisher_group = QGroupBox("Publication automatique Gelbooru")
+        publisher_form = QFormLayout(self.publisher_group)
+        self.publish_backend = QComboBox()
+        self.publish_backend.addItem("Navigateur intégré (recommandé)", "embedded")
+        self.publish_backend.addItem("Navigateur externe Chromium / CDP", "cdp")
+        self.publish_backend.addItem("Désactivé", "disabled")
+        self.open_embedded_session = QPushButton("Ouvrir la session Gelbooru")
+        self.test_embedded_session = QPushButton("Tester la session Gelbooru")
+        self.reset_embedded_session = QPushButton("Réinitialiser la session Gelbooru")
+        self.embedded_session_status = QLabel("État : Non testé")
+        self.publisher_explanation = QLabel(
+            "Le navigateur intégré conserve une session Gelbooru isolée. Le navigateur utilisé "
+            "pour ouvrir les posts reste un réglage indépendant."
+        )
+        self.publisher_explanation.setWordWrap(True)
+        publisher_form.addRow("Mode", self.publish_backend)
+        publisher_form.addRow("", self.open_embedded_session)
+        publisher_form.addRow("", self.test_embedded_session)
+        publisher_form.addRow("", self.reset_embedded_session)
+        publisher_form.addRow("", self.embedded_session_status)
+        publisher_form.addRow("", self.publisher_explanation)
+        layout.addWidget(self.publisher_group)
+        self.open_embedded_session.clicked.connect(self.embedded_session_open_requested.emit)
+        self.test_embedded_session.clicked.connect(self.embedded_session_test_requested.emit)
+        self.reset_embedded_session.clicked.connect(self.embedded_session_reset_requested.emit)
+        self.publish_backend.currentIndexChanged.connect(self._publish_backend_selected)
         self.image_analysis_group = QGroupBox()
         image_analysis_form = QFormLayout(self.image_analysis_group)
         self.download_prefetch_label = QLabel(); self.download_prefetch = QSpinBox()
@@ -193,11 +269,12 @@ class OptionsPage(QWidget):
         return {"user_id": str(raw.get("user_id", "")), "api_key": str(raw.get("api_key", ""))}
 
     def _load_settings(self, settings: dict[str, object]) -> None:
+        settings, _migrated = migrate_blacklist_setting(settings)
         index = self.language.findData(str(settings.get("language", "en")))
         self.language.setCurrentIndex(max(index, 0))
         self.gelbooru_database.edit.setText(str(settings.get("gelbooru_database", "")))
         self.e621_database.edit.setText(str(settings.get("e621_database", "")))
-        self.grabber_directory.edit.setText(str(settings.get("grabber_directory", "")))
+        self.blacklist_file.edit.setText(str(settings.get("blacklist_file", "")))
         self.output_root.edit.setText(str(settings.get("output_root", "")))
         self.download_prefetch.setValue(int(settings.get("image_analysis_download_prefetch", 10)))
         self.analysis_prefetch.setValue(int(settings.get("image_analysis_analysis_prefetch", 2)))
@@ -205,6 +282,73 @@ class OptionsPage(QWidget):
         self.wd14_threshold.setValue(float(
             settings.get("image_analysis_wd14_display_threshold", 0.30)
         ))
+        mode_index = self.browser_mode.findData(str(settings.get("gelbooru_browser_mode", "system")))
+        self.browser_mode.setCurrentIndex(max(mode_index, 0))
+        self.browser_command.setText(str(settings.get("gelbooru_browser_custom_command", "")))
+        self.clear_browser_profile.setChecked(bool(settings.get("gelbooru_browser_clear_profile_on_close", False)))
+        publish_index = self.publish_backend.findData(
+            str(settings.get("gelbooru_publish_backend", "embedded"))
+        )
+        self.publish_backend.setCurrentIndex(max(publish_index, 0))
+        self._update_browser_fields()
+        self._update_publish_fields()
+
+    def _browser_settings(self) -> dict[str, object]:
+        return {
+            "gelbooru_browser_mode": str(self.browser_mode.currentData()),
+            "gelbooru_browser_custom_command": self.browser_command.text().strip(),
+            "gelbooru_browser_clear_profile_on_close": self.clear_browser_profile.isChecked(),
+            "gelbooru_publish_backend": str(self.publish_backend.currentData()),
+        }
+
+    def _update_browser_fields(self) -> None:
+        mode = str(self.browser_mode.currentData())
+        custom = mode == "custom"
+        dedicated = mode == "dedicated"
+        self.browser_command_label.setVisible(custom)
+        self.browser_command.setVisible(custom)
+        self.clear_browser_profile.setVisible(dedicated)
+        self.reset_browser_profile.setVisible(dedicated)
+        valid = not custom or "{url}" in self.browser_command.text()
+        self.browser_command.setStyleSheet("" if valid else "border: 1px solid #d9534f;")
+        self.test_browser.setEnabled(valid)
+
+    def _update_publish_fields(self) -> None:
+        backend = str(self.publish_backend.currentData())
+        embedded = backend == "embedded"
+        self.open_embedded_session.setEnabled(backend != "disabled")
+        self.test_embedded_session.setEnabled(backend != "disabled")
+        self.reset_embedded_session.setEnabled(embedded)
+        if backend == "cdp":
+            self.open_embedded_session.setText("Ouvrir le navigateur Gelbooru dédié")
+            self.publisher_explanation.setText(
+                "Le mode CDP pilote uniquement un profil Chromium dédié via 127.0.0.1. "
+                "Les cookies, mots de passe et jetons restent dans le navigateur."
+            )
+        elif backend == "disabled":
+            self.open_embedded_session.setText("Ouvrir la session Gelbooru")
+            self.publisher_explanation.setText("La publication Gelbooru est désactivée.")
+        else:
+            self.open_embedded_session.setText("Ouvrir la session intégrée")
+            self.publisher_explanation.setText(
+                "Le navigateur intégré conserve une session Gelbooru isolée. Le navigateur "
+                "utilisé pour ouvrir les posts reste un réglage indépendant."
+            )
+
+    def _publish_backend_selected(self) -> None:
+        self._update_publish_fields()
+        self.publication_backend_changed.emit(str(self.publish_backend.currentData()))
+
+    def set_embedded_session_test_running(self, running: bool) -> None:
+        self.test_embedded_session.setEnabled(
+            not running and str(self.publish_backend.currentData()) != "disabled"
+        )
+        if running:
+            self.embedded_session_status.setText("État : Test en cours…")
+
+    def show_embedded_session_test_result(self, result: str) -> None:
+        self.set_embedded_session_test_running(False)
+        self.embedded_session_status.setText(f"État : {result}")
 
     def _capture_credentials(self, site: str) -> None:
         self._credentials[site] = {
@@ -231,7 +375,7 @@ class OptionsPage(QWidget):
             "language": str(self.language.currentData()),
             "gelbooru_database": self.gelbooru_database.edit.text().strip(),
             "e621_database": self.e621_database.edit.text().strip(),
-            "grabber_directory": self.grabber_directory.edit.text().strip(),
+            "blacklist_file": self.blacklist_file.edit.text().strip(),
             "output_root": self.output_root.edit.text().strip(),
             "image_analysis_download_prefetch": self.download_prefetch.value(),
             "image_analysis_analysis_prefetch": self.analysis_prefetch.value(),
@@ -239,6 +383,7 @@ class OptionsPage(QWidget):
             "image_analysis_worker_stale_timeout": 15,
             "image_analysis_wd14_enabled": self.wd14_enabled.isChecked(),
             "image_analysis_wd14_display_threshold": self.wd14_threshold.value(),
+            **self._browser_settings(),
         }
         self.save_requested.emit(settings, self._credentials)
 
@@ -258,11 +403,11 @@ class OptionsPage(QWidget):
         self.analysis_prefetch_label.setText(text("options.analysis_prefetch"))
         self.gelbooru_database_label.setText(text("options.gelbooru_database"))
         self.e621_database_label.setText(text("options.e621_database"))
-        self.grabber_directory_label.setText(text("options.grabber_folder"))
+        self.blacklist_file_label.setText(text("options.blacklist_file"))
         self.output_root_label.setText(text("options.output_folder"))
         self.gelbooru_database.retranslate()
         self.e621_database.retranslate()
-        self.grabber_directory.retranslate()
+        self.blacklist_file.retranslate()
         self.output_root.retranslate()
         for site, row in (("gelbooru", self.gelbooru_database), ("e621", self.e621_database)):
             row.action.setText(text("options.stop_database") if self._database_running_site == site else text("options.update_database"))

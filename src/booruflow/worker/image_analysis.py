@@ -16,6 +16,7 @@ from booruflow.domain.image_analysis import AnalysisState, ColorStatistics, Mode
 from booruflow.infrastructure.classic_image_analysis import ClassicImageAnalyzer
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
 from booruflow.infrastructure.image_sources import ImageSourceService
+from booruflow.infrastructure.media_frames import representative_frames
 from booruflow.infrastructure.wd14 import (
     DEFAULT_MODEL_ID,
     WD14Backend,
@@ -140,8 +141,18 @@ class ImageAnalysisWorker:
                     flush=True,
                 )
                 self.repository.heartbeat(item.id)
-                with ItemHeartbeat(self.repository.path, item.id, self.heartbeat_interval):
-                    result = backend.analyze(path)
+                frames, temporary, media_log = representative_frames(path)
+                if media_log:
+                    print(f"[INFO] [Worker] [item:{item.id}] {media_log}", flush=True)
+                try:
+                    # WD14 has a stable tag-confidence merge.  Other backends
+                    # preserve their existing one-image result contract.
+                    analysis_frames = frames if identity.backend == "wd14" else frames[:1]
+                    with ItemHeartbeat(self.repository.path, item.id, self.heartbeat_interval):
+                        results = [backend.analyze(frame) for frame in analysis_frames]
+                finally:
+                    if temporary is not None: temporary.cleanup()
+                result = _merge_results(results)
                 if isinstance(result, ColorStatistics):
                     self.repository.save_statistics(item.id, run_id, result)
                 elif isinstance(result, WD14Result):
@@ -195,6 +206,21 @@ class ImageAnalysisWorker:
                 raise
             print(f"[ERROR] [Worker] [item:{item.id}] Item failed: {exc}", flush=True)
         return True
+
+
+def _merge_results(results):
+    if not results:
+        raise ValueError("no representative frame was available for analysis")
+    if len(results) == 1:
+        return results[0]
+    if all(isinstance(result, WD14Result) for result in results):
+        merged = {}
+        for result in results:
+            for tag in result.predictions:
+                previous = merged.get((tag.raw_name, tag.category))
+                if previous is None or tag.score > previous.score: merged[(tag.raw_name, tag.category)] = tag
+        return WD14Result(tuple(sorted(merged.values(), key=lambda tag: (tag.raw_name, tag.category))))
+    return results[0]
 
 
 def parser() -> argparse.ArgumentParser:
@@ -270,12 +296,16 @@ def main(
     argv: list[str] | None = None,
     *,
     bootstrap_log: Callable[[str], None] | None = None,
+    external_stop: threading.Event | None = None,
+    parent_watchdog_started: bool = False,
 ) -> int:
     args = parser().parse_args(argv)
     trace = bootstrap_log or (lambda _message: None)
     worker_id = args.session_id or uuid4().hex
-    stop = threading.Event()
-    trace("lifecycle watchers deferred until heavy runtime imports complete")
+    stop = external_stop or threading.Event()
+    if stop.is_set():
+        trace("stop observed before SQLite startup")
+        return 0
     trace("SQLite connection begin")
     with ImageAnalysisRepository(args.database) as repository:
         trace("SQLite connected")
@@ -283,8 +313,13 @@ def main(
         trace("worker session created")
         print(
             f"[INFO] [Worker] Worker started pid={os.getpid()} parent={args.parent_pid} "
-            f"session={worker_id}", flush=True,
+            f"session={worker_id} interpreter={sys.executable!r} "
+            f"base_interpreter={getattr(sys, '_base_executable', sys.executable)!r}", flush=True,
         )
+        if stop.is_set():
+            repository.stop_worker(worker_id)
+            trace("stop observed before backend startup")
+            return 0
         backends: list[AnalysisBackend] = [ClassicImageAnalyzer()]
         if args.wd14_enabled:
             if args.wd14_model_directory is None:
@@ -297,6 +332,11 @@ def main(
                 try:
                     trace("ONNX/WD14 prepare begin")
                     wd14.prepare(trace)
+                    if stop.is_set():
+                        repository.stop_worker(worker_id)
+                        wd14.close()
+                        trace("stop observed after WD14 prepare")
+                        return 0
                     trace("WD14 model loaded")
                     backends.append(wd14)
                     print(
@@ -319,14 +359,16 @@ def main(
                     )
                 except WD14UnavailableError as exc:
                     print(f"WD14_UNAVAILABLE {exc}", flush=True)
-        trace("watchdog thread start requested")
-        threading.Thread(
-            target=_watch_parent,
-            args=(args.parent_pid, stop, trace),
-            daemon=True,
-        ).start()
+        if not parent_watchdog_started:
+            trace("watchdog thread start requested")
+            threading.Thread(
+                target=_watch_parent,
+                args=(args.parent_pid, stop, trace),
+                daemon=True,
+            ).start()
+            trace("watchdog initialized non-blocking")
         threading.Thread(target=_watch_stdin, args=(stop,), daemon=True).start()
-        trace("watchdog initialized non-blocking")
+        trace("cooperative stop watcher started")
         worker = ImageAnalysisWorker(
             repository, backends,
             analysis_prefetch=args.analysis_prefetch,

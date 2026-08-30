@@ -97,6 +97,26 @@ def build_clipboard_tags(names: list[str]) -> str:
     return f" {' '.join(normalized)}" if normalized else ""
 
 
+def build_final_tags_clipboard(names: list[str]) -> str:
+    """Build the replace-ready complete tag list used by Tagging review."""
+    return " ".join(dict.fromkeys(
+        normalize_booru_tag(name) for name in names if name.strip()
+    ))
+
+
+def parse_review_row_token(value: object) -> tuple[str, str | int]:
+    """Return the persistent target addressed by one unified-review row.
+
+    Existing source tags are deliberately opaque string tokens.  Only WD14
+    observation tokens are numeric, so keeping this distinction here prevents
+    a bulk UI path from accidentally coercing ``existing:<tag>`` with ``int``.
+    """
+    token = str(value)
+    if token.startswith("existing:"):
+        return "existing", token.removeprefix("existing:")
+    return "observation", int(token)
+
+
 def analysis_resume_action(state: str) -> str:
     return {
         "ready_for_review": "reuse",

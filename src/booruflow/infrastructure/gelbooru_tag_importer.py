@@ -12,11 +12,10 @@ import unicodedata
 import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
-
 
 API_URL = "https://gelbooru.com/index.php"
 IMPORT_VERSION = "2.1-after-id-ascending"
@@ -255,7 +254,7 @@ def rebuild_database(
         finally:
             existing.close()
         if version_row is None or str(version_row[0]) != IMPORT_VERSION:
-            stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            stamp = datetime.now(UTC).astimezone().strftime("%Y%m%d-%H%M%S")
             archived = staging.with_name(staging.name + f".obsolete-{stamp}")
             os.replace(staging, archived)
             progress(f"Archived incompatible staging database: {archived}")
@@ -366,7 +365,7 @@ def rebuild_database(
         finally:
             if old is not None:
                 old.close()
-        stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+        stamp = datetime.now(UTC).astimezone().strftime("%Y%m%d-%H%M%S")
         backup = destination.with_name(f"{destination.stem}.backup-{stamp}{destination.suffix}")
         shutil.copy2(destination, backup)
         progress(f"Backup: {backup} ({backup.stat().st_size:,} bytes)")

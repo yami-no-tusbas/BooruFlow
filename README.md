@@ -25,6 +25,9 @@ A shareable Gelbooru-only tagging edition is available through
 `Lancer-Gelbooru-Tagging.bat`. See
 [docs/gelbooru-tagging-helper.md](docs/gelbooru-tagging-helper.md).
 
+The opt-in, localhost-only QtWebEngine Network diagnostic is documented in
+[docs/gelbooru-embedded-cdp-diagnostic.md](docs/gelbooru-embedded-cdp-diagnostic.md).
+
 ## Repository layout
 
 - `legacy`: thin compatibility wrappers for historical CLI imports.

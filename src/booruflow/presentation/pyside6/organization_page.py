@@ -58,8 +58,8 @@ class OrganizationPage(QWidget):
     tag_details_requested = Signal(str, str, str)
     wiki_draft_requested = Signal(str)
 
-    def __init__(self, catalog: LanguageCatalog, document: dict) -> None:
-        super().__init__(); self.catalog = catalog; self.document = document
+    def __init__(self, catalog: LanguageCatalog, document: dict, browser_launcher=None) -> None:
+        super().__init__(); self.catalog = catalog; self.document = document; self.browser_launcher = browser_launcher
         layout = QVBoxLayout(self); layout.setContentsMargins(16, 20, 16, 24)
         self.title = QLabel(); self.title.setStyleSheet("font-size: 22px; font-weight: 600;")
         layout.addWidget(self.title)
@@ -479,7 +479,7 @@ class OrganizationPage(QWidget):
             encoded_tag = url.path() or url.toString().partition(":")[2]
             self._navigate_to_tag(urllib.parse.unquote(encoded_tag))
         else:
-            QDesktopServices.openUrl(url)
+            self._open_remote_url(url.toString())
 
     def _clear_recurring(self) -> None:
         self.recurring.clear(); self.recurring_label.clear(); self.recurring.hide(); self.recurring_label.hide(); self.send_recurring_review.hide()
@@ -511,7 +511,11 @@ class OrganizationPage(QWidget):
         if tags: self.review_tags_requested.emit(tags)
 
     def _open_wiki(self) -> None:
-        if self.wiki_url: QDesktopServices.openUrl(QUrl(self.wiki_url))
+        if self.wiki_url: self._open_remote_url(self.wiki_url)
+
+    def _open_remote_url(self, url: str) -> None:
+        if self.browser_launcher and "gelbooru.com" in url.casefold(): self.browser_launcher.open(url)
+        else: QDesktopServices.openUrl(QUrl(url))
 
     def _clear_samples(self) -> None:
         while self.samples_grid.count():
@@ -524,7 +528,7 @@ class OrganizationPage(QWidget):
             label = QLabel(self.catalog.text("organization.no_samples")); self.samples_grid.addWidget(label, 0, 0); return
         for index, sample in enumerate(samples[:6]):
             button = QToolButton(); button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon); button.setIconSize(QSize(115, 95)); button.setFixedSize(130, 125)
-            button.setText(f"#{int(sample.get('id', 0))}"); url = str(sample.get("post_url", "")); button.clicked.connect(lambda _checked=False, value=url: QDesktopServices.openUrl(QUrl(value)))
+            button.setText(f"#{int(sample.get('id', 0))}"); url = str(sample.get("post_url", "")); button.clicked.connect(lambda _checked=False, value=url: self._open_remote_url(value))
             self.samples_grid.addWidget(button, index // 3, index % 3)
             preview = str(sample.get("preview_url", ""))
             if preview:

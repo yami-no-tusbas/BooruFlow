@@ -206,7 +206,7 @@ class ReviewPage(QWidget):
         entity = str(self.entity.currentData())
         gel_db = Path(str(self.settings.get("gelbooru_database", "")))
         e621_db = Path(str(self.settings.get("e621_database", "")))
-        grabber_value = str(self.settings.get("grabber_directory", "")).strip()
+        blacklist_value = str(self.settings.get("blacklist_file", "")).strip()
         return ReviewRequest(
             queries=self.query_values(),
             sites=sites,
@@ -221,7 +221,7 @@ class ReviewPage(QWidget):
             gelbooru_database=gel_db,
             e621_database=e621_db,
             output_root=Path(str(self.settings.get("output_root", "var/results"))),
-            grabber_directory=Path(grabber_value) if grabber_value else None,
+            blacklist_file=Path(blacklist_value) if blacklist_value else None,
         )
 
     def _start(self) -> None:

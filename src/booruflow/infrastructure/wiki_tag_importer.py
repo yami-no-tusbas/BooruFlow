@@ -67,7 +67,7 @@ def _e621_page_with_retry(title: str, attempts: int = 3) -> dict:
 
 
 def _e621_relationships(tag: str, relation_types: set[str] | None = None) -> dict[str, list[str]]:
-    """Retourne uniquement les alias/implications approuvés d'un tag e621."""
+    """Return only approved aliases and implications for an e621 tag."""
     endpoints = {
         "aliases": ("tag_aliases.json", "consequent_name", "antecedent_name"),
         "implicates": ("tag_implications.json", "antecedent_name", "consequent_name"),
@@ -153,8 +153,8 @@ def parse_e621_group(body: str) -> dict:
                 nodes.append(node)
         if not nodes:
             return
-        # Si une ligne contient plusieurs tags séparés par des virgules, ils
-        # sont frères. Un éventuel niveau suivant dépend du premier nom cité.
+        # Tags separated by commas on one line are siblings. Any following
+        # nested level belongs to the first name on that line.
         last_at_depth[depth] = nodes[0]
         for deeper in [level for level in last_at_depth if level > depth]:
             del last_at_depth[deeper]
@@ -185,9 +185,9 @@ def parse_e621_group(body: str) -> dict:
         if not links:
             return plain_tags(value)
         result = [links[0]]
-        # Certains wikis mélangent un lien et d'autres tags en texte brut :
-        # « [[Liger]], tigon ». Seule la partie introduite par une virgule
-        # après le dernier lien doit alors être ajoutée.
+        # Some wikis mix one link with additional plain-text tags, for example
+        # ``[[Liger]], tigon``. Only the comma-delimited text after the final
+        # link should be added.
         tail = value.rsplit("]]", 1)[-1]
         if tail.lstrip().startswith(","):
             result.extend(plain_tags(tail.lstrip()[1:]))
@@ -264,9 +264,8 @@ def parse_e621_group(body: str) -> dict:
         if bullet:
             add_tags(bullet_tags(bullet.group(2)), len(bullet.group(1)))
             continue
-        # Quelques grandes pages e621 contiennent exceptionnellement des
-        # liens sans astérisque au milieu d'une liste. Ils restent frères du
-        # dernier élément au lieu d'être perdus.
+        # A few large e621 pages contain unbulleted links inside a list. Keep
+        # them as siblings of the previous element instead of dropping them.
         if line.startswith("[[") and last_bullet_node is not None:
             links = _wiki_links(line)
             if links:
@@ -416,7 +415,7 @@ def parse_gelbooru_group(source: str) -> tuple[dict, str]:
 
 
 def parse_pasted_tag_list(source: str) -> dict:
-    """Convertit une liste copiée d'un wiki en arbre de catégories et de tags."""
+    """Convert a wiki list pasted by the user into a category and tag tree."""
     source = source.strip("\r\n")
     if len(source) >= 2 and source[0] == source[-1] and source[0] in {'"', "'"}:
         source = source[1:-1]
@@ -477,12 +476,12 @@ def parse_pasted_tag_list(source: str) -> dict:
                     parent = tree
                     section_stack = []
                 elif not tags_since_heading:
-                    # Deux titres consécutifs : le second précise le premier
+                    # With consecutive headings, the second refines the first.
                     # (Rifle -> Bolt-action).
                     parent = section_stack[-1]
                 else:
-                    # Après une liste de tags, le titre suivant est le frère du
-                    # précédent (Bolt-action -> Semi-automatic).
+                    # After a tag list, the next heading is a sibling of the
+                    # previous heading (Bolt-action -> Semi-automatic).
                     parent = section_stack[-2] if len(section_stack) > 1 else tree
                     section_stack = section_stack[:-1]
                 section = parent.setdefault(heading, {})
@@ -492,8 +491,8 @@ def parse_pasted_tag_list(source: str) -> dict:
                 tags_since_heading = False
             continue
 
-        # Les annotations entre parenthèses et les descriptions après une
-        # tabulation ne font pas partie du tag copié.
+        # Parenthetical annotations and descriptions following a
+        # tab are annotations rather than part of the copied tag.
         if has_children:
             candidate = re.split(r"\t+", content, maxsplit=1)[0].strip()
         else:
@@ -502,9 +501,9 @@ def parse_pasted_tag_list(source: str) -> dict:
         if not candidate or candidate.startswith(("http://", "https://")):
             continue
         if indentation_mode and " " in candidate and (tab_depth == 0 or has_children):
-            # Dans un bloc structuré par tabulations, une ligne non indentée
-            # est nécessairement un nouveau parent. Elle peut être un libellé
-            # humain long et ne doit pas être rejetée comme phrase descriptive.
+            # In a tab-structured block, an unindented line necessarily starts
+            # a new parent. It may be a long human-readable label and must not
+            # be rejected as descriptive prose.
             category = re.sub(r"\s+", " ", candidate).strip()
             depth = tab_depth
             parent = last_at_depth.get(depth - 1, section) if depth else section
@@ -516,8 +515,8 @@ def parse_pasted_tag_list(source: str) -> dict:
             tags_since_heading = True
             continue
         if " " in candidate:
-            # Une phrase explicative n'est pas un tag. Les libellés courts sont
-            # normalisés comme le ferait un booru.
+            # Explanatory prose is not a tag. Short labels are
+            # normalized in the same way a booru would normalize them.
             words = candidate.split()
             if len(words) > 4 or any(char in candidate for char in ".,;!"):
                 continue
@@ -540,7 +539,7 @@ def parse_pasted_tag_list(source: str) -> dict:
 
 
 def analyze_pasted_tag_list(source: str) -> tuple[dict, dict]:
-    """Construit l'aperçu d'un collage et mesure ses risques d'indentation."""
+    """Build a paste preview and assess indentation risks."""
     tree = parse_pasted_tag_list(source)
     raw_lines = source.splitlines()
 
@@ -718,11 +717,11 @@ def import_catalogues(progress=None) -> dict:
 
     expand_e621_groups(boards["e621"], frozenset({index_title.casefold()}))
 
-    # Les pages tag_group ne sont pas les seules listes structurées d'e621.
-    # Par exemple la page ordinaire `feline` (wiki 293) contient plusieurs
-    # niveaux taxonomiques absents du résumé de tag_group:species. On développe
-    # donc les tags qui sont déjà manifestement des parents, sans interroger
-    # chacune des milliers de feuilles de l'index.
+    # tag_group pages are not the only structured lists on e621.
+    # For example, the ordinary ``feline`` page (wiki 293) contains taxonomy
+    # levels absent from the tag_group:species summary. Expand tags that are
+    # already known parents without querying every one of the index's thousands
+    # of leaves.
     ordinary_pages: dict[str, dict] = {}
     ordinary_visited: set[str] = set()
     wiki_referenced_tags: set[str] = set()
@@ -827,8 +826,8 @@ def import_catalogues(progress=None) -> dict:
             if relations:
                 entry = metadata["e621"].setdefault(title, {})
                 entry.update(relations)
-                # A -> B signifie que A est plus spécifique que B. Les tags
-                # qui impliquent le parent sont donc des enfants valides.
+                # A -> B means A is more specific than B. Tags
+                # that imply the parent are therefore valid children.
                 for target in targets:
                     for child_tag in relations.get("implicated_by", []):
                         child = target.setdefault(child_tag, {})
@@ -857,9 +856,9 @@ def import_catalogues(progress=None) -> dict:
         )
         ordinary_queue = list(dict.fromkeys(ordinary_queue))
 
-    # Rejoue les données connues dans chaque occurrence. C'est nécessaire si
-    # un parent (felid) est découvert après que sa branche enfant (feline) a
-    # déjà été développée ailleurs dans le wiki.
+    # Replay known data into every occurrence. This is necessary when a parent
+    # (felid) is discovered after its child branch (feline) was already expanded
+    # elsewhere in the wiki.
     def expand_e621_details(node, ancestry: frozenset[str]) -> None:
         if not isinstance(node, dict):
             return
@@ -890,8 +889,8 @@ def import_catalogues(progress=None) -> dict:
             "la taxonomie importée peut encore être incomplète."
         )
 
-    # La page Vehicle est une liste utile mais n'est pas un tag_group de
-    # l'index principal. Elle reste donc une racine complémentaire.
+    # The Vehicle page is a useful list but is not an e621 tag_group
+    # from the main index, so it remains a supplementary root.
     vehicle_page = _e621_page_with_retry("vehicle")
     vehicle_tree = parse_e621_group(str(vehicle_page.get("body", "")))
     if vehicle_tree:
@@ -966,9 +965,9 @@ def import_catalogues(progress=None) -> dict:
             if group_tree and not targets:
                 gelbooru_tree[title] = {"__tag__": title, **group_tree}
             elif group_tree:
-                # Un groupe peut être référencé depuis plusieurs branches du wiki.
-                # Chaque occurrence doit exposer la même descendance : sinon le
-                # premier doublon rencontré capte seul les détails du groupe.
+                # A group may be referenced from several wiki branches.
+                # Every occurrence must expose identical descendants; otherwise
+                # only the first duplicate receives the group's details.
                 for target in targets:
                     target.update(copy.deepcopy(group_tree))
             for tag in iter_tags(group_tree):

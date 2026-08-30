@@ -1,4 +1,4 @@
-"""Analyse conservative d'images déjà téléchargées avec une blacklist Grabber."""
+"""Conservatively audit downloaded images against a Grabber blacklist."""
 
 from __future__ import annotations
 
@@ -121,16 +121,16 @@ def detect_site(path: Path) -> str | None:
 
 
 def filename_artist_tags(path: Path) -> set[str]:
-    """Extrait `%artist%` du modèle Grabber artiste - id - rating - md5."""
+    """Extract ``%artist%`` from the Grabber artist-id-rating-md5 template."""
     match = GRABBER_FILENAME.match(path.stem)
     if not match:
         return set()
-    # Grabber sépare plusieurs artistes par des espaces dans `%artist%`.
+    # Grabber separates multiple artists with spaces inside ``%artist%``.
     return {normalize_tag(tag) for tag in match.group("artists").split() if normalize_tag(tag)}
 
 
 def path_tags(path: Path) -> set[str]:
-    """Extrait les tags exacts présents dans les noms des dossiers parents."""
+    """Extract exact tags embedded in parent-directory names."""
     tags: set[str] = set()
     for part in path.parts[:-1]:
         decoded = normalize_tag(part)
@@ -145,8 +145,8 @@ def path_tags(path: Path) -> set[str]:
 
 
 def rule_applies(rule: BlacklistRule, detected_site: str | None) -> bool:
-    # Si le chemin ne donne aucun site, le préfixe website est volontairement
-    # ignoré et le tag reste applicable.
+    # When the path identifies no site, the website prefix is deliberately
+    # ignored and the tag remains applicable.
     return rule.site is None or detected_site is None or rule.site == detected_site
 
 
@@ -304,7 +304,7 @@ def main() -> int:
 
 
 def send_to_recycle_bin(paths: Iterable[Path]) -> tuple[bool, str]:
-    """Envoie des fichiers à la Corbeille avec l'API Shell moderne."""
+    """Send files to the Recycle Bin through the modern Shell API."""
     unique = sorted({str(path.resolve()) for path in paths})
     if not unique:
         return True, "Aucun fichier à traiter."
@@ -374,7 +374,7 @@ def send_to_recycle_bin(paths: Iterable[Path]) -> tuple[bool, str]:
         aborted = method(operation, 22, ctypes.c_long, ctypes.POINTER(ctypes.c_int))
         release_operation = method(operation, 2, ctypes.c_ulong)
 
-        # Recyclage explicite, sans deuxième boîte de dialogue du Shell.
+        # Recycling was explicitly requested, so suppress the Shell's second prompt.
         set_flags(operation, 0x00080000 | 0x0010 | 0x0004 | 0x0400)
         for value in unique:
             item = ctypes.c_void_p()

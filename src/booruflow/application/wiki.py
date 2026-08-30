@@ -7,7 +7,6 @@ import re
 import sqlite3
 from pathlib import Path
 
-
 TEMPLATES = {
     "character": """[b]Description:[/b]
 <Short description of the character and their role.>
@@ -85,7 +84,7 @@ def validate_wiki_source(source: str) -> list[tuple[str, str]]:
     if re.search(r"(?mi)^h[1-6]\.\s+", source):
         issues.append(("heading", ""))
     for token in ("b", "i", "quote", "spoiler", "post", "h1", "h2", "h3", "h4", "h5"):
-        if len(re.findall(fr"\[{token}]", source, re.I)) != len(re.findall(fr"\[/{token}]", source, re.I)):
+        if len(re.findall(fr"\[{token}]", source, re.IGNORECASE)) != len(re.findall(fr"\[/{token}]", source, re.IGNORECASE)):
             issues.append(("unbalanced", token))
     return issues
 
@@ -125,19 +124,19 @@ def render_wiki_preview(source: str) -> str:
         lambda match: f'<a href="https://gelbooru.com/index.php?page=post&amp;s=list&amp;tags={match.group(1)}">{match.group(1)}</a>',
         value,
     )
-    value = re.sub(r"\[b](.*?)\[/b]", r"<b>\1</b>", value, flags=re.I | re.S)
-    value = re.sub(r"\[i](.*?)\[/i]", r"<i>\1</i>", value, flags=re.I | re.S)
+    value = re.sub(r"\[b](.*?)\[/b]", r"<b>\1</b>", value, flags=re.IGNORECASE | re.DOTALL)
+    value = re.sub(r"\[i](.*?)\[/i]", r"<i>\1</i>", value, flags=re.IGNORECASE | re.DOTALL)
     for level in range(1, 6):
         value = re.sub(
             fr"\[h{level}](.*?)\[/h{level}]",
-            fr"<h{level}>\1</h{level}>", value, flags=re.I | re.S,
+            fr"<h{level}>\1</h{level}>", value, flags=re.IGNORECASE | re.DOTALL,
         )
-    value = re.sub(r"\[quote](.*?)\[/quote]", r"<blockquote>\1</blockquote>", value, flags=re.I | re.S)
-    value = re.sub(r"\[spoiler](.*?)\[/spoiler]", r"<span style='background:#555;color:#555'>\1</span>", value, flags=re.I | re.S)
+    value = re.sub(r"\[quote](.*?)\[/quote]", r"<blockquote>\1</blockquote>", value, flags=re.IGNORECASE | re.DOTALL)
+    value = re.sub(r"\[spoiler](.*?)\[/spoiler]", r"<span style='background:#555;color:#555'>\1</span>", value, flags=re.IGNORECASE | re.DOTALL)
     value = re.sub(
         r"\[post](\d+)\[/post]",
         r'<a href="https://gelbooru.com/index.php?page=post&amp;s=view&amp;id=\1">post #\1</a>',
         value,
-        flags=re.I,
+        flags=re.IGNORECASE,
     )
     return value.replace("\n", "<br>")

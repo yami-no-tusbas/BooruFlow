@@ -6,20 +6,37 @@ import json
 import os
 import re
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QFileDialog, QFrame, QHBoxLayout, QLabel, QLineEdit,
-    QMessageBox, QPlainTextEdit, QPushButton, QSizePolicy, QSplitter, QTextBrowser,
+    QApplication,
+    QComboBox,
+    QFileDialog,
+    QFrame,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QPlainTextEdit,
+    QPushButton,
+    QSplitter,
+    QTextBrowser,
     QToolButton,
-    QVBoxLayout, QWidget,
+    QVBoxLayout,
+    QWidget,
 )
 
 from booruflow.application.ports import SettingsRepository
-from booruflow.application.wiki import TEMPLATES, missing_local_tags, referenced_tags, render_wiki_preview, validate_wiki_source
+from booruflow.application.wiki import (
+    TEMPLATES,
+    missing_local_tags,
+    referenced_tags,
+    render_wiki_preview,
+    validate_wiki_source,
+)
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.presentation.pyside6.icons import wiki_tool_icon
 
@@ -34,9 +51,11 @@ class WikiPage(QWidget):
         drafts_directory: Path,
         tag_database_path: Path | None = None,
         settings_repository: SettingsRepository | None = None,
+        browser_launcher=None,
     ) -> None:
         super().__init__(); self.catalog = catalog; self.drafts_directory = drafts_directory; self.tag_database_path = tag_database_path
         self.settings_repository = settings_repository
+        self.browser_launcher = browser_launcher
         self._active_draft_path: Path | None = None
         self._active_draft_tag = ""
         layout = QVBoxLayout(self); layout.setContentsMargins(28, 20, 28, 24); layout.setSpacing(10)
@@ -154,7 +173,7 @@ class WikiPage(QWidget):
         if path is None:
             if not silent: self.validation.setText(self.catalog.text("wiki.tag_required"))
             return
-        data = {"tag": self.tag.text().strip(), "template": str(self.template.currentData()), "source": self.source.toPlainText(), "updated_at": datetime.now(timezone.utc).isoformat(timespec="seconds")}
+        data = {"tag": self.tag.text().strip(), "template": str(self.template.currentData()), "source": self.source.toPlainText(), "updated_at": datetime.now(UTC).isoformat(timespec="seconds")}
         try:
             path.parent.mkdir(parents=True, exist_ok=True); temporary = path.with_suffix(".tmp")
             temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8"); os.replace(temporary, path)
@@ -206,11 +225,14 @@ class WikiPage(QWidget):
 
     def _open_create(self) -> None:
         QApplication.clipboard().setText(self.source.toPlainText())
-        QDesktopServices.openUrl(QUrl("https://gelbooru.com/index.php?page=wiki&s=create"))
+        url = "https://gelbooru.com/index.php?page=wiki&s=create"
+        if self.browser_launcher: self.browser_launcher.open(url)
+        else: QDesktopServices.openUrl(QUrl(url))
         self.validation.setText(self.catalog.text("wiki.opened_create"))
 
     def _open_preview_link(self, url: QUrl) -> None:
         if url.scheme() == "booruflow-tag": self.organization_tag_requested.emit(urllib.parse.unquote(url.path()))
+        elif self.browser_launcher and "gelbooru.com" in url.host().casefold(): self.browser_launcher.open(url.toString())
         else: QDesktopServices.openUrl(url)
 
     def retranslate(self) -> None:

@@ -3,8 +3,8 @@ setlocal
 cd /d "%~dp0"
 set "PYTHONPATH=%~dp0src;%PYTHONPATH%"
 if exist "%~dp0.venv\Scripts\pythonw.exe" (
-    start "" "%~dp0.venv\Scripts\pythonw.exe" -m booruflow
+    start "" "%~dp0.venv\Scripts\pythonw.exe" -m booruflow %*
 ) else (
-    start "" pythonw.exe -m booruflow
+    start "" pythonw.exe -m booruflow %*
 )
 endlocal

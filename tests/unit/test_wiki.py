@@ -8,7 +8,6 @@ from pathlib import Path
 
 from booruflow.application.wiki import missing_local_tags, render_wiki_preview, validate_wiki_source
 
-
 PYSIDE6_AVAILABLE = importlib.util.find_spec("PySide6") is not None
 LANGUAGES = Path(__file__).resolve().parents[2] / "resources" / "i18n"
 

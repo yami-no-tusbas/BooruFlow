@@ -25,6 +25,59 @@ from booruflow.infrastructure.tag_category_lookup import LocalTagCategoryLookup
 from booruflow.presentation.pyside6.ui_logging import StreamingLogSanitizer, log_event
 
 
+def _pid_is_running(pid: int) -> bool:
+    if pid <= 0:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32=ctypes.WinDLL("kernel32",use_last_error=True)
+        kernel32.OpenProcess.argtypes=(wintypes.DWORD,wintypes.BOOL,wintypes.DWORD)
+        kernel32.OpenProcess.restype=wintypes.HANDLE
+        kernel32.WaitForSingleObject.argtypes=(wintypes.HANDLE,wintypes.DWORD)
+        kernel32.WaitForSingleObject.restype=wintypes.DWORD
+        kernel32.CloseHandle.argtypes=(wintypes.HANDLE,)
+        handle=kernel32.OpenProcess(0x00100000,False,pid)
+        if not handle:
+            return False
+        try:
+            return kernel32.WaitForSingleObject(handle,0)==0x00000102
+        finally:
+            kernel32.CloseHandle(handle)
+    try:
+        os.kill(pid,0)
+    except OSError:
+        return False
+    return True
+
+
+def _force_stop_pid(pid: int) -> bool:
+    """Last-resort stop for the real worker when a venv launcher detached first."""
+    if not _pid_is_running(pid):
+        return True
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+
+        kernel32=ctypes.WinDLL("kernel32",use_last_error=True)
+        kernel32.OpenProcess.argtypes=(wintypes.DWORD,wintypes.BOOL,wintypes.DWORD)
+        kernel32.OpenProcess.restype=wintypes.HANDLE
+        kernel32.TerminateProcess.argtypes=(wintypes.HANDLE,wintypes.UINT)
+        kernel32.TerminateProcess.restype=wintypes.BOOL
+        kernel32.CloseHandle.argtypes=(wintypes.HANDLE,)
+        handle=kernel32.OpenProcess(0x0001|0x00100000,False,pid)
+        if not handle:
+            return False
+        try:
+            return bool(kernel32.TerminateProcess(handle,1))
+        finally:
+            kernel32.CloseHandle(handle)
+    import signal
+    os.kill(pid,signal.SIGTERM)
+    return True
+
+
 class SourcePreparationWorker(QThread):
     completed = Signal(list, list, dict, list, list)
 
@@ -134,6 +187,8 @@ class DroppedSourceScanWorker(QThread):
 
 
 class ImageAnalysisController(QObject):
+    worker_state_changed = Signal(str, str)
+
     def __init__(
         self,
         project_root: Path,
@@ -170,8 +225,15 @@ class ImageAnalysisController(QObject):
         self.process.readyReadStandardOutput.connect(self._worker_output)
         self.process.finished.connect(self._worker_finished)
         self.process.started.connect(self._worker_started)
+        self.process.errorOccurred.connect(self._worker_error)
         self._worker_session_id = ""
+        self._launcher_pid = 0
         self._worker_pid = 0
+        self.worker_startup_state = "stopped"
+        self.worker_startup_detail = ""
+        self.worker_startup_timer = QTimer(self)
+        self.worker_startup_timer.setSingleShot(True)
+        self.worker_startup_timer.timeout.connect(self._worker_startup_timed_out)
         self._shutting_down = False
         self._last_queue_signature: tuple | None = None
         self._page_active = True
@@ -346,13 +408,21 @@ class ImageAnalysisController(QObject):
                 )),
             ])
         self.process.start(self.python_executable, arguments)
-        self.log(log_event("Worker", "Image Analysis worker starting"))
+        self._set_worker_state("starting", "ImageAnalysis starting")
+        self.log(log_event(
+            "Worker", f"ImageAnalysis worker starting interpreter={self.python_executable!r}"
+        ))
         self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_starting"))
 
     def _worker_started(self) -> None:
-        self._worker_pid = int(self.process.processId())
+        self._launcher_pid = int(self.process.processId())
+        timeout_ms = max(
+            1000,
+            int(self.settings.get("image_analysis_worker_startup_timeout_ms", 30_000)),
+        )
+        self.worker_startup_timer.start(timeout_ms)
         self.log(log_event(
-            "Worker", f"Starting pid={self._worker_pid}; parent={os.getpid()}; "
+            "Worker", f"Launcher started pid={self._launcher_pid}; parent={os.getpid()}; "
             f"session={self._worker_session_id}"
         ))
 
@@ -372,6 +442,8 @@ class ImageAnalysisController(QObject):
             if marker.isdigit():
                 self._worker_pid = int(marker)
             self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_active"))
+            self.worker_startup_timer.stop()
+            self._set_worker_state("ready", "ImageAnalysis ready")
             self.log(log_event("Worker", f"Ready pid={self._worker_pid}"))
         if clean.startswith("WD14_RUNTIME "):
             self.page.wd14_state.setText(clean.removeprefix("WD14_RUNTIME "))
@@ -387,20 +459,71 @@ class ImageAnalysisController(QObject):
             self.log(log_event("Worker", clean, level="DEBUG"))
 
     def _worker_finished(self, code: int, _status) -> None:
+        self.worker_startup_timer.stop()
         self.worker_sanitizer.flush()
         if self.worker_text_buffer.strip():
             self._handle_worker_line(self.worker_text_buffer)
         self.worker_text_buffer = ""
-        key = "image_analysis.worker_stopped" if code in {0, 75} else "image_analysis.worker_error"
+        timed_out = self.worker_startup_state == "startup_timeout"
+        key = (
+            "image_analysis.worker_error" if timed_out else
+            "image_analysis.worker_stopped" if code in {0, 75} else
+            "image_analysis.worker_error"
+        )
         self.page.worker_state.setText(self.page.catalog.text(key))
         level = "INFO" if code in {0, 75} else "ERROR"
         old_pid = self._worker_pid
+        old_launcher_pid = self._launcher_pid
         self._worker_pid = 0
+        self._launcher_pid = 0
         event = "Worker recycle normal" if code == 75 else "Exited"
-        self.log(log_event("Worker", f"{event} pid={old_pid} code={code}", level=level))
+        self.log(log_event("Worker",f"{event} pid={old_pid or 'not-ready'} launcher_pid={old_launcher_pid} code={code}",level=level))
+        if not self._shutting_down and not timed_out and code != 75:
+            detail = f"ImageAnalysis failed before Ready (exit code {code})"
+            self._set_worker_state("failed", detail)
         if code == 75 and not self._shutting_down:
             self.log(log_event("Worker", f"Old worker pid={old_pid} confirmed terminated"))
             QTimer.singleShot(250, self.start_worker)
+
+    def _set_worker_state(self, state: str, detail: str = "") -> None:
+        if state == self.worker_startup_state and detail == self.worker_startup_detail:
+            return
+        self.worker_startup_state = state
+        self.worker_startup_detail = detail
+        self.worker_state_changed.emit(state, detail)
+
+    def _worker_error(self, _error) -> None:
+        if self._shutting_down or self.worker_startup_state == "startup_timeout":
+            return
+        self.worker_startup_timer.stop()
+        detail = f"ImageAnalysis failed to start: {self.process.errorString()}"
+        self._set_worker_state("failed", detail)
+        self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_error"))
+        self.log(log_event("Worker", detail, level="ERROR"))
+
+    def _worker_startup_timed_out(self) -> None:
+        if self._shutting_down or self.worker_startup_state != "starting":
+            return
+        timeout_ms = int(self.settings.get("image_analysis_worker_startup_timeout_ms", 30_000))
+        detail = f"ImageAnalysis startup timeout after {timeout_ms / 1000:g} s"
+        self._set_worker_state("startup_timeout", detail)
+        self.page.worker_state.setText("ImageAnalysis : délai de démarrage dépassé")
+        self.log(log_event("Worker", detail, level="ERROR"))
+        if self.process.state() != QProcess.ProcessState.NotRunning:
+            self.process.write(b"STOP\n")
+            self.process.waitForBytesWritten(500)
+            QTimer.singleShot(5000, self._terminate_timed_out_worker)
+
+    def _terminate_timed_out_worker(self) -> None:
+        if (
+            self.worker_startup_state == "startup_timeout"
+            and self.process.state() != QProcess.ProcessState.NotRunning
+        ):
+            self.log(log_event(
+                "Worker", "Startup-timeout cooperative stop did not finish; terminating",
+                level="WARNING",
+            ))
+            self.process.terminate()
 
     def install_wd14(self) -> None:
         if self.model_process.state() != QProcess.ProcessState.NotRunning:
@@ -622,23 +745,28 @@ class ImageAnalysisController(QObject):
 
     def shutdown(self) -> None:
         self._shutting_down = True
+        self.worker_startup_timer.stop()
         self.timer.stop()
         if self.source_worker and self.source_worker.isRunning():
             self.source_worker.requestInterruption(); self.source_worker.wait(3000)
         if self.drop_scan_worker and self.drop_scan_worker.isRunning():
             self.drop_scan_worker.requestInterruption(); self.drop_scan_worker.wait(3000)
         if self.process.state() != QProcess.ProcessState.NotRunning:
-            pid = int(self.process.processId())
-            self.log(log_event("Worker", f"Shutdown start; requesting stop pid={pid}"))
+            launcher_pid = int(self.process.processId())
+            pid = self._worker_pid or launcher_pid
+            self.log(log_event("Worker", f"ImageAnalysis worker shutdown requested pid={pid} launcher_pid={launcher_pid}"))
             self.process.write(b"STOP\n")
             self.process.waitForBytesWritten(500)
-            if not self.process.waitForFinished(3000):
-                self.log(log_event("Worker", f"Terminating pid={pid}", level="WARNING"))
+            if not self.process.waitForFinished(7000):
+                self.log(log_event("Worker", f"Cooperative shutdown timed out; terminating launcher_pid={launcher_pid}", level="WARNING"))
                 self.process.terminate()
             if self.process.state() != QProcess.ProcessState.NotRunning and not self.process.waitForFinished(2000):
-                self.log(log_event("Worker", f"Killing pid={pid}", level="ERROR"))
+                self.log(log_event("Worker", f"Launcher refused termination; killing launcher_pid={launcher_pid}", level="ERROR"))
                 self.process.kill(); self.process.waitForFinished(2000)
-            self.log(log_event("Worker", f"Shutdown complete pid={pid}"))
+            if pid != launcher_pid and _pid_is_running(pid):
+                self.log(log_event("Worker",f"Worker still alive after launcher shutdown; final fallback pid={pid}",level="ERROR"))
+                _force_stop_pid(pid)
+            self.log(log_event("Worker", f"ImageAnalysis worker shutdown complete pid={pid}"))
         if self.model_process.state() != QProcess.ProcessState.NotRunning:
             self.model_process.terminate(); self.model_process.waitForFinished(2000)
         self.repository.close()

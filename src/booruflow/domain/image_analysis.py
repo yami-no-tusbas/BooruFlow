@@ -29,6 +29,16 @@ class DecisionState(StrEnum):
     REJECTED = "rejected"
 
 
+class PublishState(StrEnum):
+    """Lifecycle of a saved Tagging review, independent from analysis state."""
+
+    REVIEWED = "reviewed"
+    PENDING_PUBLISH = "pending_publish"
+    PUBLISHING = "publishing"
+    PUBLISHED = "published"
+    FAILED = "failed"
+
+
 class ObservationSource(StrEnum):
     GELBOORU = "gelbooru"
     E621 = "e621"

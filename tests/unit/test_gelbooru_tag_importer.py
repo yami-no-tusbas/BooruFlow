@@ -1,9 +1,9 @@
 import sqlite3
 import tempfile
 import unittest
-from unittest.mock import patch
 import urllib.parse
 from pathlib import Path
+from unittest.mock import patch
 
 from booruflow.infrastructure.gelbooru_tag_importer import decode_name, fetch_page, rebuild_database
 

@@ -10,7 +10,6 @@ from __future__ import annotations
 from PySide6.QtCore import QStringListModel, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QComboBox,
     QCompleter,
     QHBoxLayout,
@@ -19,7 +18,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QProgressBar,
     QPushButton,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -27,6 +25,7 @@ from PySide6.QtWidgets import (
 
 from booruflow.application.tagging import parse_review_row_token
 from booruflow.presentation.pyside6.tagging_legacy_page import SuggestionItem, TaggingLegacyPage
+from booruflow.presentation.pyside6.ui_components import DataTable
 
 
 class TaggingPage(TaggingLegacyPage):
@@ -193,15 +192,13 @@ class TaggingPage(TaggingLegacyPage):
         toolbar.addWidget(self.batch_refresh_button)
         toolbar.addWidget(self.batch_counts, 1)
         root.addLayout(toolbar)
-        self.batch_table = QTableWidget(0, 7)
+        self.batch_table = DataTable(0, 7)
         self.batch_table.setHorizontalHeaderLabels(
             ("Image / post", "Site", "Ajouts", "Retraits", "État", "Revu le", "Item")
         )
         self.batch_table.setColumnHidden(6, True)
-        self.batch_table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.batch_table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.batch_table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.batch_table.setSortingEnabled(False)
+        self.batch_table.set_empty_text(self.catalog.text("table.empty_batch"))
         self.batch_table.horizontalHeader().setSectionResizeMode(
             QHeaderView.ResizeMode.Interactive
         )
@@ -415,6 +412,8 @@ class TaggingPage(TaggingLegacyPage):
         self.title.setText(self.catalog.text("nav.tagging"))
         self.copy_open_button.setText("Valider + suivant [Espace]")
         self.copy_open_button.setToolTip("Enregistrer la revue locale puis passer au suivant")
+        if hasattr(self, "batch_table"):
+            self.batch_table.set_empty_text(self.catalog.text("table.empty_batch"))
 
     def showEvent(self, event) -> None:
         super().showEvent(event)

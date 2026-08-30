@@ -20,7 +20,6 @@ from PySide6.QtWidgets import (
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
-    QTableWidget,
     QTableWidgetItem,
     QTreeWidget,
     QTreeWidgetItem,
@@ -29,6 +28,7 @@ from PySide6.QtWidgets import (
 )
 
 from booruflow.application.auto_organize import rule_node_from_dict, rule_node_to_dict
+from booruflow.presentation.pyside6.ui_components import DataTable
 
 COLUMNS=("Fichier actuel","Site","Post ID","Récupération","Artiste actuel","Artiste distant",
          "Nom futur","Dossier actuel","Destination calculée","Règle gagnante","Statut","Raison")
@@ -103,7 +103,7 @@ class AutoOrganizePage(QWidget):
         self.progress=QProgressBar(); self.progress.setRange(0,1); self.progress.setValue(0); layout.addWidget(self.progress); self.state=QLabel("Prêt."); self.state.setWordWrap(True); layout.addWidget(self.state)
         self.last_error=QLabel("Dernière erreur : aucune"); self.last_error.setWordWrap(True); layout.addWidget(self.last_error)
         self.error_summary=QPlainTextEdit(); self.error_summary.setReadOnly(True); self.error_summary.setMaximumHeight(110); self.error_summary.setPlaceholderText("Les erreurs identiques seront regroupées ici et restent copiables."); layout.addWidget(self.error_summary); self._error_groups={}
-        self.table=QTableWidget(0,len(COLUMNS)); self.table.setHorizontalHeaderLabels(COLUMNS); self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers); self.table.setSortingEnabled(True)
+        self.table=DataTable(0,len(COLUMNS)); self.table.setHorizontalHeaderLabels(COLUMNS); self.table.setSortingEnabled(True); self.table.set_empty_text(self.catalog.text("table.empty_analysis") if self.catalog else "Lancez une analyse pour prévisualiser les opérations proposées.")
         header=self.table.horizontalHeader(); header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         for column,width in enumerate((240,80,90,95,130,130,260,210,210,190,100,260)): self.table.setColumnWidth(column,width)
         layout.addWidget(self.table,1)

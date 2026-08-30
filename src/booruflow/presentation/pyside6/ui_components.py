@@ -31,7 +31,7 @@ class DataTable(QTableWidget):
     def empty_text(self) -> str:
         return self._empty_text
 
-    def paintEvent(self, event) -> None:  # noqa: N802 - Qt virtual method
+    def paintEvent(self, event) -> None:
         super().paintEvent(event)
         if self.rowCount() or not self._empty_text:
             return

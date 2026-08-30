@@ -7,7 +7,6 @@ from pathlib import Path
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QApplication,
     QComboBox,
     QFormLayout,
@@ -17,7 +16,6 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QPushButton,
     QSpinBox,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -25,6 +23,7 @@ from PySide6.QtWidgets import (
 
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.tag_browser import TagRow, TagSearch, search_tags
+from booruflow.presentation.pyside6.ui_components import DataTable
 
 
 class TagSearchWorker(QThread):
@@ -82,12 +81,9 @@ class TagBrowserPage(QWidget):
         quick_row.addWidget(self.search_button)
         form.addRow("", quick_row); layout.addWidget(self.filters)
 
-        self.table = QTableWidget(0, 5)
+        self.table = DataTable(0, 5)
         self.table.setHorizontalHeaderLabels(("id", "name", "post_count", "ttype", "ambiguous"))
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setAlternatingRowColors(True); self.table.setSortingEnabled(True)
+        self.table.setSortingEnabled(True)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.table.horizontalHeader().setSectionResizeMode(1, self.table.horizontalHeader().ResizeMode.Stretch)
         layout.addWidget(self.table, 1)
@@ -162,4 +158,5 @@ class TagBrowserPage(QWidget):
             self.mode.setItemText(index, text(f"tag_browser.mode_{key}"))
         self.search_button.setText(text("tag_browser.search")); self.copy_selected.setText(text("tag_browser.copy_selected"))
         self.copy_results.setText(text("tag_browser.copy_results"))
+        self.table.set_empty_text(text("table.empty_search_results"))
         if not self.status.text(): self.status.setText(text("tag_browser.ready"))

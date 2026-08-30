@@ -4,11 +4,9 @@ from __future__ import annotations
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QAbstractItemView,
     QHeaderView,
     QLabel,
     QProgressBar,
-    QTableWidget,
     QTableWidgetItem,
     QVBoxLayout,
     QWidget,
@@ -16,6 +14,7 @@ from PySide6.QtWidgets import (
 
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.presentation.pyside6.task_manager import TaskManager
+from booruflow.presentation.pyside6.ui_components import DataTable
 
 
 class TaskPage(QWidget):
@@ -32,11 +31,7 @@ class TaskPage(QWidget):
         self.description.setWordWrap(True)
         layout.addWidget(self.title)
         layout.addWidget(self.description)
-        self.table = QTableWidget(0, 6)
-        self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
-        self.table.setAlternatingRowColors(True)
-        self.table.verticalHeader().hide()
+        self.table = DataTable(0, 6)
         header = self.table.horizontalHeader()
         for column in (0, 3):
             header.setSectionResizeMode(column, QHeaderView.ResizeMode.Stretch)
@@ -82,4 +77,5 @@ class TaskPage(QWidget):
                 for key in ("title", "state", "phase", "message", "progress", "started")
             ]
         )
+        self.table.set_empty_text(self.catalog.text("table.empty_tasks"))
         self.refresh()

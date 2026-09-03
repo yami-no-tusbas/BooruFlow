@@ -15,6 +15,7 @@ from booruflow.application.database_paths import (
     gelbooru_tag_database,
     migrate_database_settings,
 )
+from booruflow.application.hydra_model_manager import hydra_directory, migrated_hydra_settings
 from booruflow.infrastructure.gelbooru_aliases import migrate_alias_catalog
 from booruflow.infrastructure.grabber import GrabberInstallation
 from booruflow.infrastructure.localization import LanguageCatalog
@@ -50,8 +51,8 @@ def initial_settings(root: Path) -> dict[str, object]:
         ),
         "image_analysis_wd14_store_threshold": 0.10,
         "image_analysis_hydra_enabled": False,
-        "image_analysis_hydra_source_directory": str(root / "var" / "models" / "image_analysis" / "hydra-3.5-src"),
-        "image_analysis_hydra_model_path": str(root / "var" / "models" / "image_analysis" / "hydra-3.5-src" / "models" / "hydra-3.5.safetensors"),
+        "image_analysis_hydra_source_directory": str(hydra_directory(root)),
+        "image_analysis_hydra_model_path": str(hydra_directory(root) / "hydra-3.5.safetensors"),
         "image_analysis_hydra_device": "auto",
         "image_analysis_hydra_seqlen": 256,
         "image_analysis_wd14_display_threshold": 0.30,
@@ -78,7 +79,8 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
     else:
         settings, migrated = migrate_blacklist_setting(settings)
         settings, database_migrated = migrate_database_settings(settings, root)
-        migrated = migrated or database_migrated
+        settings, hydra_migrated = migrated_hydra_settings(settings, root)
+        migrated = migrated or database_migrated or hydra_migrated
         if migrated:
             settings_repository.save(settings)
     alias_database = gelbooru_alias_database(settings)

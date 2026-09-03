@@ -46,6 +46,8 @@ grabber_load_benchmarks.jsonl
 # Local backups and historical working copies
 _backups/
 backup-*/
+BooruFlow-history-cleanup/
+var-README-backup.md
 *.old
 *.backup-*
 

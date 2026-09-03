@@ -5,7 +5,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QProcess, QSize, Qt, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QLabel,
@@ -25,6 +25,13 @@ from PySide6.QtWidgets import (
 from booruflow.application.batch_publisher import PUBLISH_DELAY_SECONDS
 from booruflow.application.capabilities import ApplicationCapabilities
 from booruflow.application.database_paths import gelbooru_alias_database, gelbooru_tag_database
+from booruflow.application.hydra_model_manager import (
+    hydra_directory,
+    inspect_hydra,
+    migrated_hydra_settings,
+    remove_hydra,
+)
+from booruflow.application.model_inventory import format_size
 from booruflow.application.ports import SettingsRepository
 from booruflow.application.tasks import MemoryTaskRepository, TaskRepository
 from booruflow.application.taxonomy import TaxonomyRepository
@@ -45,6 +52,7 @@ from booruflow.infrastructure.gelbooru_browser_transport import (
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
 from booruflow.infrastructure.image_sources import E621PostProvider, GelbooruPostProvider
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.infrastructure.retro_cleanup import send_to_recycle_bin
 from booruflow.presentation.pyside6.auto_organize_controller import AutoOrganizeController
 from booruflow.presentation.pyside6.auto_organize_page import AutoOrganizePage
 from booruflow.presentation.pyside6.cleanup_controller import CleanupController
@@ -295,6 +303,16 @@ class MainWindow(QMainWindow):
         self.cleanup_page.stop_requested.connect(self.cleanup_controller.stop)
         self.cleanup_page.recycle_requested.connect(self._recycle_cleanup)
         self.cleanup_page.blacklist_changed.connect(self._save_cleanup_blacklist)
+        self.hydra_model_process = QProcess(self)
+        self.hydra_model_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        self.hydra_model_process.finished.connect(self._hydra_operation_finished)
+        self.cleanup_page.hydra_install_requested.connect(
+            lambda: self._start_hydra_operation("install")
+        )
+        self.cleanup_page.hydra_migrate_requested.connect(
+            lambda: self._start_hydra_operation("migrate")
+        )
+        self.cleanup_page.hydra_remove_requested.connect(self._remove_hydra)
         add_page(self.cleanup_page)
         options = OptionsPage(catalog, settings, credentials)
         options.save_requested.connect(self._save_options)
@@ -642,6 +660,86 @@ class MainWindow(QMainWindow):
         settings["blacklist_file"] = path
         self.settings_repository.save(settings)
         self.review_page.settings["blacklist_file"] = path
+
+    def _start_hydra_operation(self, command: str) -> None:
+        if self.hydra_model_process.state() != QProcess.ProcessState.NotRunning:
+            return
+        self.cleanup_page.set_model_operation_running(
+            True, self.catalog.text("cleanup.hydra_running")
+        )
+        self.hydra_model_process.setWorkingDirectory(str(self.project_root))
+        self.hydra_model_process.start(
+            self.python_executable,
+            ["-m", "booruflow.cli.hydra_model", command, "--root", str(self.project_root)],
+        )
+
+    def _hydra_operation_finished(self, code: int, _status) -> None:
+        output = bytes(self.hydra_model_process.readAllStandardOutput()).decode(
+            "utf-8", errors="replace"
+        ).strip()
+        if code != 0:
+            detail = output.splitlines()[-1] if output else f"code {code}"
+            self.cleanup_page.set_model_operation_running(
+                False, self.catalog.text("cleanup.hydra_failed", error=detail)
+            )
+            return
+        if self.settings_repository is not None:
+            settings, changed = migrated_hydra_settings(
+                self.settings_repository.load(), self.project_root
+            )
+            if changed:
+                self.settings_repository.save(settings)
+                self.options_page._settings = dict(settings)
+                self.image_analysis_controller.apply_settings(settings)
+        self.cleanup_page.set_model_operation_running(False)
+        self.cleanup_page.refresh_disk_usage()
+
+    def _remove_hydra(self) -> None:
+        target = hydra_directory(self.project_root)
+        installation = inspect_hydra(target)
+        if installation.state == "absent":
+            self.cleanup_page.refresh_disk_usage()
+            return
+        answer = QMessageBox.question(
+            self,
+            self.catalog.text("cleanup.hydra_remove_title"),
+            self.catalog.text(
+                "cleanup.hydra_remove_confirm", size=format_size(installation.size)
+            ),
+        )
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+        if self.settings_repository is not None:
+            settings = self.settings_repository.load()
+            settings["image_analysis_hydra_enabled"] = False
+            self.settings_repository.save(settings)
+            self.options_page._settings = dict(settings)
+            self.image_analysis_controller.apply_settings(settings)
+            process = self.image_analysis_controller.process
+            if (
+                process.state() != QProcess.ProcessState.NotRunning
+                and not process.waitForFinished(5_000)
+            ):
+                self.cleanup_page.set_model_operation_running(
+                    False,
+                    self.catalog.text(
+                        "cleanup.hydra_failed", error="ImageAnalysis worker did not stop"
+                    ),
+                )
+                return
+        try:
+            remove_hydra(
+                self.project_root, confirmed=True, recycler=send_to_recycle_bin
+            )
+        except OSError as exc:
+            self.cleanup_page.set_model_operation_running(
+                False, self.catalog.text("cleanup.hydra_failed", error=exc)
+            )
+            return
+        self.cleanup_page.refresh_disk_usage()
+        self.cleanup_page.hydra_status_label.setText(
+            self.catalog.text("cleanup.hydra_removed")
+        )
 
     def _build_gelbooru_publisher(self):
         """Build the selected publisher in the worker without exposing web cookies."""

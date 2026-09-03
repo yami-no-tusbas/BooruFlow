@@ -14,6 +14,7 @@ from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QThread, QTim
 from PySide6.QtWidgets import QMessageBox
 
 from booruflow.application.database_paths import gelbooru_alias_database, gelbooru_tag_database
+from booruflow.application.hydra_model_manager import hydra_directory
 from booruflow.application.image_analysis import ImageAnalysisWorkflow, QueuePolicy
 from booruflow.domain.image_analysis import DecisionState, InputKind, detect_local_source
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
@@ -544,14 +545,14 @@ class ImageAnalysisController(QObject):
                     str(self.settings.get("image_analysis_wd14_store_threshold", 0.10)),
                 ]
             )
-        if bool(self.settings.get("image_analysis_hydra_enabled", True)):
+        if bool(self.settings.get("image_analysis_hydra_enabled", False)):
             source_directory = self.settings.get(
                 "image_analysis_hydra_source_directory",
-                self.project_root / "var" / "models" / "image_analysis" / "hydra-3.5-src",
+                hydra_directory(self.project_root),
             )
             model_path = self.settings.get(
                 "image_analysis_hydra_model_path",
-                Path(source_directory) / "models" / "hydra-3.5.safetensors",
+                Path(source_directory) / "hydra-3.5.safetensors",
             )
             arguments.extend([
                 "--hydra-enabled", "--hydra-source-directory", str(source_directory),

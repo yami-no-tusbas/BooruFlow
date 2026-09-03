@@ -37,6 +37,20 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertEqual(changed.at(0), ["D:/lists/new.txt"])
         page.close()
 
+    def test_cleanup_exposes_explicit_hydra_maintenance_actions(self) -> None:
+        from PySide6.QtTest import QSignalSpy
+
+        from booruflow.presentation.pyside6.cleanup_page import CleanupPage
+
+        with tempfile.TemporaryDirectory() as directory:
+            page = CleanupPage(self.catalog(), {}, Path(directory))
+            install = QSignalSpy(page.hydra_install_requested)
+            page.hydra_install_button.click()
+            self.assertEqual(install.count(), 1)
+            self.assertIn("absent", page.hydra_status_label.text())
+            self.assertFalse(page.hydra_remove_button.isEnabled())
+            page.close()
+
     def test_tagging_site_selector_switches_context_without_stale_results(self) -> None:
         from PySide6.QtTest import QSignalSpy
 

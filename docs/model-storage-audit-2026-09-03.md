@@ -89,3 +89,35 @@ sans confirmation : il décrit le contenu d'un futur téléchargement sélectif.
 
 La taille logique réelle de `var` est donc actuellement **5,18 Gio**, et non 3,21 Gio lorsque le
 répertoire `.git` interne caché est inclus.
+
+## Nettoyage appliqué
+
+Le 3 septembre 2026, Hydra a été migré vers une installation minimale et vérifiée :
+
+```text
+var/models/hydra/3.5/
+├── hydra-3.5.safetensors
+└── hydra/
+    └── 10 modules Python du runtime officiel
+```
+
+La source est épinglée au commit Hugging Face officiel
+`cfa9b0a1ffcf2b8df8553be7673210fd60fba23b`. Chaque artefact possède une taille et un SHA256
+attendus. Les téléchargements utilisent un dossier temporaire et ne remplacent une installation
+existante qu'après validation de l'ensemble.
+
+Le checkpoint Hydra 3.5 utilise l'architecture `rr_hydra2` : ses 8 886 labels et ses données de
+calibration sont intégrés au fichier safetensors. Aucun CSV de validation externe n'est nécessaire.
+
+Après migration et inférence réelle réussie, l'ancien clone complet a été envoyé à la Corbeille :
+
+| Mesure | Avant | Après | Gain |
+|---|---:|---:|---:|
+| `var/models` | 4 386,10 Mio | 1 376,60 Mio | 3 009,50 Mio |
+| Hydra runtime conservé | 1 015,21 Mio dans le clone | 1 015,30 Mio dédié | — |
+| WD14 conservé | 361,30 Mio | 361,30 Mio | 0 |
+
+La vue Maintenance détecte désormais Hydra installé, absent ou invalide et propose explicitement
+le téléchargement/réinstallation, la migration d'un ancien clone, l'ouverture du dossier et la
+suppression vers la Corbeille. La suppression désactive d'abord Hydra et attend l'arrêt du worker
+ImageAnalysis. Aucun téléchargement n'est lancé au démarrage.

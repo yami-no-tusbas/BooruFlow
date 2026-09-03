@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
+from booruflow.application.hydra_model_manager import hydra_directory, inspect_hydra
+
 
 @dataclass(frozen=True, slots=True)
 class ModelStorageEntry:
@@ -39,20 +41,26 @@ def _tree_size(path: Path) -> int:
 
 def inventory_models(root: Path) -> tuple[ModelStorageEntry, ...]:
     """Return known model weights and storage overhead without changing disk state."""
-    models = root / "var" / "models" / "image_analysis"
+    models_root = root / "var" / "models"
+    models = models_root / "image_analysis"
     wd14 = models / "wd-vit-tagger-v3" / "model.onnx"
+    hydra_clean_root = hydra_directory(root)
+    hydra_clean = hydra_clean_root / "hydra-3.5.safetensors"
     hydra_root = models / "hydra-3.5-src"
     hydra_current = hydra_root / "models" / "hydra-3.5.safetensors"
     hydra_legacy = hydra_root / "models" / "jtp-3-hydra.safetensors"
     hydra_validation = hydra_root / "data" / "jtp-3-hydra-val.csv"
     lfs = hydra_root / ".git" / "lfs" / "objects"
-    known = {wd14, hydra_current, hydra_legacy, hydra_validation}
+    known = {wd14, hydra_clean, hydra_current, hydra_legacy, hydra_validation}
 
     entries = [
         ModelStorageEntry("wd14", "WD14 ViT Tagger v3", "WD14 tagging", wd14,
                           _file_size(wd14), True, "weight"),
-        ModelStorageEntry("hydra-3.5", "Hydra 3.5", "e621 / furry tagging", hydra_current,
-                          _file_size(hydra_current), True, "weight"),
+        ModelStorageEntry("hydra-3.5", "Hydra 3.5", "e621 / furry tagging", hydra_clean,
+                          _tree_size(hydra_clean_root), True, "weight"),
+        ModelStorageEntry("hydra-clone-active", "Hydra 3.5 dans l'ancien clone",
+                          "ancienne installation e621 / furry", hydra_current,
+                          _file_size(hydra_current), False, "legacy_copy"),
         ModelStorageEntry("hydra-3", "JTP Hydra 3", "ancienne variante Hydra", hydra_legacy,
                           _file_size(hydra_legacy), False, "inactive_variant"),
         ModelStorageEntry("hydra-validation", "Hydra validation dataset", "développement Hydra",
@@ -61,13 +69,18 @@ def inventory_models(root: Path) -> tuple[ModelStorageEntry, ...]:
                           _tree_size(lfs), False, "duplicate_storage"),
     ]
     other = 0
-    if models.is_dir():
-        for path in models.rglob("*"):
-            if path.is_file() and path not in known and lfs not in path.parents:
+    if models_root.is_dir():
+        for path in models_root.rglob("*"):
+            if (
+                path.is_file()
+                and path not in known
+                and lfs not in path.parents
+                and hydra_clean_root not in path.parents
+            ):
                 other += _file_size(path)
     entries.append(ModelStorageEntry(
         "other", "Autres fichiers de modèles", "code, métadonnées et autres analyseurs",
-        models, other, False, "support",
+        models_root, other, False, "support",
     ))
     return tuple(entry for entry in entries if entry.size)
 
@@ -78,7 +91,10 @@ def model_totals(entries: tuple[ModelStorageEntry, ...]) -> dict[str, int]:
         totals["total"] += entry.size
         if entry.key == "wd14":
             totals["wd14"] += entry.size
-        elif entry.key.startswith("hydra") and entry.kind == "weight":
+        elif entry.key == "hydra-3.5" or (
+            entry.key == "hydra-clone-active"
+            and not any(item.key == "hydra-3.5" for item in entries)
+        ):
             totals["e621"] += entry.size
         else:
             totals["other"] += entry.size
@@ -92,3 +108,8 @@ def format_size(size: int) -> str:
             return f"{value:.2f} {suffix}" if suffix == "Gio" else f"{value:.1f} {suffix}"
         value /= 1024
     raise AssertionError("unreachable")
+
+
+def hydra_status(root: Path) -> tuple[str, int, str]:
+    result = inspect_hydra(hydra_directory(root))
+    return result.state, result.size, result.message

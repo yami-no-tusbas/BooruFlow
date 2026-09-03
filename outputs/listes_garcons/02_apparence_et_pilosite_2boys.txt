@@ -1,0 +1,7 @@
+facial_hair 2boys
+beard 2boys
+mustache 2boys
+armpit_hair 2boys
+chest_hair 2boys
+body_hair 2boys
+leg_hair 2boys

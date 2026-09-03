@@ -1,0 +1,910 @@
+{
+  "_meta": {"name": "English"},
+  "app.title": "BooruFlow",
+  "nav.home": "Home",
+  "nav.review": "Review",
+  "nav.tagging": "Tagging",
+  "nav.image_analysis": "Image Analysis",
+  "nav.auto_organize": "Auto organize",
+  "nav.similar_artists": "Similar Artists",
+  "nav.organization": "Organization",
+  "nav.tag_browser": "Tag browser",
+  "nav.wiki": "Wiki",
+  "nav.cleanup": "Cleanup",
+  "nav.options": "Options",
+  "nav.grabber": "Grabber",
+  "nav.tasks": "Task center",
+  "standalone.title": "Gelbooru Tagging Helper",
+  "standalone.credentials": "Gelbooru access",
+  "standalone.credential_note": "Stored only on this computer in the local config folder. Never share this file or your API key.",
+  "standalone.credentials_required": "Enter your Gelbooru user ID and API key before starting.",
+  "standalone.save_credentials": "Save access locally",
+  "standalone.credentials_saved": "Gelbooru access saved locally.",
+  "standalone.ready": "Ready — no automatic tag submission is performed.",
+  "tasks.description": "Long operations and their latest known state. Interrupted work remains visible after restart.",
+  "tasks.column_title": "Operation",
+  "tasks.column_state": "State",
+  "tasks.column_phase": "Phase",
+  "tasks.column_message": "Details",
+  "tasks.column_progress": "Progress",
+  "tasks.column_started": "Started",
+  "tasks.state_running": "Running",
+  "tasks.state_completed": "Completed",
+  "tasks.state_failed": "Failed",
+  "tasks.state_cancelled": "Stopped",
+  "tasks.state_interrupted": "Interrupted",
+  "table.empty_search_results": "No search results.",
+  "table.empty_tasks": "No task has been recorded yet.",
+  "table.empty_batch": "No review item matches this filter.",
+  "table.empty_analysis": "Run an analysis to preview the proposed operations.",
+  "status.ready": "{page} — Ready.",
+  "status.saved": "Options — Saved.",
+  "status.save_failed": "Options — Save failed.",
+  "log.show": "Show log",
+  "log.hide": "Hide log",
+  "log.clear": "Clear log",
+  "log.started": "BooruFlow PySide6 started.",
+  "log.grabber_unavailable": "Optional Grabber integration unavailable: {reason}",
+  "log.options_saved": "Options saved.",
+  "log.options_failed": "Could not save options: {error}",
+  "home.subtitle": "Search, review, organize and maintain Booru metadata from one workspace.",
+  "home.open": "Open",
+  "home.review": "Find and review tags by category or text list.",
+  "home.tagging": "Inspect under-tagged posts without automatic submission.",
+  "home.image_analysis": "Prepare local or booru images and review persistent analysis results.",
+  "home.similar_artists": "Explore artist profiles through independent visual similarity axes.",
+  "home.organization": "Maintain the local tag taxonomy and its sources.",
+  "home.tag_browser": "Quickly search the local database, select ranges and copy tag lists.",
+  "home.wiki": "Prepare validated Gelbooru wiki drafts from reusable templates.",
+  "home.cleanup": "Audit existing folders before recoverable cleanup.",
+  "home.options": "Configure sites, databases, language and credentials.",
+  "home.grabber": "Generate and resume Grabber batches when the optional tool is available.",
+  "image_analysis.add_files": "Add image files…",
+  "image_analysis.choose_images": "Choose images",
+  "image_analysis.image_filter": "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp);;All files (*)",
+  "image_analysis.add_manual": "Add tag",
+  "image_analysis.accept": "Accept",
+  "image_analysis.reject": "Reject",
+  "image_analysis.retry": "Retry failed",
+  "image_analysis.skip": "Skip",
+  "image_analysis.complete": "Validate and next",
+  "image_analysis.column_tag": "Tag",
+  "image_analysis.column_source": "Source",
+  "image_analysis.column_state": "State",
+  "image_analysis.column_error": "Error",
+  "image_analysis.column_confidence": "Confidence",
+  "image_analysis.column_decision": "Decision",
+  "image_analysis.worker_starting": "Worker starting…",
+  "image_analysis.worker_active": "Worker active",
+  "image_analysis.worker_stopped": "Worker stopped",
+  "image_analysis.worker_error": "Worker error",
+  "image_analysis.worker_initializing": "Worker initializing…",
+  "image_analysis.worker_restarting": "Worker restarting…",
+  "image_analysis.worker_unavailable": "Worker unavailable",
+  "image_analysis.pipeline": "To resolve: {unresolved} · Local: {resolved} · Pending: {pending} · Processing: {processing} · Ready: {ready} · Errors: {failed}",
+  "options.image_analysis": "Image Analysis",
+  "options.download_prefetch": "Download prefetch (images):",
+  "options.analysis_prefetch": "Analysis prefetch (images):",
+  "grabber.available": "Grabber: available",
+  "grabber.unavailable": "Grabber: unavailable — {reason}",
+  "page.review": "Category review and TXT-list review will be consolidated here.",
+  "page.tagging": "Manual browser-assisted tagging review will be migrated here.",
+  "page.organization": "Taxonomy browsing, editing and source updates will live here.",
+  "page.cleanup": "Folder drop, audit progress and recoverable actions will live here.",
+  "page.grabber": "This section is optional. The rest of BooruFlow remains usable without Grabber.",
+  "capability.available": "Available",
+  "capability.unavailable": "Unavailable",
+  "options.general": "General",
+  "options.language": "Language:",
+  "options.credentials": "Site credentials",
+  "options.site": "Site:",
+  "options.user_id": "User ID:",
+  "options.e621_username": "Username:",
+  "options.api_key": "API key:",
+  "options.show_api_key": "Show API key",
+  "options.reveal_api_key": "👁",
+  "options.reveal_api_key_tip": "Show or hide the API key",
+  "options.test_credentials": "Test credentials",
+  "options.credentials_status_not_tested": "Not tested",
+  "options.credentials_status_testing": "Testing…",
+  "options.credentials_status_valid": "Valid",
+  "options.credentials_status_invalid": "Invalid credentials",
+  "options.credentials_status_missing": "Missing credentials",
+  "options.credentials_status_network_error": "Network error",
+  "options.credentials_status_rate_limited": "Rate limited",
+  "options.credentials_status_server_error": "Server error",
+  "options.credentials_status_malformed_response": "Malformed server response",
+  "options.paths": "Local paths",
+  "options.database_path": "Database path:",
+  "options.browser": "Browser",
+  "options.browser_open_external": "Open external links with:",
+  "options.browser_command": "Command template:",
+  "options.browser_command_placeholder": "\"C:\\Path\\browser.exe\" {url}",
+  "options.browser_clear_profile": "Clear profile on close",
+  "options.browser_reset": "Reset dedicated profile",
+  "options.browser_reset_title": "Reset dedicated profile",
+  "options.browser_reset_confirm": "Delete the dedicated browser profile and its isolated browser data?",
+  "options.browser_reset_done": "The dedicated profile was reset.",
+  "options.browser_reset_missing": "No supported dedicated browser profile was found.",
+  "options.browser_test": "Test external browser",
+  "options.browser_explanation": "BooruFlow uses its internal browser for normal booru navigation. This preference only controls links explicitly opened externally.",
+  "options.browser_mode_system": "System browser",
+  "options.browser_mode_dedicated": "Dedicated profile",
+  "options.browser_mode_custom": "Custom browser",
+  "options.publisher": "Auto Publisher",
+  "options.publisher_login": "Login / Reconnect",
+  "options.publisher_check": "Check session",
+  "options.publisher_reset": "Reset session",
+  "options.publisher_status_not_tested": "Gelbooru session: Not tested",
+  "options.publisher_status_testing": "Gelbooru session: Checking…",
+  "options.publisher_status": "Gelbooru session: {status}",
+  "options.publisher_explanation": "The publisher uses a separate hidden page in the same isolated Gelbooru profile. It never replaces visible browser tabs.",
+  "options.publisher_cdp_explanation": "Advanced compatibility mode controls a dedicated Chromium profile through localhost only.",
+  "options.publisher_disabled": "Gelbooru automatic publication is disabled.",
+  "options.publisher_reset_title": "Reset Gelbooru session",
+  "options.publisher_reset_confirm": "Remove only cookies and session data from BooruFlow's internal Gelbooru profile?",
+  "options.publisher_reset_done": "The internal Gelbooru session was reset.",
+  "options.wd14_enabled": "Enable WD14",
+  "options.wd14_display_threshold": "Tag display threshold:",
+  "options.advanced": "Advanced",
+  "options.wd14_store_threshold": "Storage threshold:",
+  "options.worker_heartbeat": "Worker heartbeat interval (seconds):",
+  "options.worker_stale": "Worker stale timeout (seconds):",
+  "options.worker_recycle": "Worker recycle count (runs):",
+  "options.wd14_enabled_tip": "Runs the local WD14 tag model for newly analysed images. Cached WD14 observations remain visible when this is disabled.",
+  "options.wd14_display_threshold_tip": "Minimum confidence displayed in Image Analysis. 10 % is stored as 0.10.",
+  "options.wd14_store_threshold_tip": "Minimum confidence persisted from new WD14 runs. Lower values retain more candidates.",
+  "options.download_prefetch_tip": "Number of source images prepared ahead of time (images).",
+  "options.analysis_prefetch_tip": "Maximum number of images queued ahead for analysis (images).",
+  "options.worker_heartbeat_tip": "How often the worker confirms that a long analysis is still active (seconds).",
+  "options.worker_stale_tip": "After this time without a heartbeat, an interrupted worker job can be recovered (seconds).",
+  "options.worker_recycle_tip": "Restart the analysis worker after this many processed runs; 0 disables recycling.",
+  "browser.title": "BooruFlow Browser",
+  "browser.reload": "Reload",
+  "browser.home": "Home",
+  "browser.account": "Account",
+  "browser.close": "Close",
+  "browser.new_tab": "New tab",
+  "browser.address": "Enter a URL",
+  "browser.developer_diagnostics": "Developer diagnostics",
+  "browser.status_not_tested": "Session: Not tested",
+  "browser.status_load_error": "Session: Page could not be loaded",
+  "browser.status_ready": "Session: Ready",
+  "browser.status_login_required": "Session: Login required",
+  "browser.status_unknown": "Session: Status unknown or challenge in progress",
+  "browser.diagnostic_form": "Form diagnostic (blocks Save changes)",
+  "browser.diagnostic_form_tip": "Intercepts Save changes and captures a FormData snapshot without sending a POST.",
+  "browser.diagnostic_additions": "Expected HTTP additions",
+  "browser.diagnostic_removals": "Expected HTTP removals",
+  "browser.diagnostic_http": "Trace the next real POST through CDP",
+  "browser.diagnostic_http_tip": "Does not send anything by itself. Requires the embedded CDP diagnostic startup mode and disarms after the captured POST.",
+  "browser.diagnostic_prototype": "Real Edit prototype",
+  "browser.diagnostic_targets": "HTTP diagnostic targets:",
+  "browser.diagnostic_disabled": "Form diagnostic disabled",
+  "browser.diagnostic_arming": "Arming CDP while Save changes is blocked…",
+  "browser.diagnostic_unavailable": "Diagnostic unavailable — no POST was sent",
+  "browser.diagnostic_http_armed": "HTTP trace armed — Save changes will send exactly one POST",
+  "browser.diagnostic_http_done": "HTTP trace {source} captured — diagnostic disarmed",
+  "browser.diagnostic_cdp_error": "CDP diagnostic unavailable ({reason}) — Save changes remains blocked",
+  "browser.diagnostic_form_armed": "Form diagnostic armed — Save changes will be blocked",
+  "browser.diagnostic_form_unavailable": "Form diagnostic unavailable",
+  "browser.diagnostic_snapshot_done": "Manual snapshot captured — send blocked and diagnostic disarmed",
+  "browser.diagnostic_snapshot_error": "Manual diagnostic failed — send blocked",
+  "browser.prototype.title": "Browser automation prototype",
+  "browser.prototype.ready": "Ready — no automatic Save",
+  "browser.prototype.open": "Open and click Edit",
+  "browser.prototype.apply": "Apply deltas",
+  "browser.prototype.save": "Save test",
+  "browser.prototype.post": "Post #",
+  "browser.prototype.additions": "Additions",
+  "browser.prototype.removals": "Removals",
+  "browser.prototype.invalid_id": "Invalid post ID",
+  "browser.prototype.loading": "Loading page — no Save",
+  "browser.prototype.load_error": "Page load failed",
+  "browser.prototype.edit_missing": "Real Edit control not found",
+  "browser.prototype.edit_ready": "Edit opened — Save available",
+  "browser.prototype.edit_not_ready": "Edit is not ready or Save is disabled",
+  "browser.prototype.prepared": "Deltas prepared — check visually before Save test",
+  "browser.prototype.refused": "Preparation refused",
+  "browser.prototype.confirm_title": "Confirm Save test",
+  "browser.prototype.confirm": "The real Save changes button will be clicked.",
+  "options.gelbooru_database": "Gelbooru tag database",
+  "options.e621_database": "e621 tag database",
+  "options.blacklist_file": "Blacklist file",
+  "options.output_folder": "Output folder",
+  "options.browse": "Browse…",
+  "options.choose_folder": "Choose folder",
+  "options.choose_database": "Choose database",
+  "options.database_filter": "SQLite databases (*.db *.sqlite);;All files (*)",
+  "options.choose_blacklist": "Choose a blacklist file",
+  "options.text_filter": "Text files (*.txt);;All files (*)",
+  "options.note": "Credentials are stored only in the local config folder and are excluded from Git.",
+  "options.save": "Save options",
+  "options.update_database": "Update",
+  "options.stop_database": "Stop",
+  "options.database_stopping": "Stopping the rebuild… The staging database can be resumed later.",
+  "options.database_running": "Updating {site} database… Details are shown in the journal.",
+  "options.database_start": "Starting {site} database update: {path}",
+  "options.database_already_running": "A database update is already running.",
+  "options.database_finished": "{site} database update completed and validated.",
+  "options.database_failed": "{site} database update stopped with code {code}. See the journal.",
+  "options.database_path_required": "Select a database path before starting the update.",
+  "options.alias_database_path_required": "Configure the alias database path before starting the update.",
+  "options.alias_update": "Update",
+  "options.alias_label": "Gelbooru aliases",
+  "options.alias_pending": "Check pending",
+  "options.alias_reconcile": "Reconcile",
+  "options.alias_start": "Starting Gelbooru alias operation {mode}: {path}",
+  "options.alias_summary": "Aliases — active: {active} · pending: {pending} · missing: {missing} · new: {new} · modified: {modified} · checkpoint: {checkpoint} · state: {state}",
+  "options.alias_state_completed": "completed",
+  "options.alias_state_initial_import_required": "initial import required",
+  "options.alias_state_overlap_not_found": "checkpoint overlap not found; explicit reconciliation required",
+  "options.alias_state_pagination_incoherent": "pagination changed; explicit reconciliation required",
+  "options.alias_state_full_reconciliation_recommended": "full reconciliation recommended",
+  "options.alias_state_unknown": "unknown",
+  "tag_browser.filters": "Read-only search",
+  "tag_browser.database": "Database:",
+  "tag_browser.query": "Tag name:",
+  "tag_browser.placeholder": "Example: *_ears or ^.*_(ears|tail)$",
+  "tag_browser.mode_contains": "Contains",
+  "tag_browser.mode_auto": "Automatic",
+  "tag_browser.mode_glob": "* and ? pattern",
+  "tag_browser.mode_regex": "Regular expression",
+  "tag_browser.mode_exact": "Exact name",
+  "tag_browser.search": "Search",
+  "tag_browser.copy_selected": "Copy selection",
+  "tag_browser.copy_results": "Copy all results",
+  "tag_browser.ready": "Ready. This page never modifies the database.",
+  "tag_browser.searching": "Searching…",
+  "tag_browser.results": "{count} result(s) displayed.",
+  "tag_browser.copied": "{count} tag(s) copied.",
+  "tag_browser.database_missing": "Gelbooru database not found. Check its path in Options.",
+  "tag_browser.error": "Search failed: {error}",
+"review.search_group": "1 — Build the list to review",
+  "review.site": "Site:",
+  "review.entity": "Entity type:",
+  "review.queries": "One search per line (semicolon also accepted):",
+  "review.criteria": "2 — Pages and result criteria",
+  "review.pages": "Pages to explore:",
+  "review.start_page": "First page:",
+  "review.minimum": "Minimum results:",
+  "review.maximum": "Maximum results:",
+  "review.match": "Result match:",
+  "review.remember": "Remember completed searches",
+  "review.auto_continue": "Continue automatically when nothing is retained",
+  "review.example": "Example: with {total} total results, {percent}% requires at least {required} matching result(s).",
+  "review.count": "Count",
+  "review.start": "Start review",
+  "review.stop": "Stop",
+  "review.ready": "Ready.",
+  "review.running": "Review in progress…",
+  "review.stopping": "Stopping the current engine…",
+  "review.finished": "Review completed.",
+  "review.interrupted": "Review stopped or failed. See the log.",
+  "review.progress": "Page {page} — {current}/{total} in this block",
+  "review.counting": "Counting {current}/{total}: {query}",
+  "review.count_result": "{query}: {count} result(s)",
+  "review.count_total": "{count} search(es) counted — raw total: {total}",
+  "review.count_error": "Count failed for {query}: {error}",
+  "review.count_gelbooru_only": "Pre-scan counting is currently available for Gelbooru.",
+  "review.credentials_missing": "Gelbooru credentials are missing. Add them in Options.",
+  "review.database_missing": "Database not found: {path}",
+  "review.invalid": "Cannot start: {error}",
+  "review.no_query": "enter at least one search",
+  "review.log_start": "Starting review for {count} search(es).",
+  "review.site_started": "=== {site} engine ===",
+  "review.outputs": "Results saved in: {paths}",
+  "review.continuing": "Nothing retained; continuing automatically at page {page}…",
+  "review.results": "Retained tags:",
+  "review.send_grabber": "Prepare selected results in Grabber",
+  "review.sent_grabber": "Prepared {count} result(s) in Grabber.",
+  "entity.artists": "Artists",
+  "entity.copyrights": "Copyrights",
+  "entity.characters": "Characters",
+  "entity.species": "Species"
+  ,"tagging.group": "Find poorly tagged Gelbooru posts"
+  ,"tagging.query": "Gelbooru search:"
+  ,"tagging.pages": "Pages per block:"
+  ,"tagging.start": "First page:"
+  ,"tagging.minimum": "Minimum tags:"
+  ,"tagging.maximum": "Maximum tags:"
+  ,"tagging.critical": "Critical through:"
+  ,"tagging.high": "High through:"
+  ,"tagging.start_button": "Search"
+  ,"tagging.stop": "Stop"
+  ,"tagging.ready": "Ready. Results open in your authenticated browser; BooruFlow never submits tags."
+  ,"tagging.site": "Site:"
+  ,"tagging.credentials_missing": "Missing {site} API credentials. Add them in Options."
+  ,"tagging.error.invalid_credentials": "Invalid credentials"
+  ,"tagging.error.network_error": "Network error"
+  ,"tagging.error.rate_limited": "Rate limited"
+  ,"tagging.error.server_error": "Server error"
+  ,"tagging.error.malformed_response": "Malformed server response"
+  ,"tagging.error.unexpected": "Unexpected search error"
+  ,"tagging.publish.e621_unavailable": "e621 reviews without changes are stored locally."
+  ,"tagging.publish.e621_credentials_missing": "Add and validate the e621 username and API key in Options before publishing."
+  ,"tagging.category.general": "General"
+  ,"tagging.category.artist": "Artist"
+  ,"tagging.category.contributor": "Contributor"
+  ,"tagging.category.copyright": "Copyright"
+  ,"tagging.category.character": "Character"
+  ,"tagging.category.species": "Species"
+  ,"tagging.category.meta": "Meta"
+  ,"tagging.category.lore": "Lore"
+  ,"tagging.category.deprecated": "Deprecated"
+  ,"tagging.category.unknown": "Unknown"
+  ,"tagging.running": "Searching…"
+  ,"tagging.stopping": "Stopping after the current request…"
+  ,"tagging.progress": "Page {page} — {examined} post(s) examined, {retained} retained."
+  ,"tagging.invalid": "Cannot start: {error}"
+  ,"tagging.log_start": "Starting manual tagging review for: {query}"
+  ,"tagging.failed": "Tagging review failed: {error}"
+  ,"tagging.stopped": "Stopped after {examined} examined post(s)."
+  ,"tagging.end": "Actual end reached after {examined} post(s); nothing retained."
+  ,"tagging.finished": "Completed — {examined} post(s) examined, {retained} retained. Double-click a result to open it."
+  ,"tagging.priority.critical": "Critical"
+  ,"tagging.priority.high": "High"
+  ,"tagging.priority.low": "Low"
+  ,"tagging.result": "{priority} — post #{id} — {count} tags"
+  ,"tagging.section": "{priority} — {count} image(s)"
+  ,"tagging.card": "#{id} · {count} tags"
+  ,"tagging.alias_suggestion": "{tag} — alias of {alias}"
+  ,"tagging.alias.title": "Tag aliases"
+  ,"tagging.review.back": "← Back to results [Esc]"
+  ,"tagging.review.previous": "← Previous"
+  ,"tagging.review.next": "Next →"
+  ,"tagging.review.zoom": "Zoom"
+  ,"tagging.review.zoom_fit": "Fit"
+  ,"tagging.review.section": "Tag review"
+  ,"tagging.review.decision_label": "Decision:"
+  ,"tagging.review.decision.unreviewed": "To review"
+  ,"tagging.review.decision.accepted": "Accepted"
+  ,"tagging.review.decision.rejected": "Rejected"
+  ,"tagging.review.decision.keep": "Keep"
+  ,"tagging.review.decision.remove": "Remove"
+  ,"tagging.review.filter.all": "All"
+  ,"tagging.review.filter.unreviewed": "To review"
+  ,"tagging.review.filter.accepted": "Keep / add"
+  ,"tagging.review.filter.rejected": "Remove / ignore"
+  ,"tagging.review.header.tag": "Tag"
+  ,"tagging.review.header.confidence": "Confidence"
+  ,"tagging.review.header.decision": "Decision"
+  ,"tagging.review.header.match": "Origin / match"
+  ,"tagging.review.header.category": "Category"
+  ,"tagging.review.header.id": "ID"
+  ,"tagging.review.final_tags": "Final tags:"
+  ,"tagging.review.add_label": "Add:"
+  ,"tagging.review.manual_label": "Add a tag:"
+  ,"tagging.review.manual_placeholder": "Search the local database…"
+  ,"tagging.review.add": "Add"
+  ,"tagging.review.analyze": "Analyze locally"
+  ,"tagging.review.reanalyze": "Re-analyze"
+  ,"tagging.review.reanalyze_tip": "Run local image analysis again using the current settings."
+  ,"tagging.review.accept": "Accept [A]"
+  ,"tagging.review.reject": "Reject [R]"
+  ,"tagging.review.map": "Map…"
+  ,"tagging.review.refresh_metadata": "Refresh metadata"
+  ,"tagging.review.copy_final": "Copy final tags"
+  ,"tagging.review.copy_all": "Copy (final tags)"
+  ,"tagging.review.copy_open": "Copy + open [Space]"
+  ,"tagging.review.copy_open_tip": "Copy tags then open the post (Space)"
+  ,"tagging.review.validate_next": "Validate + next [Space]"
+  ,"tagging.review.validate_next_tip": "Save the local review and continue to the next item"
+  ,"tagging.review.open_gelbooru": "Open Gelbooru"
+  ,"tagging.review.open_site": "Open {site}"
+  ,"tagging.review.play": "Play"
+  ,"tagging.review.stop_video": "Stop"
+  ,"tagging.review.pause": "Pause"
+  ,"tagging.review.counter": "Post {current} / {total} · {remaining} remaining"
+  ,"tagging.batch.button": "Batch"
+  ,"tagging.batch.back": "← Review"
+  ,"tagging.batch.refresh": "Refresh"
+  ,"tagging.batch.label": "Batch:"
+  ,"tagging.batch.filter.all": "All"
+  ,"tagging.batch.filter.pending": "Pending"
+  ,"tagging.batch.filter.published": "Published"
+  ,"tagging.batch.filter.failed": "Failed"
+  ,"tagging.batch.filter.local": "Local"
+  ,"tagging.batch.header.identity": "Image / post"
+  ,"tagging.batch.header.site": "Site"
+  ,"tagging.batch.header.additions": "Additions"
+  ,"tagging.batch.header.removals": "Removals"
+  ,"tagging.batch.header.state": "State"
+  ,"tagging.batch.header.reviewed_at": "Reviewed at"
+  ,"tagging.batch.header.item": "Item"
+  ,"tagging.batch.review": "Review"
+  ,"tagging.batch.remove": "Remove from batch"
+  ,"tagging.batch.open": "Open post"
+  ,"tagging.batch.retry": "Retry failed"
+  ,"tagging.batch.session_test": "Test session"
+  ,"tagging.batch.publish": "Publish batch"
+  ,"tagging.batch.cancel": "Cancel publication"
+  ,"tagging.batch.local": "Local"
+  ,"tagging.batch.local_file": "Local file"
+  ,"tagging.batch.progress": "Publishing {current} / {total} — {target}"
+  ,"tagging.batch.state.pending_publish": "Pending"
+  ,"tagging.batch.state.published": "Published"
+  ,"tagging.batch.state.failed": "Failed"
+  ,"tagging.batch.state.local": "Local"
+  ,"tagging.batch.state.reviewed": "Reviewed locally"
+  ,"tagging.batch.counts": "{pending} · {local} · {published} · {failed}"
+  ,"tagging.batch.count.pending.one": "{count} pending"
+  ,"tagging.batch.count.pending.other": "{count} pending"
+  ,"tagging.batch.count.local.one": "{count} local"
+  ,"tagging.batch.count.local.other": "{count} local"
+  ,"tagging.batch.count.published.one": "{count} published"
+  ,"tagging.batch.count.published.other": "{count} published"
+  ,"tagging.batch.count.failed.one": "{count} failed"
+  ,"tagging.batch.count.failed.other": "{count} failed"
+  ,"tagging.analysis.startup_timeout": "Error: ImageAnalysis startup timed out. {detail}"
+  ,"tagging.analysis.unavailable": "Error: ImageAnalysis is unavailable. {detail}"
+  ,"tagging.analysis.error": "Error: {error}"
+  ,"tagging.analysis.pending": "Analysis pending…"
+  ,"tagging.analysis.worker_starting": "Analysis worker starting…"
+  ,"tagging.analysis.worker_initializing": "Analysis worker initializing…"
+  ,"tagging.analysis.worker_restarting": "Analysis worker restarting…"
+  ,"tagging.analysis.processing": "Analysis in progress"
+  ,"tagging.analysis.ready": "Analysis available"
+  ,"tagging.analysis.reviewed": "Already analyzed"
+  ,"tagging.analysis.cached": "Analysis available — cache reused"
+  ,"tagging.analysis.failed": "Analysis error: {error}"
+  ,"tagging.analysis.skipped": "Analysis skipped"
+  ,"tagging.analysis.not_analyzed": "Not analyzed"
+  ,"tagging.analysis.pending_prefetch": "Analysis pending — prefetch queue is full"
+  ,"tagging.analysis.pending_busy": "Analysis pending — worker is busy"
+  ,"tagging.analysis.pending_source": "Analysis pending — source is being prepared"
+  ,"tagging.unknown": "unknown"
+  ,"tagging.match.existing": "Existing"
+  ,"tagging.match.existing_wd14": "Existing · also detected by WD14"
+  ,"tagging.match.missing": "not found locally"
+  ,"tagging.match.lookup_unavailable": "local lookup unavailable"
+  ,"tagging.match.already_present": "already present"
+  ,"tagging.review.tag_unavailable": "Tag missing or deprecated in the Gelbooru database."
+  ,"tagging.review.manual_error": "Could not add tag manually: {error}"
+  ,"tagging.review.decision_error": "Decision error: {error}"
+  ,"tagging.review.refresh_error": "Could not refresh; existing data was kept: {error}"
+  ,"tagging.mapping.title": "Map tag"
+  ,"tagging.mapping.prompt": "Gelbooru tag for {source}:"
+  ,"tagging.mapping.impossible": "Mapping unavailable"
+  ,"tagging.mapping.missing": "This tag is missing from the local database."
+  ,"tagging.publish.disabled": "Gelbooru publication is disabled."
+  ,"tagging.publish.none": "No eligible Gelbooru publication."
+  ,"tagging.publish.session_missing": "Authenticated Gelbooru session is not configured; nothing was published."
+  ,"tagging.session.testing": "Testing the Gelbooru session…"
+  ,"tagging.session.valid": "Gelbooru session is valid."
+  ,"tagging.session.expired": "Gelbooru session is not signed in."
+  ,"tagging.session.unknown": "Gelbooru session state is unknown. Open the Gelbooru session and check that the page is loaded and signed in."
+  ,"tagging.session.error": "Gelbooru session is unavailable: {error}"
+  ,"tagging.session.none": "No batch site is available to test."
+  ,"tagging.session.gelbooru.valid": "Gelbooru: authenticated"
+  ,"tagging.session.gelbooru.expired": "Gelbooru: not signed in"
+  ,"tagging.session.gelbooru.unknown": "Gelbooru: session state unknown"
+  ,"tagging.session.gelbooru.not_configured": "Gelbooru: publication session not configured"
+  ,"tagging.session.gelbooru.error": "Gelbooru: authentication failed — {error}"
+  ,"tagging.session.e621.valid": "e621: API authentication valid"
+  ,"tagging.session.e621.not_configured": "e621: API credentials not configured"
+  ,"tagging.session.e621.error": "e621: authentication failed — {error}"
+  ,"tagging.publish.confirm_blocked": "\n\n{count} item(s) for an unconfigured site will remain pending."
+  ,"tagging.publish.cancelling": "Cancellation requested — the current post will finish and no next post will start."
+  ,"tagging.publish.http_requires_one": "The real HTTP diagnostic requires exactly one pending Gelbooru entry. Nothing was sent."
+  ,"tagging.publish.confirm_diagnostic_title": "Confirm diagnostic"
+  ,"tagging.publish.confirm_diagnostic": "Inspect the Gelbooru form for {count} entry or entries?\n\nTags will only be applied to the local DOM to capture FormData. The diagnostic will stop before any submit or edit request."
+  ,"tagging.publish.confirm_instrumented_title": "Confirm instrumented publication"
+  ,"tagging.publish.confirm_instrumented": "Actually send {count} change(s) to Gelbooru?\n\n{additions} addition(s), {removals} removal(s).\n\nThe HTTP trace is passive and disarms after the first POST. It does not trigger a send by itself."
+  ,"tagging.publish.confirm_title": "Confirm publication"
+  ,"tagging.publish.confirm": "Publish {count} change(s) to Gelbooru?\n\n{additions} addition(s), {removals} removal(s)."
+  ,"tagging.publish.confirm_sites": "Publish {count} change(s) to {sites}?\n\n{additions} addition(s), {removals} removal(s)."
+  ,"tagging.publish.summary": "{total} entries · {published} published · {no_op} no-op · {failed} failed{suffix}"
+  ,"tagging.publish.summary.expired": " · session expired, batch paused"
+  ,"tagging.publish.summary.unknown": " · session state unknown, batch paused"
+  ,"tagging.publish.summary.cancelled": " · cancelled before the next post"
+  ,"tagging.publish.summary.deferred": " · diagnostic completed, nothing sent"
+  ,"tagging.publish.summary.sites": " · sites: {sites}"
+  ,"tagging.publish.interrupted": "Publication interrupted: {error}"
+  ,"tagging.review.pool_finished": "Review saved — pool finished."
+  ,"tagging.review.next_local": "Review saved — next local item #{item_id}."
+  ,"tagging.review.local_item": "Local file #{item_id}"
+  ,"tagging.review.processed": "✓ Processed\n{label}"
+  ,"tagging.review.all_processed": "All results from this search have been processed."
+  ,"tagging.review.retry": "Retry"
+  ,"tagging.review.video_error": "Video playback is unavailable in BooruFlow."
+  ,"tagging.review.open_post": "Open post #{post_id}"
+  ,"tagging.match.manual": "manual"
+  ,"tagging.match.also": " · also {origin}"
+  ,"tagging.match.not_applicable": "not applicable"
+  ,"tagging.analysis.validated": " · already validated"
+  ,"tagging.error_prefix": "Error"
+  ,"cleanup.group": "Audit downloaded images against the Grabber blacklist"
+  ,"cleanup.disk_group": "Disk usage"
+  ,"cleanup.disk_models": "AI models                  {total}\n\nWD14                       {wd14}\nEmbeddings                 {embeddings}\ne621 / furry               {e621}\nOther                      {other}"
+  ,"cleanup.disk_refresh": "Refresh"
+  ,"cleanup.disk_open_models": "Open folder"
+  ,"cleanup.disk_unavailable": "Model size is unavailable."
+  ,"cleanup.hydra_installed": "Hydra 3.5 — installed and verified — {size}\nUsed by: e621/furry analysis"
+  ,"cleanup.hydra_absent": "Hydra 3.5 — absent\nUsed by: e621/furry analysis"
+  ,"cleanup.hydra_invalid": "Hydra 3.5 — invalid installation ({size})\nReinstallation is required."
+  ,"cleanup.hydra_install": "Download / Reinstall"
+  ,"cleanup.hydra_migrate": "Migrate existing installation"
+  ,"cleanup.hydra_remove": "Remove Hydra 3.5"
+  ,"cleanup.hydra_running": "Hydra operation in progress…"
+  ,"cleanup.hydra_failed": "Hydra operation failed: {error}"
+  ,"cleanup.hydra_remove_title": "Remove Hydra 3.5?"
+  ,"cleanup.hydra_remove_confirm": "This operation will disable e621/furry analysis using Hydra.\nThe model can be downloaded again later.\n\nSpace recovered: {size}\n\nSend the model to the Recycle Bin?"
+  ,"cleanup.hydra_removed": "Hydra 3.5 was sent to the Recycle Bin."
+  ,"cleanup.blacklist_group": "Blacklist"
+  ,"cleanup.blacklist_file": "File:"
+  ,"cleanup.choose_blacklist": "Choose a blacklist file"
+  ,"cleanup.help": "Drop one or more folders here. The audit is read-only; deletion is never automatic."
+  ,"cleanup.add": "Add folder…"
+  ,"cleanup.remove": "Remove selection"
+  ,"cleanup.clear": "Clear"
+  ,"cleanup.scan": "Analyze (read-only)"
+  ,"cleanup.stop": "Stop"
+  ,"cleanup.recycle": "Send matches to Recycle Bin"
+  ,"cleanup.ready": "No audit performed."
+  ,"cleanup.choose_folder": "Choose a folder to analyze"
+  ,"cleanup.no_folder": "No folder selected. Add or drop at least one folder."
+  ,"cleanup.missing": "Folder not found: {path}"
+  ,"cleanup.blacklist_missing": "Grabber blacklist not found: {path}"
+  ,"cleanup.running": "Read-only audit in progress…"
+  ,"cleanup.stopping": "Stopping the audit…"
+  ,"cleanup.progress": "{files} image(s) analyzed — {matches} match(es)."
+  ,"cleanup.failed": "Audit failed: {error}"
+  ,"cleanup.finished": "Completed — {files} image(s), {matches} matching file(s)."
+  ,"cleanup.log_start": "Starting read-only audit of {count} folder(s)."
+  ,"cleanup.report": "CSV report: {path} — ignored rules: {compound} compound, {non_tag} non-tag."
+  ,"cleanup.confirm_title": "Confirm Recycle Bin operation"
+  ,"cleanup.confirm": "Send exactly {count} file(s) ({size:.1f} MiB) to the Windows Recycle Bin?\n\nThe audit report remains at:\n{report}"
+  ,"cleanup.cancelled": "Recycle Bin operation cancelled."
+  ,"cleanup.recycling": "Sending {count} file(s) to the Windows Recycle Bin…"
+  ,"cleanup.recycle_done": "Files sent to the Recycle Bin. The CSV report was kept."
+  ,"cleanup.recycle_failed": "Recycle Bin operation was incomplete. Run a new audit before continuing."
+  ,"grabber.group": "Create and process batches of tabs"
+  ,"grabber.prefix": "Added before each search:"
+  ,"grabber.suffix": "Added after each search:"
+  ,"grabber.tabs": "Tabs per batch:"
+  ,"grabber.images": "Images per tab:"
+  ,"grabber.import": "Load a TXT/TSV list…"
+  ,"grabber.choose_list": "Choose a tag list"
+  ,"grabber.create": "Create session"
+  ,"grabber.resume": "Reload session"
+  ,"grabber.previous": "Previous batch"
+  ,"grabber.launch": "Launch Grabber"
+  ,"grabber.no_session": "No session loaded. Paste tags or load a list, then create a session."
+  ,"grabber.invalid": "Cannot continue: {error}"
+  ,"grabber.missing": "Grabber.exe was not found in: {path}"
+  ,"grabber.created": "Session created: {tags} tag(s), {batches} batch(es), {skipped} blacklisted/ignored tag(s) removed."
+  ,"grabber.loaded": "Session loaded: {path}"
+  ,"grabber.progress": "Batch {current}/{total} ready — {tags} tag(s) in this session."
+  ,"grabber.complete": "Session completed — {total}/{total} batches, {tags} tag(s)."
+  ,"grabber.running": "Grabber is open. Close it after reviewing the current batch."
+  ,"grabber.started": "Grabber started for batch {batch}."
+  ,"grabber.failed": "Grabber exited abnormally (code {code}); the current batch remains active."
+  ,"grabber.paused": "Batch paused with {count} remaining tab(s)."
+  ,"grabber.next": "Batch completed; launching the next one automatically."
+  ,"grabber.session_complete": "Grabber session completed."
+  ,"grabber.previous_done": "Previous batch restored."
+  ,"organization.board": "Site:"
+  ,"organization.search": "Find a tag…"
+  ,"organization.search_button": "Search"
+  ,"organization.update": "Update from wikis"
+  ,"organization.add_category": "Add category"
+  ,"organization.add_tags": "Add tags"
+  ,"organization.add_child_tags": "Add child tags…"
+  ,"organization.add_child_category": "Add child category…"
+  ,"organization.child_tags_prompt": "One child tag per line (commas and semicolons are also accepted):"
+  ,"organization.tags_added": "{count} child tag(s) added. Press Save to persist them."
+  ,"organization.set_wiki": "Set wiki page…"
+  ,"organization.prepare_wiki": "Prepare a wiki entry…"
+  ,"organization.wiki_prompt": "Gelbooru/e621 wiki URL or numeric page ID (leave empty to remove):"
+  ,"organization.wiki_set": "Wiki page associated with this node. Press Save to persist it."
+  ,"organization.wiki_removed": "Wiki page association removed. Press Save to persist it."
+  ,"organization.import": "Import hierarchy…"
+  ,"organization.imported": "Hierarchy imported from {path}. Press Save to persist it."
+  ,"organization.send_review": "Send to Review"
+  ,"organization.sent_review": "Sent {count} taxonomy tag(s) to Review."
+  ,"organization.empty_entry": "Legacy empty entry: no child category or cached definition is stored."
+  ,"organization.search_results": "Search results"
+  ,"organization.no_tag_selected": "Select a tag to inspect it"
+  ,"organization.details_loading": "Loading wiki information and example images…"
+  ,"organization.wiki_empty": "The wiki was reached, but its page contains no description."
+  ,"organization.cached_offline": "Internet is unavailable. Showing the last cached information."
+  ,"organization.internet_required": "Internet access is required to load this wiki and its examples.\n\n{error}"
+  ,"organization.open_wiki": "Open wiki page in browser"
+  ,"organization.no_samples": "No example image was returned for this tag."
+  ,"organization.wiki_references": "Tags referenced by this wiki:"
+  ,"organization.recurring": "Top {count} recurring tags across {sample_size} sampled posts"
+  ,"organization.no_recurring": "No recurring tag could be calculated from {sample_size} sampled posts."
+  ,"organization.recurring_tooltip": "Check this tag for Review; click its name to inspect it here."
+  ,"organization.send_recurring_review": "Send checked recurring tags to Review"
+  ,"organization.details_offline_log": "Could not refresh details for {tag}: {error}"
+  ,"organization.rename": "Rename"
+  ,"organization.delete": "Delete"
+  ,"organization.save": "Save"
+  ,"organization.name": "Name:"
+  ,"organization.tags_prompt": "One tag per line:"
+  ,"organization.confirm_delete": "Delete “{name}” from the local taxonomy?"
+  ,"organization.ready": "Select a branch to browse or edit it. Changes are written only when Save is pressed."
+  ,"organization.search_count": "{count} matching result(s) shown."
+  ,"organization.saving": "Saving JSON, backup and SQLite indexes…"
+  ,"organization.saved": "Taxonomy saved and SQLite indexes synchronized."
+  ,"organization.backup": "Taxonomy backup: {path}"
+  ,"organization.failed": "Taxonomy operation failed: {error}"
+  ,"organization.updating": "Downloading and analyzing authoritative wiki sources…"
+  ,"organization.update_confirm": "Import analyzed: {total} unique tags, {added} addition(s), {removed} removal(s). Apply it? A dated backup will be created first."
+  ,"organization.cancelled": "Wiki update analyzed, then cancelled."
+  ,"wiki.tag": "Wiki tag:"
+  ,"wiki.tag_placeholder": "Aulick_(Azur_Lane)"
+  ,"wiki.template": "Template:"
+  ,"wiki.apply_template": "Apply template"
+  ,"wiki.replace_confirm": "Replace the current source with the selected template?"
+  ,"wiki.template_character": "Character"
+  ,"wiki.template_copyright": "Copyright"
+  ,"wiki.template_artist": "Artist"
+  ,"wiki.template_general": "General"
+  ,"wiki.source": "Gelbooru source"
+  ,"wiki.preview": "Local preview — confirm final rendering on Gelbooru"
+  ,"wiki.tool_bold": "Bold"
+  ,"wiki.tool_heading": "Heading"
+  ,"wiki.heading_level": "Heading level {level}"
+  ,"wiki.normal_text": "Normal text"
+  ,"wiki.group_style": "Style"
+  ,"wiki.group_links": "Links"
+  ,"wiki.group_insert": "Insert"
+  ,"wiki.group_sections": "Sections"
+  ,"wiki.tool_italic": "Italic"
+  ,"wiki.tool_tag_link": "Wiki tag"
+  ,"wiki.tool_search_link": "Tag search"
+  ,"wiki.tool_post": "Post"
+  ,"wiki.tool_quote": "Quote"
+  ,"wiki.tool_spoiler": "Spoiler"
+  ,"wiki.tool_external": "External links"
+  ,"wiki.tool_see_also": "See also"
+  ,"wiki.validation_ok": "Source syntax looks valid for Gelbooru."
+  ,"wiki.issue_alias": "Unsupported Danbooru alias syntax: [[{value}]]. Remove the | and its label."
+  ,"wiki.issue_spaces": "Wiki links require underscores: [[{value}]]."
+  ,"wiki.issue_search_spaces": "Tag-search links require underscores: {{{{{value}}}}}."
+  ,"wiki.issue_heading": "Danbooru h1–h6 headings are unsupported; use [b]Heading:[/b]."
+  ,"wiki.issue_unbalanced": "Unbalanced [{value}] tag."
+  ,"wiki.issue_missing": "Tag not found in the selected local Gelbooru database: {value}."
+  ,"wiki.tag_required": "Enter the wiki tag before saving the draft."
+  ,"wiki.load": "Load draft…"
+  ,"wiki.save": "Save draft"
+  ,"wiki.copy": "Copy source"
+  ,"wiki.open_create": "Copy and open Gelbooru Create"
+  ,"wiki.saved": "Draft saved locally: {path}"
+  ,"wiki.save_failed": "Could not save the draft: {error}"
+  ,"wiki.load_failed": "Could not load the draft: {error}"
+  ,"wiki.copied": "Gelbooru source copied to the clipboard."
+  ,"wiki.opened_create": "Source copied; Gelbooru's creation page was opened in the browser."
+  ,"similar.subtitle": "Find artists from visual references"
+  ,"similar.drop_zone": "Drop one or more images or folders here\\nor click to choose files"
+  ,"similar.post_id": "Post ID"
+  ,"similar.load": "Load"
+  ,"similar.remote_post": "Remote post:"
+  ,"similar.references_title": "1. References — {count}"
+  ,"similar.add_images": "Add images"
+  ,"similar.remove_selection": "Remove selection"
+  ,"similar.clear": "Clear"
+  ,"similar.continue_anyway": "Continue anyway"
+  ,"similar.advanced_options": "Advanced options"
+  ,"similar.mode.artist": "Artist → artists"
+  ,"similar.mode.image": "Image → artists / identification"
+  ,"similar.search_by": "Search by:"
+  ,"similar.primary_ranking": "Primary ranking:"
+  ,"similar.minimum_images": "Minimum images:"
+  ,"similar.top": "Top:"
+  ,"similar.artist_search_placeholder": "Search for an artist tag…"
+  ,"similar.search": "Search"
+  ,"similar.local_image_placeholder": "Drop an image or choose a file"
+  ,"similar.choose": "Choose…"
+  ,"similar.analyze_image": "Analyze image"
+  ,"similar.internal_item": "Open an AnalysisItem by internal ID:"
+  ,"similar.internal_item_tooltip": "Internal BooruFlow identifier for an indexed image. Intended for diagnostics or advanced use."
+  ,"similar.open": "Open"
+  ,"similar.unused_days": "Unused for (days):"
+  ,"similar.purge_remote": "Purge unused remote profiles"
+  ,"similar.update_profiles": "Update profiles"
+  ,"similar.review": "Review"
+  ,"similar.repair_filenames": "Repair filenames"
+  ,"similar.repair_filenames_tooltip": "Repair metadata from filenames"
+  ,"similar.assign_artist": "Assign to an artist"
+  ,"similar.analysis_title": "2. Analysis"
+  ,"similar.ready": "Ready for visual references."
+  ,"similar.full_corpus": "← Return to the full corpus"
+  ,"similar.results_title": "3. Similar artists — {count}"
+  ,"similar.column.rank": "#"
+  ,"similar.column.artist": "Artist"
+  ,"similar.column.site": "Site"
+  ,"similar.column.style": "Style"
+  ,"similar.column.content": "Content"
+  ,"similar.column.palette": "Palette"
+  ,"similar.column.images": "Images"
+  ,"similar.column.profile": "Profile"
+  ,"similar.column.coherence": "Coherence"
+  ,"similar.column.works": "Works"
+  ,"similar.column.compare": "Compare"
+  ,"similar.column.booru": "Booru"
+  ,"similar.tooltip.style": "Style = Author_ID similarity"
+  ,"similar.tooltip.content": "Content = OpenCLIP similarity"
+  ,"similar.tooltip.palette": "Palette = distance between color features"
+  ,"similar.view_close_works": "View similar works"
+  ,"similar.compare": "Compare"
+  ,"similar.library_indexing": "Library indexing"
+  ,"similar.index_folders": "Index folders"
+  ,"similar.index_files": "Index files"
+  ,"similar.resume": "Resume"
+  ,"similar.pause": "Pause"
+  ,"similar.cancel": "Cancel"
+  ,"similar.no_indexing": "No indexing in progress"
+  ,"similar.phase_none": "Phase: —"
+  ,"similar.current_file_none": "Current file: —"
+  ,"similar.local_duplicates": "View local duplicates"
+  ,"similar.all": "All"
+  ,"similar.discovery_sources_tooltip": "Boards used for remote discovery"
+  ,"similar.discovery_budget_tooltip": "Remote discovery budget"
+  ,"similar.discovery_mode.quick": "Quick"
+  ,"similar.discovery_mode.normal": "Normal"
+  ,"similar.discovery_mode.broad": "Broad"
+  ,"similar.discovery_mode.quick_tooltip": "~20 artists · ~8 images/artist"
+  ,"similar.discovery_mode.normal_tooltip": "~60 artists · ~16 images/artist"
+  ,"similar.discovery_mode.broad_tooltip": "~120 artists · ~30 images/artist"
+  ,"similar.discover_remote": "Discover remotely"
+  ,"similar.only_new": "New only"
+  ,"similar.source": "Source:"
+  ,"similar.remote_title": "4. Remote discovery"
+  ,"similar.no_discovery": "No discovery in progress"
+  ,"similar.cancel_discovery": "Cancel discovery"
+  ,"similar.profile_unbuilt": "profile not built"
+  ,"similar.image_count.one": "{count} image"
+  ,"similar.image_count.many": "{count} images"
+  ,"similar.unique_image_count.one": "{count} unique image"
+  ,"similar.unique_image_count.many": "{count} unique images"
+  ,"similar.result_count.one": "{count} result"
+  ,"similar.result_count.many": "{count} results"
+  ,"similar.active_query": "Active query"
+  ,"similar.coherence": "coherence"
+  ,"similar.quality": "Quality: {quality}"
+  ,"similar.probable_artists": "Probable artists"
+  ,"similar.margin": "margin {value}"
+  ,"similar.use_references": "← Use all {count} references"
+  ,"similar.best_result": "#1 · Best result"
+  ,"similar.close_works": "Similar works"
+  ,"similar.works_booru": "Works / Booru"
+  ,"similar.works_booru_tooltip": "Click: similar works. The artist can also be opened from the context menu."
+  ,"similar.confidence.very_low": "very low"
+  ,"similar.confidence.low": "low"
+  ,"similar.confidence.medium": "medium"
+  ,"similar.confidence.established": "established"
+  ,"similar.confidence.unbuilt": "not built"
+  ,"similar.dialog.choose_image": "Choose an image"
+  ,"similar.dialog.choose_references": "Choose references"
+  ,"similar.dialog.image_filter": "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)"
+  ,"similar.dialog.all_image_filter": "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp);;All files (*)"
+  ,"similar.gallery.closest": "Closest"
+  ,"similar.gallery.all": "All works"
+  ,"similar.gallery.load_more": "Load 24 more images"
+  ,"similar.gallery.load_on_selection": "Load when selected"
+  ,"similar.gallery.remote_unavailable": "Remote image is currently unavailable: {error}"
+  ,"similar.gallery.sources": "Sources"
+  ,"similar.gallery.missing_file": "file not found"
+  ,"similar.gallery.local": "Local"
+  ,"similar.corpus_status": "Profiles: {profiles} · Images with an artist: {eligible} · without an artist: {skipped} · Author_ID: {author_id} · OpenCLIP: {openclip}"
+  ,"similar.unassigned_images": "{count} images without an artist"
+  ,"similar.resumable_index": "Interrupted indexing is available: {count} files processed"
+  ,"similar.author_id_missing": "Author_ID model is missing"
+  ,"similar.openclip_missing": "OpenCLIP dependency is missing"
+  ,"similar.status.ranked": "{count} candidates ranked — no artist tags changed."
+  ,"similar.status.no_compatible_embedding": "Profile has no compatible embedding: {error}. Use Update profiles."
+  ,"similar.status.backend_unavailable": "Backend unavailable: {error}"
+  ,"similar.status.embeddings_required": "{error}. Embeddings must be calculated."
+  ,"similar.status.preparation_active": "Preparation is already in progress."
+  ,"similar.status.scanning_images": "Looking for images…"
+  ,"similar.status.preparing": "Preparing: {done} / {total}"
+  ,"similar.status.corpus_cleared": "Corpus cleared"
+  ,"similar.warning.weak_sample": "Very small sample: the result may reflect content rather than style."
+  ,"similar.warning.heterogeneous": "The visual references are heterogeneous; several styles may be mixed."
+  ,"similar.reference_coherence": "{backend} coherence: {value}"
+  ,"similar.source_artist_unknown": "Source artist: unknown"
+  ,"similar.detected_artist": "Detected artist"
+  ,"similar.primary_artist": "Primary artist"
+  ,"similar.other_artists": " · Collaborators/others: {artists}"
+  ,"similar.folder_artist_suggestion": "Artist inferred from folder: {artist} — confirmation required"
+  ,"similar.reference_usable": "{count} usable"
+  ,"similar.reference_duplicates": "{count} duplicates ignored"
+  ,"similar.reference_invalid": "{count} invalid"
+  ,"similar.local_files": "Local — {count} files"
+  ,"similar.unknown_source": "Unknown source"
+  ,"similar.warning.add_or_continue": "Very small sample — add images or click Continue anyway."
+  ,"similar.status.ranking_active": "Ranking is already in progress…"
+  ,"similar.status.ranking_background": "Ranking artists in the background…"
+  ,"similar.visual_reference_query": "Query: {count} visual references"
+  ,"similar.status.analysis_complete": "Analysis complete · No artist tags were changed."
+  ,"similar.dialog.image_details": "Image details"
+  ,"similar.details.preview": "<h2>Preview</h2><b>Dimensions:</b> {width} × {height}<br><b>State:</b> {state}"
+  ,"similar.details.provenance": "<h2>Provenance</h2>"
+  ,"similar.details.no_rating": "<br><h2>Rating</h2>No data available"
+  ,"similar.details.artists": "<h2>Artists</h2>"
+  ,"similar.details.no_artist": "No artist assigned"
+  ,"similar.details.source_tags": "<h2>Source tags</h2>"
+  ,"similar.details.unknown_category": "unknown category"
+  ,"similar.details.no_source_data": "No source data available"
+  ,"similar.details.no_wd14": "No WD14 analysis"
+  ,"similar.details.embeddings": "<h2>Embeddings</h2>Author_ID: {author}<br>OpenCLIP: {openclip}"
+  ,"similar.available": "available"
+  ,"similar.absent": "missing"
+  ,"similar.open_file": "Open file"
+  ,"similar.open_booru": "Open on booru"
+  ,"similar.use_image_alone": "Use this image alone"
+  ,"similar.single_image_query": "Query: 1 selected image — {label}"
+  ,"similar.status.single_image_complete": "Analysis complete · This search is based on one image, so subject, composition, or palette may influence results more strongly."
+  ,"similar.identity": "Identity:"
+  ,"similar.artist": "Artist:"
+  ,"similar.confirm_assignment": "Confirm assignment"
+  ,"similar.confirm_assignment_message": "Assign {count} canonical images to {artist}?"
+  ,"similar.assignment_complete": "Assignment complete: {associated} added, profile contains {images} images."
+  ,"similar.unassigned_title": "Images without an artist — {count}"
+  ,"similar.unassigned_summary": "Local only: {local} · Gelbooru: {gelbooru} · e621: {e621} · metadata available: {available} · metadata missing: {missing} · multiple provenances: {multiple}"
+  ,"similar.unassigned_column.item": "AnalysisItem"
+  ,"similar.unassigned_column.sha": "SHA"
+  ,"similar.unassigned_column.source": "Source"
+  ,"similar.unassigned_column.location": "Path / post"
+  ,"similar.unassigned_column.diagnostic": "Diagnostic"
+  ,"similar.assign_selection": "Assign selection"
+  ,"similar.repair_preview": "Images without an artist: {without_artist}\nCompatible filename: {compatible}\nRecoverable artists: {artist_count}\nGelbooru site: {gelbooru}\ne621 site: {e621}\nLocal identity: {local}\nUnrecognized: {unrecognized}\n\nApply without recalculating embeddings?"
+  ,"similar.repair_dialog_title": "Repair from filenames"
+  ,"similar.repair_complete": "Repair complete: {associated} images, {artists} artists, {conflicts} conflicts."
+  ,"similar.wait_remote_discovery": "Wait for remote discovery to finish."
+  ,"similar.source_count": "{count} sources"
+  ,"similar.phase": "Phase: {phase}"
+  ,"similar.current_file": "Current file: {file}"
+  ,"similar.library_progress": "New: {imported} · same path: {same} · local ↔ local: {local_local} · local ↔ remote: {local_remote} · metadata: {metadata} · invalid: {invalid}"
+  ,"similar.local_duplicates_title": "Local binary duplicates — {count} groups"
+  ,"similar.duplicate_column.preview": "Preview"
+  ,"similar.duplicate_column.sha": "SHA-256"
+  ,"similar.duplicate_column.paths": "Local paths"
+  ,"similar.duplicate_column.open": "Open"
+  ,"similar.open_first_file": "Open first file"
+  ,"similar.library_done": "Indexing {state}: {scanned} scanned, {duplicates} duplicates, {invalid} errors"
+  ,"similar.library_failed": "Indexing failed: {error}"
+  ,"similar.wait_library_index": "Wait for library indexing to finish."
+  ,"similar.add_references_first": "Add visual references first."
+  ,"similar.remote_searching": "Source: {source}\nSearching for candidates…"
+  ,"similar.remote_task": "Remote artist discovery"
+  ,"similar.remote_phase.distinctive_tags": "Distinctive tags"
+  ,"similar.remote_phase.candidates": "Candidate search"
+  ,"similar.remote_phase.profiles": "Download / embeddings / profiles"
+  ,"similar.remote_phase.retry": "Retry"
+  ,"similar.remote_phase.warning": "Post ignored"
+  ,"similar.remote_phase.finished": "Finished"
+  ,"similar.remote_progress": "Phase: {phase}\nDistinctive tags: {tags} · Queries: {queries} · Posts received: {posts} · Artists found: {artists} · After filtering: {filtered}\nUsable images: {images} · Ignored: {ignored} · Profiles: {profiles} / {total} · Network errors: {errors}"
+  ,"similar.remote_reason": "\nReason: {reason}"
+  ,"similar.cancellation_requested": "Cancellation requested…"
+  ,"similar.new_prefix": "New · "
+  ,"similar.remote_results": "Remote results · {count} artists evaluated"
+  ,"similar.remote_failed": "Remote discovery failed: {error}"
+  ,"similar.purge_preview": "{profiles} remote profiles affected\n{embeddings} embeddings\nArtists present in the collection are protected."
+  ,"similar.purge_title": "Purge remote profiles"
+  ,"similar.apply_question": "\n\nApply?"
+  ,"similar.purge_complete": "Purge complete: {profiles} profiles, {embeddings} embeddings."
+  ,"similar.loading_post": "Loading {site} #{post_id}…"
+  ,"similar.artist_profile_available": "Artist profile available"
+  ,"similar.use_existing_profile": "{artist} has {count} known images. Use the existing profile?\nChoose No to use only this post."
+  ,"similar.weak_artist_profile": "{artist} is represented by only {count} images. Add references or continue anyway."
+  ,"similar.update_profiles_question": "{count} images can be checked. Cached embeddings will be reused. Continue?"
+  ,"similar.embeddings_background": "Embeddings: 0 / {count} — background operation"
+  ,"similar.update_complete": "Update complete: {report}"
+  ,"similar.failed": "Failed: {error}"
+  ,"similar.gallery_title": "Gallery"
+  ,"similar.gallery_all_references": "All known images are among the references. Show them anyway?"
+  ,"similar.works_title": "Works — {artist}"
+  ,"similar.references_vs": "References vs {artist}"
+  ,"similar.no_query_to_compare": "No query to compare."
+  ,"similar.similarity": "similarity {value}"
+  ,"similar.no_data": "No data available"
+  ,"similar.frequent_source_tags": "Frequent source tags"
+  ,"similar.frequent_wd14": "Frequent accepted WD14 tags"
+  ,"similar.references": "References"
+  ,"similar.no_common_tag": "No frequent tag in common"
+  ,"similar.comparison_section": "{section}\nCommon: {common}\n{left}: {left_values}\n{right}: {right_values}"
+}

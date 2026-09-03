@@ -21,7 +21,10 @@ dist/
 *.sqlite
 *.db-wal
 *.db-shm
+*.sqlite-wal
+*.sqlite-shm
 *.db-journal
+data/databases/*.lock
 
 # Downloaded archives, partial files and generated caches
 e621_exports/

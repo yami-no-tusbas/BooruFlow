@@ -84,6 +84,29 @@ def test_sequential_merge_failure_continues_and_rate_limits():
     assert repo.entries[2]["publish_state"] == PublishState.FAILED and sleeps == [1,1]
 
 
+def test_inter_post_delay_is_never_applied_before_the_first_item():
+    sleeps=[]; transport=Transport()
+    _repo, _, service=publisher(
+        [entry(1,"100")], {"100":["a","b","c"]}, transport, sleeps,
+    )
+    service.publish_pending()
+    assert sleeps == [] and transport.calls == [("100", ("a", "c", "d"))]
+
+
+def test_inter_post_delay_is_applied_only_before_later_items():
+    events=[]
+    transport=Transport()
+    original_submit=transport.submit
+    transport.submit=lambda *args: (events.append(f"submit:{args[1]}"), original_submit(*args))[1]
+    _repo, _, service=publisher(
+        [entry(1,"100"),entry(2,"101")],
+        {"100":["a","b","c"],"101":["a","b","c"]}, transport,
+    )
+    service.sleeper=lambda seconds: events.append(f"sleep:{seconds}")
+    service.publish_pending()
+    assert events == ["submit:100", "sleep:1", "submit:101"]
+
+
 def test_noop_skips_post_and_marks_published():
     transport=Transport(); repo, _, service=publisher([entry(1,"100")], {"100":["a","c","d"]},transport)
     result=service.publish_pending()

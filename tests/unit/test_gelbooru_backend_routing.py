@@ -10,6 +10,36 @@ PYSIDE6_AVAILABLE = importlib.util.find_spec("PySide6") is not None
 
 @unittest.skipUnless(PYSIDE6_AVAILABLE, "PySide6 is not installed")
 class GelbooruBackendRoutingTests(unittest.TestCase):
+    def test_tabbed_browser_home_and_account_follow_only_the_current_tab_site(self) -> None:
+        from PySide6.QtCore import QUrl
+
+        from booruflow.infrastructure.embedded_gelbooru import GelbooruSessionDialog
+
+        fake = SimpleNamespace(view=SimpleNamespace(url=lambda: QUrl("https://e621.net/posts/42")))
+        self.assertEqual(
+            GelbooruSessionDialog._site_urls(fake),
+            ("https://e621.net/", "https://e621.net/users/home"),
+        )
+        fake.view = SimpleNamespace(url=lambda: QUrl("https://gelbooru.com/index.php?page=post"))
+        home, account = GelbooruSessionDialog._site_urls(fake)
+        self.assertEqual(home, "https://gelbooru.com/")
+        self.assertIn("page=account", account)
+
+    def test_internal_browser_tabs_are_separate_from_hidden_publisher_page(self) -> None:
+        window = self.window()
+        window._open_gelbooru_session()
+        dialog = window.gelbooru_session_dialog
+        self.assertFalse(dialog.address.isReadOnly())
+        self.assertEqual(dialog.tabs.count(), 2)
+        self.assertIsNot(dialog.view.page(), window.embedded_gelbooru_bridge.page)
+        self.assertFalse(dialog.diagnostics_group.isChecked())
+        first_count = dialog.tabs.count()
+        dialog.new_tab("about:blank")
+        self.assertEqual(dialog.tabs.count(), first_count + 1)
+        dialog.close_tab(dialog.tabs.currentIndex())
+        self.assertEqual(dialog.tabs.count(), first_count)
+        window.close()
+
     @classmethod
     def setUpClass(cls) -> None:
         os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -162,7 +192,7 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
         self.assertTrue(dialog.http_diagnostic.isChecked())
         self.assertFalse(window._embedded_http_diagnostic_enabled())
         self.assertIn("startup_mode_disabled", dialog.status.text())
-        self.assertIn("Save changes reste bloqué", dialog.status.text())
+        self.assertIn("Save changes remains blocked", dialog.status.text())
         dialog.view.stop()
         dialog.close()
         dialog.deleteLater()
@@ -183,6 +213,14 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
         ]
         messages = []
         controller = TaggingController.__new__(TaggingController)
+        controller.catalog = SimpleNamespace(
+            text=lambda key, **_kwargs: {
+                "tagging.publish.http_requires_one": (
+                    "The real HTTP diagnostic requires exactly one pending Gelbooru entry. "
+                    "Nothing was sent."
+                )
+            }[key]
+        )
         controller.publish_worker = None
         controller.image_analysis = SimpleNamespace(
             repository=SimpleNamespace(list_batch_entries=lambda: entries)
@@ -197,8 +235,8 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
         controller._start_batch_publish(None)
 
         self.assertEqual(len(messages), 1)
-        self.assertIn("exactement une entrée", messages[0])
-        self.assertIn("Aucun envoi", messages[0])
+        self.assertIn("exactly one", messages[0])
+        self.assertIn("Nothing was sent", messages[0])
         self.assertIsNone(controller.publish_worker)
 
     def test_cdp_open_and_session_test_never_call_embedded_backend(self) -> None:
@@ -250,6 +288,7 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
             validate=lambda: calls.append("embedded-validate")
         )
         window.gelbooru_session_dialog = SimpleNamespace(
+            open_url=lambda *_args, **_kwargs: calls.append("account"),
             show=lambda: calls.append("show"),
             raise_=lambda: calls.append("raise"),
             activateWindow=lambda: calls.append("activate"),
@@ -269,17 +308,17 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
 
             def start(self):
                 self.factory.validate()
-                self.completed.callback("Session Gelbooru valide.")
+                self.completed.callback("valid")
 
         window._open_gelbooru_session()
         with patch("booruflow.presentation.pyside6.main_window.SessionTestWorker", Worker):
             window._test_gelbooru_session()
-        self.assertEqual(calls, ["show", "raise", "activate", "embedded-validate"])
+        self.assertEqual(calls, ["account", "show", "raise", "activate", "embedded-validate"])
 
         combo = window.options_page.publish_backend
         combo.setCurrentIndex(combo.findData("disabled"))
         window._open_gelbooru_session()
-        self.assertEqual(calls, ["show", "raise", "activate", "embedded-validate"])
+        self.assertEqual(calls, ["account", "show", "raise", "activate", "embedded-validate"])
         self.assertFalse(window.options_page.open_embedded_session.isEnabled())
         self.assertFalse(window.options_page.test_embedded_session.isEnabled())
         window.close()

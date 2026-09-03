@@ -25,6 +25,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
 )
 
+from booruflow.application.database_paths import gelbooru_tag_database
 from booruflow.application.embedding import EmbeddingIndexService
 from booruflow.application.library_indexer import LibraryIndexService
 from booruflow.application.remote_discovery import RemoteDiscoveryService, dominant_source_artists
@@ -426,8 +427,7 @@ class SimilarArtistsController(QObject):
         self.browser_launcher = browser_launcher
         self.service = ArtistProfileService(image_analysis.repository, logger=self._log)
         repair = image_analysis.repository.repair_structured_artist_associations()
-        configured = image_analysis.settings.get("gelbooru_database", "")
-        tag_database = Path(configured) if configured else None
+        tag_database = gelbooru_tag_database(image_analysis.settings)
         category_repair = (
             image_analysis.repository.repair_gelbooru_tag_categories(
                 LocalTagCategoryLookup(tag_database)
@@ -1504,8 +1504,7 @@ class SimilarArtistsController(QObject):
     def load_remote(self, site: str, post_id: str) -> None:
         if self.remote_worker and self.remote_worker.isRunning():
             return
-        configured = self.image_analysis.settings.get("gelbooru_database", "")
-        tag_database = Path(configured) if configured else None
+        tag_database = gelbooru_tag_database(self.image_analysis.settings)
         self.page.state.setText(self._text("similar.loading_post", site=site, post_id=post_id))
         self.remote_worker = RemoteReferenceWorker(
             self.image_analysis.database,

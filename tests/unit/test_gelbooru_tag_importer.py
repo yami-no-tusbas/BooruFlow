@@ -121,6 +121,38 @@ class GelbooruTagImporterTests(unittest.TestCase):
             ).fetchone(), (4, "blank canonical name"))
             connection.close()
 
+    def test_rebuild_leaves_alias_catalogues_out_of_the_tag_database(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "tags.db"
+            with sqlite3.connect(target) as connection:
+                connection.execute(
+                    "CREATE TABLE tags(id INTEGER PRIMARY KEY,name TEXT,post_count INTEGER,"
+                    "category INTEGER,ambiguous INTEGER)"
+                )
+                connection.execute("INSERT INTO tags VALUES(99,'old',1,0,0)")
+            connection.close()
+            pages = {
+                0: [{"id": 1, "name": "office_lady", "count": 50, "type": 0}],
+                1: [],
+            }
+            rebuild_database(
+                target, "1", "key", fetcher=lambda cursor, *_args: pages[cursor],
+                progress=lambda _line: None, minimum_rows=1,
+                required_tags=("office_lady",), maximum_id=1,
+            )
+            connection = sqlite3.connect(target)
+            try:
+                names = {
+                    row[0]
+                    for row in connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table'"
+                    )
+                }
+            finally:
+                connection.close()
+            self.assertNotIn("gelbooru_aliases", names)
+            self.assertNotIn("alias_sync_state", names)
+
 
 if __name__ == "__main__":
     unittest.main()

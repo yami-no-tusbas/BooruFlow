@@ -38,7 +38,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
-            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 19)
+            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 20)
             self.assertEqual(repository.connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
             self.assertEqual(repository.connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
             self.assertTrue({
@@ -52,8 +52,13 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 "library_index_jobs", "remote_artist_state",
                 "library_index_paths",
             }.issubset(tables))
+            self.assertIsNotNone(
+                repository.connection.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='trigger' AND name='dirty_profiles_decision'"
+                ).fetchone()
+            )
         with ImageAnalysisRepository(self.database) as reopened:
-            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 19)
+            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 20)
 
     def test_legacy_unverified_publications_are_requeued_without_losing_history(self) -> None:
         from booruflow.domain.image_analysis import PublishState
@@ -417,6 +422,43 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
             )
             repository.delete_tag_mapping("wd14", "grey hair", "gelbooru")
             self.assertIsNone(repository.tag_mapping("wd14", "grey hair", "gelbooru"))
+
+    def test_remote_identity_and_review_batch_are_site_scoped_on_post_id_collision(self) -> None:
+        with ImageAnalysisRepository(self.database) as repository:
+            gelbooru_id = repository.add_item(
+                AnalysisItem(
+                    SourceReference(
+                        InputKind.GELBOORU_POST, site="gelbooru", post_id="123"
+                    )
+                )
+            )
+            e621_id = repository.add_item(
+                AnalysisItem(
+                    SourceReference(InputKind.E621_POST, site="e621", post_id="123")
+                )
+            )
+
+            self.assertEqual(repository.item_by_remote_source("gelbooru", "123").id, gelbooru_id)
+            self.assertEqual(repository.item_by_remote_source("e621", "123").id, e621_id)
+            repository.save_review_batch_entry(
+                e621_id,
+                original_tags=["female", "solo"],
+                additions=["canine"],
+                removals=[],
+                reviewed_final_tags=["female", "solo", "canine"],
+            )
+            self.assertIsNone(repository.batch_entry(gelbooru_id))
+            self.assertEqual(repository.batch_entry(e621_id)["site"], "e621")
+
+            repository.save_review_batch_entry(
+                gelbooru_id,
+                original_tags=["1girl", "blue_hair"],
+                additions=["solo"],
+                removals=[],
+                reviewed_final_tags=["1girl", "blue_hair", "solo"],
+            )
+            self.assertEqual(repository.batch_entry(gelbooru_id)["site"], "gelbooru")
+            self.assertEqual(repository.batch_entry(e621_id)["original_tags"], ["female", "solo"])
 
     def test_secondary_provenance_pending_item_can_be_made_queue_visible(self) -> None:
         primary = AnalysisItem(

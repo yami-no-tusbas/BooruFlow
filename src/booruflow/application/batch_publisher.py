@@ -1,4 +1,4 @@
-"""Durable, sequential publication orchestration for reviewed Gelbooru batches."""
+"""Durable, sequential publication orchestration for reviewed booru batches."""
 
 from __future__ import annotations
 
@@ -54,6 +54,7 @@ class BatchPublishSummary:
     session_unknown: bool = False
     cancelled: bool = False
     deferred: bool = False
+    sites: tuple[str, ...] = ()
 
 
 class BatchPublisher:
@@ -73,6 +74,7 @@ class BatchPublisher:
         verification_sleeper: Callable[[float], None] = time.sleep,
         log: Callable[[str], None] | None = None,
         cancel_check: Callable[[], bool] | None = None,
+        site: str = "gelbooru",
     ) -> None:
         self.repository = repository
         self.preparation = preparation
@@ -85,6 +87,7 @@ class BatchPublisher:
         self.verification_sleeper = verification_sleeper
         self.log = log or (lambda _message: None)
         self.cancel_check = cancel_check or (lambda: False)
+        self.site = site
 
     def publish_pending(
         self, progress: Callable[[int, int, str], None] | None = None
@@ -93,7 +96,7 @@ class BatchPublisher:
         entries = [
             entry
             for entry in self.repository.list_batch_entries(PublishState.PENDING_PUBLISH)
-            if entry["site"] == "gelbooru" and entry["post_id"]
+            if entry["site"] == self.site and entry["post_id"]
         ]
         return self._publish(entries, progress)
 
@@ -106,7 +109,7 @@ class BatchPublisher:
         entries = [
             entry
             for entry in self.repository.list_batch_entries(PublishState.PENDING_PUBLISH)
-            if int(entry["item_id"]) in wanted and entry["site"] == "gelbooru" and entry["post_id"]
+            if int(entry["item_id"]) in wanted and entry["site"] == self.site and entry["post_id"]
         ]
         return self._publish(entries, progress)
 
@@ -137,7 +140,7 @@ class BatchPublisher:
                 if attempt >= self.verification_attempts:
                     raise
                 self.log(
-                    f"Publish verification Gelbooru #{prepared.post_id}: "
+                    f"Publish verification {self.site} #{prepared.post_id}: "
                     f"stale result attempt={attempt}/{self.verification_attempts}; retrying"
                 )
                 if self.verification_retry_delay_seconds:
@@ -169,7 +172,7 @@ class BatchPublisher:
                 try:
                     self._submit_prepared(prepared)
                 except GelbooruPublishDeferredError as exc:
-                    self.log(f"Publish Gelbooru #{post_id}: diagnostic captured: {exc}")
+                    self.log(f"Publish {self.site} #{post_id}: diagnostic captured: {exc}")
                     return BatchPublishSummary(
                         total=total,
                         published=published,
@@ -182,10 +185,10 @@ class BatchPublisher:
             try:
                 prepared = self.preparation.prepare(item_id)
                 self.log(
-                    f"Publish Gelbooru #{post_id} attempt={attempt} original={len(prepared.original_tags)} fresh={len(prepared.fresh_tags)} add={len(prepared.additions)} remove={len(prepared.removals)} external_add={len(prepared.external_additions)} external_remove={len(prepared.external_removals)} final={len(prepared.publish_tags)}"
+                    f"Publish {self.site} #{post_id} attempt={attempt} original={len(prepared.original_tags)} fresh={len(prepared.fresh_tags)} add={len(prepared.additions)} remove={len(prepared.removals)} external_add={len(prepared.external_additions)} external_remove={len(prepared.external_removals)} final={len(prepared.publish_tags)}"
                 )
                 self.log(
-                    f"Publish payload Gelbooru #{post_id}: "
+                    f"Publish payload {self.site} #{post_id}: "
                     f"fresh_count={len(prepared.fresh_tags)} "
                     f"add_count={len(prepared.additions)} "
                     f"remove_count={len(prepared.removals)} "
@@ -195,16 +198,16 @@ class BatchPublisher:
                     self.repository.publish_succeeded(item_id)
                     published += 1
                     no_op += 1
-                    self.log(f"Publish Gelbooru #{post_id}: no-op")
+                    self.log(f"Publish {self.site} #{post_id}: no-op")
                 else:
                     self._submit_prepared(prepared)
                     self._verify_with_retries(prepared)
                     self.repository.publish_succeeded(item_id)
                     published += 1
-                    self.log(f"Publish Gelbooru #{post_id}: published")
+                    self.log(f"Publish {self.site} #{post_id}: published")
             except GelbooruPublishDeferredError as exc:
                 self.repository.publish_deferred(item_id, str(exc))
-                self.log(f"Publish Gelbooru #{post_id}: deferred: {exc}")
+                self.log(f"Publish {self.site} #{post_id}: deferred: {exc}")
                 return BatchPublishSummary(
                     total=total,
                     published=published,
@@ -215,13 +218,13 @@ class BatchPublisher:
             except PublishVerificationError as exc:
                 self.repository.publish_failed(item_id, str(exc))
                 failed += 1
-                self.log(f"Publish Gelbooru #{post_id}: verification failed: {exc}")
+                self.log(f"Publish {self.site} #{post_id}: verification failed: {exc}")
             except GelbooruSessionValidationError as exc:
                 self.repository.publish_deferred(item_id, str(exc))
                 expired = isinstance(exc, GelbooruSessionExpiredError)
                 unknown = isinstance(exc, GelbooruSessionUnknownError)
                 label = "not authenticated" if expired else "session unknown"
-                self.log(f"Publish Gelbooru #{post_id}: {label}: {exc}")
+                self.log(f"Publish {self.site} #{post_id}: {label}: {exc}")
                 return BatchPublishSummary(
                     total=total,
                     published=published,
@@ -233,7 +236,85 @@ class BatchPublisher:
             except Exception as exc:  # noqa: BLE001 - one post must not stop the batch
                 self.repository.publish_failed(item_id, str(exc))
                 failed += 1
-                self.log(f"Publish Gelbooru #{post_id}: failed: {exc}")
+                self.log(f"Publish {self.site} #{post_id}: failed: {exc}")
             if index < total and self.delay_seconds:
                 self.sleeper(self.delay_seconds)
         return BatchPublishSummary(total=total, published=published, no_op=no_op, failed=failed)
+
+
+class MixedSiteBatchPublisher:
+    """Aggregate site-specific publishers without coupling their transports."""
+
+    def __init__(self, repository: PublishRepository, publishers: dict[str, BatchPublisher]) -> None:
+        self.repository = repository
+        self.publishers = publishers
+        self.cancel_check: Callable[[], bool] = lambda: False
+
+    def _run(
+        self,
+        retry_ids: Iterable[int] | None,
+        progress: Callable[[int, int, str], None] | None,
+    ) -> BatchPublishSummary:
+        wanted = None if retry_ids is None else {int(value) for value in retry_ids}
+        candidates = [
+            entry
+            for entry in self.repository.list_batch_entries(
+                PublishState.FAILED if wanted is not None else PublishState.PENDING_PUBLISH
+            )
+            if entry["site"] in self.publishers
+            and entry["post_id"]
+            and (wanted is None or int(entry["item_id"]) in wanted)
+        ]
+        total = len(candidates)
+        totals = BatchPublishSummary(total=total)
+        offset = 0
+        for site in ("gelbooru", "e621"):
+            publisher = self.publishers.get(site)
+            site_entries = [entry for entry in candidates if entry["site"] == site]
+            if publisher is None or not site_entries:
+                continue
+            publisher.cancel_check = self.cancel_check
+
+            def site_progress(
+                current: int,
+                _site_total: int,
+                post_id: str,
+                *,
+                current_offset: int = offset,
+                current_site: str = site,
+            ) -> None:
+                if progress:
+                    progress(current_offset + current, total, f"{current_site}:{post_id}")
+
+            result = (
+                publisher.retry_failed([int(entry["item_id"]) for entry in site_entries], site_progress)
+                if wanted is not None
+                else publisher.publish_pending(site_progress)
+            )
+            totals = BatchPublishSummary(
+                total=total,
+                published=totals.published + result.published,
+                no_op=totals.no_op + result.no_op,
+                failed=totals.failed + result.failed,
+                session_expired=totals.session_expired or result.session_expired,
+                session_unknown=totals.session_unknown or result.session_unknown,
+                cancelled=totals.cancelled or result.cancelled,
+                deferred=totals.deferred or result.deferred,
+                sites=tuple(sorted({*totals.sites, site})),
+            )
+            offset += len(site_entries)
+            if result.cancelled or result.deferred or result.session_expired or result.session_unknown:
+                break
+        return totals
+
+    def publish_pending(
+        self, progress: Callable[[int, int, str], None] | None = None
+    ) -> BatchPublishSummary:
+        return self._run(None, progress)
+
+    def retry_failed(
+        self,
+        item_ids: Iterable[int],
+        progress: Callable[[int, int, str], None] | None = None,
+    ) -> BatchPublishSummary:
+        return self._run(item_ids, progress)

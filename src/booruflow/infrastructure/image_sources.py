@@ -28,6 +28,7 @@ from booruflow.domain.image_analysis import (
 )
 from booruflow.infrastructure.gelbooru_client import API_URL as GELBOORU_API_URL
 from booruflow.infrastructure.gelbooru_client import DEFAULT_USER_AGENT, normalize_posts
+from booruflow.infrastructure.http_config import BOORUFLOW_USER_AGENT
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
 
 E621_API_URL = "https://e621.net/posts"
@@ -46,7 +47,7 @@ def artist_page_url(site:str,artist_tag:str)->str:
     if site=="gelbooru":return f"https://gelbooru.com/index.php?page=post&s=list&tags={query}"
     if site=="e621":return f"https://e621.net/posts?tags={query}"
     raise ValueError(f"unsupported booru site: {site}")
-E621_USER_AGENT = "BooruFlow/0.1 (personal local image analysis tool)"
+E621_USER_AGENT = BOORUFLOW_USER_AGENT
 
 
 class ImageSourceError(RuntimeError):
@@ -231,8 +232,26 @@ class GelbooruPostProvider:
 
 
 class E621PostProvider:
-    def __init__(self, *, json_fetcher: JsonFetcher = _default_json_fetcher) -> None:
-        self.json_fetcher = json_fetcher
+    def __init__(
+        self,
+        username: str = "",
+        api_key: str = "",
+        *,
+        json_fetcher: JsonFetcher | None = None,
+        client=None,
+    ) -> None:
+        if json_fetcher is None and (client is not None or (username and api_key)):
+            from booruflow.infrastructure.e621_client import E621Client
+
+            client = client or E621Client(username, api_key)
+
+            def authenticated_fetcher(url: str, _headers: Mapping[str, str]) -> object:
+                parsed = urllib.parse.urlsplit(url)
+                return client.request_json(parsed.path, dict(urllib.parse.parse_qsl(parsed.query)))
+
+            self.json_fetcher = authenticated_fetcher
+        else:
+            self.json_fetcher = json_fetcher or _default_json_fetcher
 
     def fetch_post(self, post_id: str) -> NormalizedPost:
         payload = self.json_fetcher(

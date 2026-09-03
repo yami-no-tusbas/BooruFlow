@@ -7,7 +7,6 @@ import pytest
 from PySide6.QtCore import QObject, QUrl, Signal
 from PySide6.QtWidgets import QApplication
 
-from booruflow.application.batch_publisher import PUBLISH_DELAY_SECONDS
 from booruflow.infrastructure.embedded_gelbooru import (
     EMBEDDED_SAVE_CLICK_SCRIPT,
     MANUAL_FORM_DIAGNOSTIC_INSTALL_SCRIPT,
@@ -811,11 +810,18 @@ class DialogTimer:
         self.started = False
 
 
+def diagnostic_catalog():
+    from booruflow.infrastructure.localization import LanguageCatalog
+
+    return LanguageCatalog(Path(__file__).resolve().parents[2] / "resources" / "i18n", "en")
+
+
 def dialog_harness(page, *, checked=True):
     from booruflow.infrastructure.embedded_gelbooru import GelbooruSessionDialog
 
     status = SimpleNamespace(text="", setText=lambda value: setattr(status, "text", value))
     dialog = SimpleNamespace(
+        catalog=diagnostic_catalog(),
         log_messages=[],
         log=lambda value: dialog.log_messages.append(value),
         view=SimpleNamespace(page=lambda: page),
@@ -847,7 +853,7 @@ def test_manual_diagnostic_ui_arms_and_disarms_the_submit_guard():
 
     assert dialog._manual_probe_timer.started is True
     assert page.scripts == [MANUAL_FORM_DIAGNOSTIC_INSTALL_SCRIPT]
-    assert "Save changes sera bloqué" in dialog.status.text
+    assert "Save changes will be blocked" in dialog.status.text
     assert dialog.log_messages == [
         "Gelbooru manual form diagnostic: enabled no_post=true"
     ]
@@ -881,7 +887,7 @@ def test_manual_diagnostic_ui_polls_and_logs_only_the_safe_snapshot():
     assert page.scripts[0] == MANUAL_FORM_DIAGNOSTIC_TAKE_SCRIPT
     assert len(page.scripts) == 2
     assert dialog._manual_probe_running is False
-    assert "snapshot manuel capturé" in dialog.status.text
+    assert "Manual snapshot captured" in dialog.status.text
     assert len(dialog.log_messages) == 1
     assert dialog.log_messages[0].startswith("Gelbooru manual form snapshot:")
     assert secret not in dialog.log_messages[0]
@@ -894,6 +900,7 @@ def test_manual_http_diagnostic_blocks_save_until_cdp_network_is_confirmed():
     calls = []
     status = SimpleNamespace(text="", setText=lambda value: setattr(status, "text", value))
     dialog = SimpleNamespace(
+        catalog=diagnostic_catalog(),
         manual_diagnostic=SimpleNamespace(isChecked=lambda: False),
         http_diagnostic=SimpleNamespace(isChecked=lambda: True),
         http_additions=SimpleNamespace(text=lambda: "new_tag"),
@@ -912,7 +919,7 @@ def test_manual_http_diagnostic_blocks_save_until_cdp_network_is_confirmed():
 
     GelbooruSessionDialog._toggle_manual_http_diagnostic(dialog, True)
 
-    assert "trace HTTP armée" in status.text
+    assert "HTTP trace armed" in status.text
     assert calls[0] == ("manual", {"page": page, "additions": ("new_tag",), "removals": ("highres",)})
     assert calls[1] == ("state", True)
     assert len(page.scripts) == 2
@@ -924,6 +931,7 @@ def test_manual_http_diagnostic_keeps_save_blocked_when_cdp_cannot_arm():
     page = DialogPage([json.dumps({"status": "armed"})])
     status = SimpleNamespace(text="", setText=lambda value: setattr(status, "text", value))
     dialog = SimpleNamespace(
+        catalog=diagnostic_catalog(),
         manual_diagnostic=SimpleNamespace(isChecked=lambda: False),
         http_diagnostic=SimpleNamespace(isChecked=lambda: True),
         http_additions=SimpleNamespace(text=lambda: ""),
@@ -943,7 +951,7 @@ def test_manual_http_diagnostic_keeps_save_blocked_when_cdp_cannot_arm():
 
     GelbooruSessionDialog._toggle_manual_http_diagnostic(dialog, True)
 
-    assert "Save changes reste bloqué" in status.text
+    assert "Save changes remains blocked" in status.text
     assert len(page.scripts) == 1
 
 
@@ -1190,7 +1198,7 @@ def test_bridge_submit_reuses_page_and_requires_final_expected_url():
     assert "a b" not in "\n".join(logs)
 
 
-def test_bridge_rate_limit_defers_the_real_save_click(monkeypatch):
+def test_bridge_does_not_apply_batch_inter_post_delay_before_save(monkeypatch):
     from booruflow.infrastructure.embedded_gelbooru import EmbeddedGelbooruBridge, _BridgeRequest
 
     deferred = []
@@ -1202,7 +1210,7 @@ def test_bridge_rate_limit_defers_the_real_save_click(monkeypatch):
         edit_payload([real_edit_form()]), json.dumps({"status": "submitted"}),
     ])
     bridge = EmbeddedGelbooruBridge(
-        object(), page=page, pre_save_delay_seconds=PUBLISH_DELAY_SECONDS
+        object(), page=page, pre_save_delay_seconds=0.0
     )
     request = _BridgeRequest("submit", {
         "post_id": "42", "tags": ("a",), "additions": ("new",),
@@ -1210,11 +1218,9 @@ def test_bridge_rate_limit_defers_the_real_save_click(monkeypatch):
 
     bridge._begin_request(request); page.loadFinished.emit(True)
 
-    assert bridge._phase == "submit-rate-limit"
-    assert deferred[0][0] >= 10_000
-    assert all("save.click()" not in script for script in page.executed_scripts)
-    deferred[0][1]()
+    assert bridge._phase == "submit-navigation"
     assert "save.click()" in page.executed_scripts[-1]
+    assert deferred == []
 
 
 def test_bridge_rejects_global_post_list_redirect_before_dom_confirmation():

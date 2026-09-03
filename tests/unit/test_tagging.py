@@ -82,10 +82,16 @@ class TaggingTests(unittest.TestCase):
 
         def observation_rows(_item_id):
             return [
-                (observation_id, TagObservation(
-                    f"tag_{observation_id}", ObservationSource.WD14, 0.8,
-                    DecisionState(decision), category="general",
-                ))
+                (
+                    observation_id,
+                    TagObservation(
+                        f"tag_{observation_id}",
+                        ObservationSource.WD14,
+                        0.8,
+                        DecisionState(decision),
+                        category="general",
+                    ),
+                )
                 for observation_id, decision in observations.items()
             ]
 
@@ -94,7 +100,8 @@ class TaggingTests(unittest.TestCase):
             observations=observation_rows,
             existing_tag_decision=lambda _item_id, tag: existing[tag],
             set_existing_tag_decision=lambda _item_id, tag, decision: (
-                existing_calls.append((_item_id, tag, decision)), existing.__setitem__(tag, decision)
+                existing_calls.append((_item_id, tag, decision)),
+                existing.__setitem__(tag, decision),
             ),
         )
         workflow = SimpleNamespace(
@@ -111,13 +118,16 @@ class TaggingTests(unittest.TestCase):
             page=SimpleNamespace(analysis_state=SimpleNamespace(setText=lambda *_args: None)),
             _current_item_id=lambda: 91,
             _unique_targets=TaggingController._unique_targets,
-            _undo_stack=[], _redo_stack=[],
+            _undo_stack=[],
+            _redo_stack=[],
         )
         fake._apply_changes = lambda item_id, changes, undo: TaggingController._apply_changes(
             fake, item_id, changes, undo=undo
         )
 
-        TaggingController.decide(fake, ["existing:absurdres", "existing:solo", "17", 23], "rejected")
+        TaggingController.decide(
+            fake, ["existing:absurdres", "existing:solo", "17", 23], "rejected"
+        )
 
         self.assertEqual(existing_calls, [(91, "absurdres", "remove"), (91, "solo", "remove")])
         self.assertEqual(
@@ -126,7 +136,9 @@ class TaggingTests(unittest.TestCase):
         )
         self.assertEqual(refreshes, [True])
 
-        existing_calls.clear(); observation_calls.clear(); refreshes.clear()
+        existing_calls.clear()
+        observation_calls.clear()
+        refreshes.clear()
         TaggingController.decide(fake, ["existing:absurdres", "17"], "accepted")
         self.assertEqual(existing_calls, [(91, "absurdres", "keep")])
         self.assertEqual(observation_calls, [(17, DecisionState.ACCEPTED, None)])
@@ -142,9 +154,20 @@ class TaggingTests(unittest.TestCase):
         repository = SimpleNamespace(
             item_by_remote_source=lambda *_args: SimpleNamespace(id=3),
             existing_tag_decision=lambda _item_id, tag: existing[tag],
-            set_existing_tag_decision=lambda _item_id, tag, decision: existing.__setitem__(tag, decision),
+            set_existing_tag_decision=lambda _item_id, tag, decision: existing.__setitem__(
+                tag, decision
+            ),
             observations=lambda _item_id: [
-                (oid, TagObservation(str(oid), ObservationSource.WD14, 0.8, DecisionState(decision), category="general"))
+                (
+                    oid,
+                    TagObservation(
+                        str(oid),
+                        ObservationSource.WD14,
+                        0.8,
+                        DecisionState(decision),
+                        category="general",
+                    ),
+                )
                 for oid, decision in observations.items()
             ],
         )
@@ -152,13 +175,19 @@ class TaggingTests(unittest.TestCase):
             decide=lambda oid, decision, _name: observations.__setitem__(oid, decision.value),
         )
         fake = SimpleNamespace(
-            image_analysis=SimpleNamespace(repository=repository, workflow=workflow), current_post_id=1,
-            _log=lambda *_args, **_kwargs: None, refresh_local_review=lambda: refreshes.append(True),
+            image_analysis=SimpleNamespace(repository=repository, workflow=workflow),
+            current_post_id=1,
+            _log=lambda *_args, **_kwargs: None,
+            refresh_local_review=lambda: refreshes.append(True),
             page=SimpleNamespace(analysis_state=SimpleNamespace(setText=lambda *_args: None)),
-            _current_item_id=lambda: 3, _unique_targets=TaggingController._unique_targets,
-            _undo_stack=[], _redo_stack=[],
+            _current_item_id=lambda: 3,
+            _unique_targets=TaggingController._unique_targets,
+            _undo_stack=[],
+            _redo_stack=[],
         )
-        fake._apply_changes = lambda item_id, changes, undo: TaggingController._apply_changes(fake, item_id, changes, undo=undo)
+        fake._apply_changes = lambda item_id, changes, undo: TaggingController._apply_changes(
+            fake, item_id, changes, undo=undo
+        )
 
         TaggingController.decide(fake, ["existing:a", "existing:b", 7, 8], "rejected")
         self.assertEqual(existing, {"a": "remove", "b": "remove"})
@@ -189,9 +218,9 @@ class TaggingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "analysis.sqlite"
             repository = ImageAnalysisRepository(database)
-            item_id = repository.add_item(AnalysisItem(
-                SourceReference(InputKind.LOCAL_FILE, original_path=Path("image.png"))
-            ))
+            item_id = repository.add_item(
+                AnalysisItem(SourceReference(InputKind.LOCAL_FILE, original_path=Path("image.png")))
+            )
             refreshes = []
             workflow = SimpleNamespace(
                 add_manual_tag=repository.add_manual_observation,
@@ -208,22 +237,29 @@ class TaggingTests(unittest.TestCase):
                 _eligible_exact_name=lambda value: normalize_booru_tag(value),
                 _log=lambda *_args, **_kwargs: None,
                 refresh_local_review=lambda: refreshes.append(True),
-                page=page, _undo_stack=[], _redo_stack=[],
+                page=page,
+                _undo_stack=[],
+                _redo_stack=[],
             )
 
             TaggingController.add_manual_tag(fake, "Blue Hair")
             observations = repository.observations(item_id)
-            self.assertEqual([(row.name, row.decision) for _, row in observations], [
-                ("blue_hair", DecisionState.ACCEPTED)
-            ])
+            self.assertEqual(
+                [(row.name, row.decision) for _, row in observations],
+                [("blue_hair", DecisionState.ACCEPTED)],
+            )
             TaggingController.add_manual_tag(fake, "blue hair")
             self.assertEqual(len(repository.observations(item_id)), 1)
             TaggingController.add_manual_tag(fake, "solo")
             self.assertEqual(len(repository.observations(item_id)), 1)
             TaggingController.undo(fake)
-            self.assertEqual(repository.observations(item_id)[0][1].decision, DecisionState.REJECTED)
+            self.assertEqual(
+                repository.observations(item_id)[0][1].decision, DecisionState.REJECTED
+            )
             TaggingController.redo(fake)
-            self.assertEqual(repository.observations(item_id)[0][1].decision, DecisionState.ACCEPTED)
+            self.assertEqual(
+                repository.observations(item_id)[0][1].decision, DecisionState.ACCEPTED
+            )
             repository.close()
 
             with ImageAnalysisRepository(database) as reopened:
@@ -240,9 +276,9 @@ class TaggingTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             database = Path(temporary) / "analysis.sqlite"
             repository = ImageAnalysisRepository(database)
-            item_id = repository.add_item(AnalysisItem(
-                SourceReference(InputKind.LOCAL_FILE, original_path=Path("image.png"))
-            ))
+            item_id = repository.add_item(
+                AnalysisItem(SourceReference(InputKind.LOCAL_FILE, original_path=Path("image.png")))
+            )
             repository.set_existing_tag_decision(item_id, "ball", "remove")
             page = SimpleNamespace(
                 clear_manual_entry=lambda: None,
@@ -264,7 +300,9 @@ class TaggingTests(unittest.TestCase):
                 ),
                 _log=lambda *_args, **_kwargs: None,
                 refresh_local_review=lambda: None,
-                page=page, _undo_stack=[], _redo_stack=[],
+                page=page,
+                _undo_stack=[],
+                _redo_stack=[],
             )
 
             TaggingController.add_manual_tag(fake, "ball")
@@ -284,6 +322,216 @@ class TaggingTests(unittest.TestCase):
                     reopened.tag_review_summary(item_id, ["ball", "foo"])["final_tags"],
                 )
 
+    def test_manual_active_alias_restores_removed_canonical_existing_tag(self) -> None:
+        from booruflow.domain.image_analysis import AnalysisItem, InputKind, SourceReference
+        from booruflow.infrastructure.gelbooru_aliases import (
+            AliasRelation,
+            GelbooruAliasRepository,
+            ensure_alias_schema,
+        )
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            aliases = root / "tags.sqlite"
+            ensure_alias_schema(aliases)
+            GelbooruAliasRepository(aliases).upsert(AliasRelation("china_dress", "qipao", "active"))
+            repository = ImageAnalysisRepository(root / "analysis.sqlite")
+            item_id = repository.add_item(
+                AnalysisItem(SourceReference(InputKind.LOCAL_FILE, original_path=Path("image.png")))
+            )
+            repository.set_existing_tag_decision(item_id, "qipao", "remove")
+            fake = SimpleNamespace(
+                image_analysis=SimpleNamespace(
+                    repository=repository,
+                    workflow=SimpleNamespace(
+                        add_manual_tag=repository.add_manual_observation,
+                        decide=repository.decide_observation,
+                    ),
+                ),
+                current_post={"tags": "qipao"},
+                _current_item_id=lambda: item_id,
+                _tag_database=lambda: aliases,
+                _alias_database=lambda: aliases,
+                _eligible_exact_name=lambda value: normalize_booru_tag(value),
+                _apply_changes=lambda item, changes, undo: TaggingController._apply_changes(
+                    fake, item, changes, undo=undo
+                ),
+                _log=lambda *_args, **_kwargs: None,
+                refresh_local_review=lambda: None,
+                page=SimpleNamespace(
+                    clear_manual_entry=lambda: None,
+                    analysis_state=SimpleNamespace(setText=lambda *_args: None),
+                ),
+                _undo_stack=[],
+                _redo_stack=[],
+            )
+
+            TaggingController.add_manual_tag(fake, "china_dress")
+
+            self.assertEqual(repository.existing_tag_decision(item_id, "qipao"), "keep")
+            self.assertEqual(repository.observations(item_id), [])
+            repository.close()
+
+    def test_reanalyze_refreshes_same_post_when_worker_finishes_before_next_poll(self) -> None:
+        """A ready -> pending -> ready cycle must not be hidden by poll deduplication."""
+        from booruflow.domain.image_analysis import AnalysisItem, InputKind, SourceReference
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+        from booruflow.infrastructure.tag_browser import TagRow
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_legacy_controller import TaggingLegacyController
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = ImageAnalysisRepository(Path(temporary) / "analysis.sqlite")
+            item_id = repository.add_item(
+                AnalysisItem(SourceReference(InputKind.GELBOORU_POST, site="gelbooru", post_id="2258"))
+            )
+            repository.connection.execute(
+                "UPDATE analysis_items SET state='ready_for_review' WHERE id=?", (item_id,)
+            )
+            rendered = []
+            page = SimpleNamespace(
+                show_local_review=lambda *args: rendered.append(args),
+                set_reanalyze_available=lambda *_args, **_kwargs: None,
+            )
+            rows = {
+                "solo": TagRow(1, "solo", 100, 0, 0),
+                "blue_hair": TagRow(2, "blue_hair", 100, 0, 0),
+            }
+            fake = SimpleNamespace(
+                image_analysis=SimpleNamespace(
+                    repository=repository,
+                    reanalyze_item=repository.reanalyze,
+                ),
+                current_post_id=2258,
+                current_post={"id": 2258, "tags": "solo"},
+                _last_polled_state=(item_id, "ready_for_review", ""),
+                _undo_stack=[],
+                _redo_stack=[],
+                _current_item_id=lambda: item_id,
+                _log=lambda *_args, **_kwargs: None,
+                _worker_pending_label=lambda: None,
+                _local_tag_rows=lambda names: {key: row for key, row in rows.items() if key in names},
+                catalog=SimpleNamespace(text=lambda key, **_kwargs: key),
+                page=page,
+            )
+            fake.refresh_local_review = lambda: TaggingController.refresh_local_review(fake)
+
+            TaggingController.reanalyze_current(fake)
+            rendered.clear()
+            # Simulate WD14 completing entirely between two three-second timer ticks.
+            repository.connection.execute(
+                """INSERT INTO tag_observations(item_id,tag_name,source,confidence,decision,created_at)
+                   VALUES(?, 'blue_hair', 'wd14', 0.9, 'unreviewed', 'now')""",
+                (item_id,),
+            )
+            repository.connection.execute(
+                "UPDATE analysis_items SET state='ready_for_review' WHERE id=?", (item_id,)
+            )
+
+            TaggingLegacyController._poll_current(fake)
+
+            self.assertEqual({row["tag"] for row in rendered[-1][3]}, {"blue_hair", "solo"})
+            repository.close()
+
+    def test_local_tag_lookup_uses_current_configured_gelbooru_database(self) -> None:
+        from booruflow.infrastructure.tag_browser import TagRow
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            gelbooru = root / "gelbooru.db"
+            e621 = root / "e621-not-configured-for-gelbooru.db"
+            import sqlite3
+
+            connection = sqlite3.connect(gelbooru)
+            try:
+                connection.execute(
+                    """CREATE TABLE tags(
+                        id INTEGER PRIMARY KEY, name TEXT, post_count INTEGER,
+                        category INTEGER, ambiguous INTEGER)"""
+                )
+                connection.executemany(
+                    "INSERT INTO tags(name,post_count,category,ambiguous) VALUES(?,100,0,0)",
+                    [(name,) for name in ("1girl", "solo", "blush")],
+                )
+                connection.commit()
+            finally:
+                connection.close()
+            settings = {"gelbooru_database": str(gelbooru), "e621_database": str(e621)}
+            fake = SimpleNamespace(
+                image_analysis=SimpleNamespace(settings=settings),
+                _log=lambda *_args, **_kwargs: None,
+            )
+            fake._tag_database = lambda: TaggingController._tag_database(fake)
+
+            found = TaggingController._local_tag_rows(fake, ["1girl", "solo", "blush"])
+            self.assertEqual(set(found), {"1girl", "solo", "blush"})
+            self.assertTrue(fake._local_tag_lookup_available)
+            self.assertTrue(all(isinstance(row, TagRow) for row in found.values()))
+
+            settings["gelbooru_database"] = str(e621)
+            self.assertEqual(TaggingController._local_tag_rows(fake, ["1girl"]), {})
+            settings["gelbooru_database"] = str(gelbooru)
+            self.assertIn("1girl", TaggingController._local_tag_rows(fake, ["1girl"]))
+
+    def test_e621_tag_database_is_explicit_and_never_falls_back_to_gelbooru(self) -> None:
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+
+        settings = {
+            "gelbooru_tag_database": "gelbooru-tags.sqlite",
+            "e621_database": "e621-tags.sqlite",
+        }
+        fake = SimpleNamespace(
+            image_analysis=SimpleNamespace(settings=settings),
+            page=SimpleNamespace(active_site="e621"),
+            current_post_id=500,
+            _current_remote_site="e621",
+            _log=lambda *_args, **_kwargs: None,
+        )
+        self.assertEqual(
+            TaggingController._tag_database(fake), Path("e621-tags.sqlite")
+        )
+        settings["e621_database"] = ""
+        self.assertIsNone(TaggingController._tag_database(fake))
+
+        fake._current_remote_site = "gelbooru"
+        self.assertEqual(
+            TaggingController._tag_database(fake), Path("gelbooru-tags.sqlite")
+        )
+
+    def test_unavailable_catalogue_is_not_rendered_as_an_individual_missing_tag(self) -> None:
+        from booruflow.domain.image_analysis import DecisionState, ObservationSource, TagObservation
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+
+        observation = TagObservation("blue_hair", ObservationSource.WD14, 0.9, DecisionState.UNREVIEWED)
+        captured = []
+        repository = SimpleNamespace(
+            item_by_remote_source=lambda *_args: SimpleNamespace(
+                id=1, state=SimpleNamespace(value="ready_for_review"), cached_path=None, last_error=None,
+            ),
+            source_tags=lambda _item_id: (),
+            observations=lambda _item_id: [(7, observation)],
+            tag_mapping=lambda *_args: None,
+            tag_review_summary=lambda _item_id, originals: {"removals": [], "final_tags": sorted(originals)},
+        )
+        fake = SimpleNamespace(
+            catalog=SimpleNamespace(text=lambda key, **kwargs: key),
+            image_analysis=SimpleNamespace(repository=repository),
+            current_post_id=42,
+            current_post={"tags": "solo"},
+            _local_tag_rows=lambda _names: setattr(fake, "_local_tag_lookup_available", False) or {},
+            _local_tag_lookup_available=False,
+            _log=lambda *_args, **_kwargs: None,
+            page=SimpleNamespace(show_local_review=lambda *args: captured.append(args)),
+        )
+
+        TaggingController.refresh_local_review(fake)
+
+        wd14 = next(row for row in captured[0][3] if row["tag"] == "blue_hair")
+        self.assertEqual(wd14["match"], "tagging.match.lookup_unavailable")
+
     def test_rating_never_reaches_local_lookup_or_mapping(self) -> None:
         from booruflow.domain.image_analysis import (
             DecisionState,
@@ -293,21 +541,28 @@ class TaggingTests(unittest.TestCase):
         from booruflow.presentation.pyside6.tagging_controller import TaggingController
 
         rating = TagObservation(
-            "sensitive", ObservationSource.WD14, 0.9, DecisionState.ACCEPTED,
+            "sensitive",
+            ObservationSource.WD14,
+            0.9,
+            DecisionState.ACCEPTED,
             category="rating",
         )
         captured = []
         repository = SimpleNamespace(
             item_by_remote_source=lambda *_args: SimpleNamespace(
-                id=1, state=SimpleNamespace(value="ready_for_review"),
-                cached_path=None, last_error=None,
+                id=1,
+                state=SimpleNamespace(value="ready_for_review"),
+                cached_path=None,
+                last_error=None,
             ),
             source_tags=lambda _item_id: (),
             observations=lambda _item_id: [(7, rating)],
             tag_mapping=lambda *_args: self.fail("rating attempted a mapping lookup"),
         )
         fake = SimpleNamespace(
-            image_analysis=SimpleNamespace(repository=repository), current_post_id=42,
+            catalog=SimpleNamespace(text=lambda key, **kwargs: key + str(kwargs.get("origin", ""))),
+            image_analysis=SimpleNamespace(repository=repository),
+            current_post_id=42,
             current_post={"tags": "solo"},
             _local_names=lambda names: self.assertEqual(names, []) or set(),
             _log=lambda *_args, **_kwargs: None,
@@ -328,18 +583,26 @@ class TaggingTests(unittest.TestCase):
         from booruflow.presentation.pyside6.tagging_controller import TaggingController
 
         cyborg = TagObservation(
-            "cyborg", ObservationSource.WD14, 0.80, DecisionState.UNREVIEWED,
+            "cyborg",
+            ObservationSource.WD14,
+            0.80,
+            DecisionState.UNREVIEWED,
             category="general",
         )
         robot = TagObservation(
-            "robot", ObservationSource.WD14, 0.70, DecisionState.UNREVIEWED,
+            "robot",
+            ObservationSource.WD14,
+            0.70,
+            DecisionState.UNREVIEWED,
             category="general",
         )
         captured = []
         repository = SimpleNamespace(
             item_by_remote_source=lambda *_args: SimpleNamespace(
-                id=1, state=SimpleNamespace(value="ready_for_review"),
-                cached_path=None, last_error=None,
+                id=1,
+                state=SimpleNamespace(value="ready_for_review"),
+                cached_path=None,
+                last_error=None,
             ),
             source_tags=lambda _item_id: (
                 SourceTag("cyborg", ObservationSource.GELBOORU, "general"),
@@ -348,12 +611,16 @@ class TaggingTests(unittest.TestCase):
             observations=lambda _item_id: [(17, cyborg), (23, robot)],
             tag_mapping=lambda *_args: None,
             tag_review_summary=lambda _item_id, originals: {
-                "removals": [], "final_tags": sorted(originals),
+                "removals": [],
+                "final_tags": sorted(originals),
             },
         )
         fake = SimpleNamespace(
-            image_analysis=SimpleNamespace(repository=repository), current_post_id=42,
-            current_post={"tags": "cyborg cyberpunk"}, _local_names=lambda _names: set(),
+            catalog=SimpleNamespace(text=lambda key, **kwargs: key + str(kwargs.get("origin", ""))),
+            image_analysis=SimpleNamespace(repository=repository),
+            current_post_id=42,
+            current_post={"tags": "cyborg cyberpunk"},
+            _local_names=lambda _names: set(),
             _log=lambda *_args, **_kwargs: None,
             page=SimpleNamespace(show_local_review=lambda *args: captured.append(args)),
         )
@@ -380,14 +647,19 @@ class TaggingTests(unittest.TestCase):
         from booruflow.presentation.pyside6.tagging_controller import TaggingController
 
         observation = TagObservation(
-            "deprecated_new", ObservationSource.WD14, 0.8,
-            DecisionState.UNREVIEWED, category="general",
+            "deprecated_new",
+            ObservationSource.WD14,
+            0.8,
+            DecisionState.UNREVIEWED,
+            category="general",
         )
         captured = []
         repository = SimpleNamespace(
             item_by_remote_source=lambda *_args: SimpleNamespace(
-                id=1, state=SimpleNamespace(value="ready_for_review"),
-                cached_path=None, last_error=None,
+                id=1,
+                state=SimpleNamespace(value="ready_for_review"),
+                cached_path=None,
+                last_error=None,
             ),
             source_tags=lambda _item_id: (
                 SourceTag("deprecated_existing", ObservationSource.GELBOORU, "general"),
@@ -395,7 +667,8 @@ class TaggingTests(unittest.TestCase):
             observations=lambda _item_id: [(7, observation)],
             tag_mapping=lambda *_args: None,
             tag_review_summary=lambda _item_id, originals: {
-                "removals": [], "final_tags": sorted(originals),
+                "removals": [],
+                "final_tags": sorted(originals),
             },
         )
         rows = {
@@ -403,7 +676,9 @@ class TaggingTests(unittest.TestCase):
             "deprecated_new": TagRow(2, "deprecated_new", 5, 6, 0),
         }
         fake = SimpleNamespace(
-            image_analysis=SimpleNamespace(repository=repository), current_post_id=42,
+            catalog=SimpleNamespace(text=lambda key, **kwargs: key + str(kwargs.get("origin", ""))),
+            image_analysis=SimpleNamespace(repository=repository),
+            current_post_id=42,
             current_post={"tags": "deprecated_existing"},
             _local_tag_rows=lambda names: {
                 key: value for key, value in rows.items() if key in names
@@ -418,14 +693,15 @@ class TaggingTests(unittest.TestCase):
         self.assertEqual([row["tag"] for row in rendered], ["deprecated_existing"])
         self.assertEqual(rendered[0]["id"], "existing:deprecated_existing")
         self.assertEqual(rendered[0]["decision"], "keep")
-        self.assertEqual(rendered[0]["category"], "6")
+        self.assertEqual(rendered[0]["category"], "tagging.category.general")
 
     def test_analysis_resume_actions_cover_deduplication_states(self) -> None:
         expected = {
-            "ready_for_review": "reuse", "reviewed": "reuse",
-            "skipped": "restore_review", "failed": "retry",
-            "pending": "restore_pending", "processing": "follow",
+            "ready_for_review": "reuse",
+            "reviewed": "reuse",
+            "skipped": "restore_review",
+            "failed": "retry",
+            "pending": "restore_pending",
+            "processing": "follow",
         }
-        self.assertEqual(
-            {state: analysis_resume_action(state) for state in expected}, expected
-        )
+        self.assertEqual({state: analysis_resume_action(state) for state in expected}, expected)

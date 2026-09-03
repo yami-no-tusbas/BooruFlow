@@ -78,10 +78,13 @@
   "image_analysis.worker_active": "Worker actif",
   "image_analysis.worker_stopped": "Worker arrêté",
   "image_analysis.worker_error": "Worker en erreur",
+  "image_analysis.worker_initializing": "Initialisation du worker…",
+  "image_analysis.worker_restarting": "Redémarrage du worker…",
+  "image_analysis.worker_unavailable": "Worker indisponible",
   "image_analysis.pipeline": "À résoudre : {unresolved} · Locales : {resolved} · En attente : {pending} · En analyse : {processing} · Prêtes : {ready} · Erreurs : {failed}",
   "options.image_analysis": "Analyse d’images",
-  "options.download_prefetch": "Préchargement des téléchargements",
-  "options.analysis_prefetch": "Préchargement des analyses",
+  "options.download_prefetch": "Préchargement des téléchargements (images) :",
+  "options.analysis_prefetch": "Préchargement des analyses (images) :",
   "grabber.available": "Grabber : disponible",
   "grabber.unavailable": "Grabber : indisponible — {reason}",
   "page.review": "La révision par catégorie et depuis une liste TXT sera consolidée ici.",
@@ -96,9 +99,115 @@
   "options.credentials": "Identifiants du site",
   "options.site": "Site :",
   "options.user_id": "Identifiant utilisateur :",
+  "options.e621_username": "Nom d’utilisateur :",
   "options.api_key": "Clé API :",
   "options.show_api_key": "Afficher la clé API",
+  "options.reveal_api_key": "👁",
+  "options.reveal_api_key_tip": "Afficher ou masquer la clé API",
+  "options.test_credentials": "Tester les identifiants",
+  "options.credentials_status_not_tested": "Non testé",
+  "options.credentials_status_testing": "Test en cours…",
+  "options.credentials_status_valid": "Valides",
+  "options.credentials_status_invalid": "Identifiants invalides",
+  "options.credentials_status_missing": "Identifiants manquants",
+  "options.credentials_status_network_error": "Erreur réseau",
+  "options.credentials_status_rate_limited": "Limite de requêtes atteinte",
+  "options.credentials_status_server_error": "Erreur serveur",
+  "options.credentials_status_malformed_response": "Réponse serveur invalide",
   "options.paths": "Chemins locaux",
+  "options.database_path": "Chemin de la base :",
+  "options.browser": "Navigateur",
+  "options.browser_open_external": "Ouvrir les liens externes avec :",
+  "options.browser_command": "Modèle de commande :",
+  "options.browser_command_placeholder": "\"C:\\Chemin\\navigateur.exe\" {url}",
+  "options.browser_clear_profile": "Effacer le profil à la fermeture",
+  "options.browser_reset": "Réinitialiser le profil dédié",
+  "options.browser_reset_title": "Réinitialiser le profil dédié",
+  "options.browser_reset_confirm": "Supprimer le profil de navigateur dédié et ses données isolées ?",
+  "options.browser_reset_done": "Le profil dédié a été réinitialisé.",
+  "options.browser_reset_missing": "Aucun profil de navigateur dédié compatible n’a été trouvé.",
+  "options.browser_test": "Tester le navigateur externe",
+  "options.browser_explanation": "BooruFlow utilise son navigateur interne pour la navigation booru normale. Ce réglage concerne uniquement les liens explicitement ouverts à l’extérieur.",
+  "options.browser_mode_system": "Navigateur système",
+  "options.browser_mode_dedicated": "Profil dédié",
+  "options.browser_mode_custom": "Navigateur personnalisé",
+  "options.publisher": "Publication automatique",
+  "options.publisher_login": "Connexion / Reconnexion",
+  "options.publisher_check": "Vérifier la session",
+  "options.publisher_reset": "Réinitialiser la session",
+  "options.publisher_status_not_tested": "Session Gelbooru : Non testée",
+  "options.publisher_status_testing": "Session Gelbooru : Vérification…",
+  "options.publisher_status": "Session Gelbooru : {status}",
+  "options.publisher_explanation": "La publication utilise une page cachée séparée dans le même profil Gelbooru isolé. Elle ne remplace jamais les onglets visibles.",
+  "options.publisher_cdp_explanation": "Le mode de compatibilité avancé pilote un profil Chromium dédié uniquement via localhost.",
+  "options.publisher_disabled": "La publication automatique Gelbooru est désactivée.",
+  "options.publisher_reset_title": "Réinitialiser la session Gelbooru",
+  "options.publisher_reset_confirm": "Supprimer uniquement les cookies et données de session du profil Gelbooru interne de BooruFlow ?",
+  "options.publisher_reset_done": "La session Gelbooru interne a été réinitialisée.",
+  "options.wd14_enabled": "Activer WD14",
+  "options.wd14_display_threshold": "Seuil d’affichage des tags :",
+  "options.advanced": "Avancé",
+  "options.wd14_store_threshold": "Seuil de stockage :",
+  "options.worker_heartbeat": "Intervalle heartbeat du worker (secondes) :",
+  "options.worker_stale": "Délai d’expiration du worker (secondes) :",
+  "options.worker_recycle": "Nombre avant recyclage du worker (analyses) :",
+  "options.wd14_enabled_tip": "Lance le modèle local WD14 pour les nouvelles images analysées. Les observations WD14 déjà en cache restent visibles si cette option est désactivée.",
+  "options.wd14_display_threshold_tip": "Confiance minimale affichée dans Analyse d’images. 10 % est enregistré sous la forme 0,10.",
+  "options.wd14_store_threshold_tip": "Confiance minimale enregistrée lors des nouvelles analyses WD14. Une valeur plus basse conserve davantage de candidats.",
+  "options.download_prefetch_tip": "Nombre d’images source préparées à l’avance (images).",
+  "options.analysis_prefetch_tip": "Nombre maximal d’images mises en attente d’analyse (images).",
+  "options.worker_heartbeat_tip": "Fréquence à laquelle le worker confirme qu’une analyse longue est toujours active (secondes).",
+  "options.worker_stale_tip": "Après ce délai sans heartbeat, un travail interrompu peut être récupéré (secondes).",
+  "options.worker_recycle_tip": "Redémarre le worker après ce nombre d’analyses ; 0 désactive le recyclage.",
+  "browser.title": "Navigateur BooruFlow",
+  "browser.reload": "Recharger",
+  "browser.home": "Accueil",
+  "browser.account": "Compte",
+  "browser.close": "Fermer",
+  "browser.new_tab": "Nouvel onglet",
+  "browser.address": "Saisir une URL",
+  "browser.developer_diagnostics": "Diagnostics développeur",
+  "browser.status_not_tested": "Session : Non testée",
+  "browser.status_load_error": "Session : Échec du chargement de la page",
+  "browser.status_ready": "Session : Prête",
+  "browser.status_login_required": "Session : Connexion requise",
+  "browser.status_unknown": "Session : État indéterminé ou challenge en cours",
+  "browser.diagnostic_form": "Diagnostic du formulaire (bloque Save changes)",
+  "browser.diagnostic_form_tip": "Intercepte Save changes et capture un snapshot FormData sans envoyer de POST.",
+  "browser.diagnostic_additions": "Ajouts HTTP attendus",
+  "browser.diagnostic_removals": "Retraits HTTP attendus",
+  "browser.diagnostic_http": "Tracer le prochain POST réel via CDP",
+  "browser.diagnostic_http_tip": "N’envoie rien seul. Nécessite le mode de diagnostic CDP au démarrage et se désarme après le POST capturé.",
+  "browser.diagnostic_prototype": "Prototype Edit réel",
+  "browser.diagnostic_targets": "Cibles du diagnostic HTTP :",
+  "browser.diagnostic_disabled": "Diagnostic du formulaire désactivé",
+  "browser.diagnostic_arming": "Armement CDP pendant le blocage de Save changes…",
+  "browser.diagnostic_unavailable": "Diagnostic indisponible — aucun POST envoyé",
+  "browser.diagnostic_http_armed": "Trace HTTP armée — Save changes enverra exactement un POST",
+  "browser.diagnostic_http_done": "Trace HTTP {source} capturée — diagnostic désarmé",
+  "browser.diagnostic_cdp_error": "Diagnostic CDP indisponible ({reason}) — Save changes reste bloqué",
+  "browser.diagnostic_form_armed": "Diagnostic du formulaire armé — Save changes sera bloqué",
+  "browser.diagnostic_form_unavailable": "Diagnostic du formulaire indisponible",
+  "browser.diagnostic_snapshot_done": "Snapshot manuel capturé — envoi bloqué et diagnostic désarmé",
+  "browser.diagnostic_snapshot_error": "Échec du diagnostic manuel — envoi bloqué",
+  "browser.prototype.title": "Prototype d’automatisation du navigateur",
+  "browser.prototype.ready": "Prêt — aucun Save automatique",
+  "browser.prototype.open": "Ouvrir et cliquer Edit",
+  "browser.prototype.apply": "Appliquer les deltas",
+  "browser.prototype.save": "Test Save",
+  "browser.prototype.post": "Post n°",
+  "browser.prototype.additions": "Ajouts",
+  "browser.prototype.removals": "Retraits",
+  "browser.prototype.invalid_id": "ID de post invalide",
+  "browser.prototype.loading": "Chargement de la page — aucun Save",
+  "browser.prototype.load_error": "Échec du chargement",
+  "browser.prototype.edit_missing": "Contrôle Edit réel introuvable",
+  "browser.prototype.edit_ready": "Edit ouvert — Save disponible",
+  "browser.prototype.edit_not_ready": "Edit non prêt ou Save désactivé",
+  "browser.prototype.prepared": "Deltas préparés — vérifiez visuellement avant le test Save",
+  "browser.prototype.refused": "Préparation refusée",
+  "browser.prototype.confirm_title": "Confirmer le test Save",
+  "browser.prototype.confirm": "Le vrai bouton Save changes va être cliqué.",
   "options.gelbooru_database": "Base de tags Gelbooru",
   "options.e621_database": "Base de tags e621",
   "options.blacklist_file": "Fichier blacklist",
@@ -119,6 +228,20 @@
   "options.database_already_running": "Une mise à jour de base est déjà en cours.",
   "options.database_finished": "Mise à jour de la base {site} terminée et validée.",
   "options.database_failed": "Mise à jour {site} interrompue avec le code {code}. Consulte le journal.",
+  "options.database_path_required": "Choisissez un chemin de base avant de lancer la mise à jour.",
+  "options.alias_database_path_required": "Configurez le chemin de la base d’alias avant de lancer la mise à jour.",
+  "options.alias_update": "Mettre à jour",
+  "options.alias_label": "Alias Gelbooru",
+  "options.alias_pending": "Vérifier pending",
+  "options.alias_reconcile": "Réconcilier",
+  "options.alias_start": "Démarrage de l’opération alias Gelbooru {mode} : {path}",
+  "options.alias_summary": "Alias — actifs : {active} · pending : {pending} · missing : {missing} · nouveaux : {new} · modifiés : {modified} · checkpoint : {checkpoint} · état : {state}",
+  "options.alias_state_completed": "terminé",
+  "options.alias_state_initial_import_required": "import initial requis",
+  "options.alias_state_overlap_not_found": "chevauchement du checkpoint introuvable ; réconciliation explicite requise",
+  "options.alias_state_pagination_incoherent": "pagination modifiée ; réconciliation explicite requise",
+  "options.alias_state_full_reconciliation_recommended": "réconciliation complète recommandée",
+  "options.alias_state_unknown": "inconnu",
   "tag_browser.filters": "Recherche en lecture seule",
   "tag_browser.database": "Base :",
   "tag_browser.query": "Nom du tag :",
@@ -190,6 +313,26 @@
   ,"tagging.start_button": "Rechercher"
   ,"tagging.stop": "Arrêter"
   ,"tagging.ready": "Prêt. Les résultats s’ouvrent dans le navigateur authentifié ; BooruFlow n’envoie jamais de tags."
+  ,"tagging.site": "Site :"
+  ,"tagging.credentials_missing": "Identifiants API {site} manquants. Ajoutez-les dans Options."
+  ,"tagging.error.invalid_credentials": "Identifiants invalides"
+  ,"tagging.error.network_error": "Erreur réseau"
+  ,"tagging.error.rate_limited": "Limite de requêtes atteinte"
+  ,"tagging.error.server_error": "Erreur serveur"
+  ,"tagging.error.malformed_response": "Réponse serveur invalide"
+  ,"tagging.error.unexpected": "Erreur de recherche inattendue"
+  ,"tagging.publish.e621_unavailable": "Les révisions e621 sans modification restent enregistrées localement."
+  ,"tagging.publish.e621_credentials_missing": "Ajoutez et validez le nom d’utilisateur et la clé API e621 dans Options avant de publier."
+  ,"tagging.category.general": "Général"
+  ,"tagging.category.artist": "Artiste"
+  ,"tagging.category.contributor": "Contributeur"
+  ,"tagging.category.copyright": "Copyright"
+  ,"tagging.category.character": "Personnage"
+  ,"tagging.category.species": "Espèce"
+  ,"tagging.category.meta": "Méta"
+  ,"tagging.category.lore": "Lore"
+  ,"tagging.category.deprecated": "Obsolète"
+  ,"tagging.category.unknown": "Inconnue"
   ,"tagging.running": "Recherche en cours…"
   ,"tagging.stopping": "Arrêt après la requête actuelle…"
   ,"tagging.progress": "Page {page} — {examined} post(s) examinés, {retained} retenus."
@@ -205,12 +348,181 @@
   ,"tagging.result": "{priority} — post #{id} — {count} tags"
   ,"tagging.section": "{priority} — {count} image(s)"
   ,"tagging.card": "#{id} · {count} tags"
+  ,"tagging.alias_suggestion": "{tag} — alias de {alias}"
+  ,"tagging.alias.title": "Alias de tags"
+  ,"tagging.review.back": "← Retour aux résultats [Échap]"
+  ,"tagging.review.previous": "← Précédent"
+  ,"tagging.review.next": "Suivant →"
+  ,"tagging.review.zoom": "Zoom"
+  ,"tagging.review.zoom_fit": "Ajuster"
+  ,"tagging.review.section": "Revue des tags"
+  ,"tagging.review.decision_label": "Décision :"
+  ,"tagging.review.decision.unreviewed": "À examiner"
+  ,"tagging.review.decision.accepted": "Accepté"
+  ,"tagging.review.decision.rejected": "Rejeté"
+  ,"tagging.review.decision.keep": "Conserver"
+  ,"tagging.review.decision.remove": "Retirer"
+  ,"tagging.review.filter.all": "Tous"
+  ,"tagging.review.filter.unreviewed": "À examiner"
+  ,"tagging.review.filter.accepted": "Conserver / ajouter"
+  ,"tagging.review.filter.rejected": "Retirer / ignorer"
+  ,"tagging.review.header.tag": "Tag"
+  ,"tagging.review.header.confidence": "Confiance"
+  ,"tagging.review.header.decision": "Décision"
+  ,"tagging.review.header.match": "Origine / correspondance"
+  ,"tagging.review.header.category": "Catégorie"
+  ,"tagging.review.header.id": "ID"
+  ,"tagging.review.final_tags": "Tags finaux :"
+  ,"tagging.review.add_label": "Ajouter :"
+  ,"tagging.review.manual_label": "Ajouter un tag :"
+  ,"tagging.review.manual_placeholder": "Rechercher dans la base locale…"
+  ,"tagging.review.add": "Ajouter"
+  ,"tagging.review.analyze": "Analyser localement"
+  ,"tagging.review.reanalyze": "Ré-analyser"
+  ,"tagging.review.reanalyze_tip": "Relancer l’analyse locale de l’image avec les réglages actuels."
+  ,"tagging.review.accept": "Accepter [A]"
+  ,"tagging.review.reject": "Rejeter [R]"
+  ,"tagging.review.map": "Associer…"
+  ,"tagging.review.refresh_metadata": "Actualiser les métadonnées"
+  ,"tagging.review.copy_final": "Copier les tags finaux"
+  ,"tagging.review.copy_all": "Copier (tags finaux)"
+  ,"tagging.review.copy_open": "Copier + ouvrir [Espace]"
+  ,"tagging.review.copy_open_tip": "Copier les tags puis ouvrir le post (Espace)"
+  ,"tagging.review.validate_next": "Valider + suivant [Espace]"
+  ,"tagging.review.validate_next_tip": "Enregistrer la revue locale puis passer au suivant"
+  ,"tagging.review.open_gelbooru": "Ouvrir Gelbooru"
+  ,"tagging.review.open_site": "Ouvrir {site}"
+  ,"tagging.review.play": "Lire"
+  ,"tagging.review.stop_video": "Stop"
+  ,"tagging.review.pause": "Pause"
+  ,"tagging.review.counter": "Post {current} / {total} · {remaining} restants"
+  ,"tagging.batch.button": "Batch"
+  ,"tagging.batch.back": "← Revue"
+  ,"tagging.batch.refresh": "Actualiser"
+  ,"tagging.batch.label": "Batch :"
+  ,"tagging.batch.filter.all": "Tous"
+  ,"tagging.batch.filter.pending": "En attente"
+  ,"tagging.batch.filter.published": "Publiés"
+  ,"tagging.batch.filter.failed": "Échecs"
+  ,"tagging.batch.filter.local": "Locaux"
+  ,"tagging.batch.header.identity": "Image / post"
+  ,"tagging.batch.header.site": "Site"
+  ,"tagging.batch.header.additions": "Ajouts"
+  ,"tagging.batch.header.removals": "Retraits"
+  ,"tagging.batch.header.state": "État"
+  ,"tagging.batch.header.reviewed_at": "Revu le"
+  ,"tagging.batch.header.item": "Item"
+  ,"tagging.batch.review": "Revoir"
+  ,"tagging.batch.remove": "Retirer du lot"
+  ,"tagging.batch.open": "Ouvrir le post"
+  ,"tagging.batch.retry": "Réessayer les échecs"
+  ,"tagging.batch.session_test": "Tester la session"
+  ,"tagging.batch.publish": "Publier le lot"
+  ,"tagging.batch.cancel": "Annuler la publication"
+  ,"tagging.batch.local": "Local"
+  ,"tagging.batch.local_file": "Fichier local"
+  ,"tagging.batch.progress": "Publication {current} / {total} — {target}"
+  ,"tagging.batch.state.pending_publish": "En attente"
+  ,"tagging.batch.state.published": "Publié"
+  ,"tagging.batch.state.failed": "Échec"
+  ,"tagging.batch.state.local": "Local"
+  ,"tagging.batch.state.reviewed": "Révisé localement"
+  ,"tagging.batch.counts": "{pending} · {local} · {published} · {failed}"
+  ,"tagging.batch.count.pending.one": "{count} en attente"
+  ,"tagging.batch.count.pending.other": "{count} en attente"
+  ,"tagging.batch.count.local.one": "{count} local"
+  ,"tagging.batch.count.local.other": "{count} locaux"
+  ,"tagging.batch.count.published.one": "{count} publié"
+  ,"tagging.batch.count.published.other": "{count} publiés"
+  ,"tagging.batch.count.failed.one": "{count} échec"
+  ,"tagging.batch.count.failed.other": "{count} échecs"
+  ,"tagging.analysis.startup_timeout": "Erreur : délai de démarrage ImageAnalysis dépassé. {detail}"
+  ,"tagging.analysis.unavailable": "Erreur : ImageAnalysis indisponible. {detail}"
+  ,"tagging.analysis.error": "Erreur : {error}"
+  ,"tagging.analysis.pending": "Analyse en attente…"
+  ,"tagging.analysis.worker_starting": "Démarrage du worker d’analyse…"
+  ,"tagging.analysis.worker_initializing": "Initialisation du worker d’analyse…"
+  ,"tagging.analysis.worker_restarting": "Redémarrage du worker d’analyse…"
+  ,"tagging.analysis.processing": "Analyse en cours"
+  ,"tagging.analysis.ready": "Analyse disponible"
+  ,"tagging.analysis.reviewed": "Déjà analysée"
+  ,"tagging.analysis.cached": "Analyse disponible — cache réutilisé"
+  ,"tagging.analysis.failed": "Erreur d’analyse : {error}"
+  ,"tagging.analysis.skipped": "Analyse ignorée"
+  ,"tagging.analysis.not_analyzed": "Non analysée"
+  ,"tagging.analysis.pending_prefetch": "Analyse en attente — file de préchargement pleine"
+  ,"tagging.analysis.pending_busy": "Analyse en attente — worker occupé"
+  ,"tagging.analysis.pending_source": "Analyse en attente — source en préparation"
+  ,"tagging.unknown": "inconnue"
+  ,"tagging.match.existing": "Existant"
+  ,"tagging.match.existing_wd14": "Existant · également détecté par WD14"
+  ,"tagging.match.missing": "introuvable localement"
+  ,"tagging.match.lookup_unavailable": "base locale indisponible"
+  ,"tagging.match.already_present": "déjà présent"
+  ,"tagging.review.tag_unavailable": "Tag absent ou déprécié dans la base Gelbooru."
+  ,"tagging.review.manual_error": "Ajout manuel impossible : {error}"
+  ,"tagging.review.decision_error": "Erreur de décision : {error}"
+  ,"tagging.review.refresh_error": "Actualisation impossible, données conservées : {error}"
+  ,"tagging.mapping.title": "Associer le tag"
+  ,"tagging.mapping.prompt": "Tag Gelbooru pour {source} :"
+  ,"tagging.mapping.impossible": "Association impossible"
+  ,"tagging.mapping.missing": "Ce tag est absent de la base locale."
+  ,"tagging.publish.disabled": "Publication Gelbooru désactivée."
+  ,"tagging.publish.none": "Aucune publication Gelbooru éligible."
+  ,"tagging.publish.session_missing": "Session Gelbooru authentifiée non configurée : aucune publication envoyée."
+  ,"tagging.session.testing": "Test de la session Gelbooru…"
+  ,"tagging.session.valid": "Session Gelbooru valide."
+  ,"tagging.session.expired": "Session Gelbooru non connectée."
+  ,"tagging.session.unknown": "État de session Gelbooru indéterminé. Ouvrez la session Gelbooru et vérifiez que la page est chargée et connectée."
+  ,"tagging.session.error": "Session Gelbooru non disponible : {error}"
+  ,"tagging.session.none": "Aucun site du batch n’est disponible pour un test."
+  ,"tagging.session.gelbooru.valid": "Gelbooru : authentifié"
+  ,"tagging.session.gelbooru.expired": "Gelbooru : session non connectée"
+  ,"tagging.session.gelbooru.unknown": "Gelbooru : état de session indéterminé"
+  ,"tagging.session.gelbooru.not_configured": "Gelbooru : session de publication non configurée"
+  ,"tagging.session.gelbooru.error": "Gelbooru : échec de l’authentification — {error}"
+  ,"tagging.session.e621.valid": "e621 : authentification API valide"
+  ,"tagging.session.e621.not_configured": "e621 : identifiants API non configurés"
+  ,"tagging.session.e621.error": "e621 : échec de l’authentification — {error}"
+  ,"tagging.publish.confirm_blocked": "\n\n{count} élément(s) d’un site non configuré resteront en attente."
+  ,"tagging.publish.cancelling": "Annulation demandée — le post courant se termine, aucun suivant ne sera lancé."
+  ,"tagging.publish.http_requires_one": "Le diagnostic HTTP réel exige exactement une entrée Gelbooru en attente. Aucun envoi effectué."
+  ,"tagging.publish.confirm_diagnostic_title": "Confirmer le diagnostic"
+  ,"tagging.publish.confirm_diagnostic": "Inspecter le formulaire Gelbooru de {count} entrée(s) ?\n\nLes tags seront appliqués uniquement au DOM local pour capturer FormData. Le diagnostic s’arrêtera avant tout submit et toute requête d’édition."
+  ,"tagging.publish.confirm_instrumented_title": "Confirmer la publication instrumentée"
+  ,"tagging.publish.confirm_instrumented": "Envoyer réellement {count} modification(s) sur Gelbooru ?\n\n{additions} ajout(s), {removals} retrait(s).\n\nLa trace HTTP est passive et se désarme après le premier POST. Elle ne déclenche aucun envoi par elle-même."
+  ,"tagging.publish.confirm_title": "Confirmer la publication"
+  ,"tagging.publish.confirm": "Publier {count} modification(s) sur Gelbooru ?\n\n{additions} ajout(s), {removals} retrait(s)."
+  ,"tagging.publish.confirm_sites": "Publier {count} modification(s) sur {sites} ?\n\n{additions} ajout(s), {removals} retrait(s)."
+  ,"tagging.publish.summary": "{total} entrées · {published} publiées · {no_op} no-op · {failed} échecs{suffix}"
+  ,"tagging.publish.summary.expired": " · session expirée, lot mis en pause"
+  ,"tagging.publish.summary.unknown": " · état de session indéterminé, lot mis en pause"
+  ,"tagging.publish.summary.cancelled": " · annulé avant le post suivant"
+  ,"tagging.publish.summary.deferred": " · diagnostic terminé, aucun envoi"
+  ,"tagging.publish.summary.sites": " · sites : {sites}"
+  ,"tagging.publish.interrupted": "Publication interrompue : {error}"
+  ,"tagging.review.pool_finished": "Revue enregistrée — pool terminé."
+  ,"tagging.review.next_local": "Revue enregistrée — prochain item local #{item_id}."
+  ,"tagging.review.local_item": "Fichier local #{item_id}"
+  ,"tagging.review.processed": "✓ Traité\n{label}"
+  ,"tagging.review.all_processed": "Tous les résultats de cette recherche ont été traités."
+  ,"tagging.review.retry": "Réessayer"
+  ,"tagging.review.video_error": "Lecture vidéo impossible dans BooruFlow."
+  ,"tagging.review.open_post": "Ouvrir le post #{post_id}"
+  ,"tagging.match.manual": "manuel"
+  ,"tagging.match.also": " · également {origin}"
+  ,"tagging.match.not_applicable": "non applicable"
+  ,"tagging.analysis.validated": " · déjà validée"
+  ,"tagging.error_prefix": "Erreur"
   ,"cleanup.group": "Auditer les images téléchargées avec la blacklist Grabber"
   ,"cleanup.disk_group": "Utilisation disque"
   ,"cleanup.disk_models": "Modèles IA                 {total}\n\nWD14                       {wd14}\nEmbeddings                 {embeddings}\ne621 / furry               {e621}\nAutres                     {other}"
   ,"cleanup.disk_refresh": "Actualiser"
   ,"cleanup.disk_open_models": "Ouvrir le dossier"
   ,"cleanup.disk_unavailable": "Taille des modèles indisponible."
+  ,"cleanup.blacklist_group": "Blacklist"
+  ,"cleanup.blacklist_file": "Fichier :"
+  ,"cleanup.choose_blacklist": "Choisir un fichier blacklist"
   ,"cleanup.help": "Dépose un ou plusieurs dossiers ici. L’audit est en lecture seule ; aucune suppression n’est automatique."
   ,"cleanup.add": "Ajouter un dossier…"
   ,"cleanup.remove": "Retirer la sélection"

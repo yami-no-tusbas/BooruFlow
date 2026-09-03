@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QGroupBox,
     QHBoxLayout,
     QLabel,
+    QLineEdit,
     QListWidget,
     QPushButton,
     QVBoxLayout,
@@ -54,19 +55,24 @@ class CleanupPage(QWidget):
     scan_requested = Signal(tuple)
     stop_requested = Signal()
     recycle_requested = Signal()
+    blacklist_changed = Signal(str)
 
-    def __init__(self, catalog: LanguageCatalog, project_root: Path | None = None) -> None:
+    def __init__(
+        self, catalog: LanguageCatalog, settings: dict[str, object] | None = None,
+        project_root: Path | None = None,
+    ) -> None:
         super().__init__()
         self.catalog = catalog
-        self.project_root = project_root
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 20, 28, 24)
         self.title = QLabel()
         self.title.setStyleSheet("font-size: 22px; font-weight: 600;")
         layout.addWidget(self.title)
+        self.project_root = project_root
         self.disk_group = QGroupBox()
         disk_layout = QVBoxLayout(self.disk_group)
         self.disk_usage = QLabel()
+        self.disk_usage.setTextInteractionFlags(self.disk_usage.textInteractionFlags())
         disk_layout.addWidget(self.disk_usage)
         disk_actions = QHBoxLayout()
         self.refresh_disk_button = QPushButton()
@@ -95,6 +101,15 @@ class CleanupPage(QWidget):
         buttons.addStretch(1)
         box.addLayout(buttons)
         layout.addWidget(self.group)
+        self.blacklist_group = QGroupBox()
+        blacklist_layout = QHBoxLayout(self.blacklist_group)
+        self.blacklist_label = QLabel()
+        self.blacklist_file = QLineEdit(str((settings or {}).get("blacklist_file", "")))
+        self.blacklist_browse = QPushButton()
+        blacklist_layout.addWidget(self.blacklist_label)
+        blacklist_layout.addWidget(self.blacklist_file, 1)
+        blacklist_layout.addWidget(self.blacklist_browse)
+        layout.addWidget(self.blacklist_group)
         actions = QHBoxLayout()
         self.scan_button = QPushButton()
         self.stop_button = QPushButton()
@@ -118,6 +133,10 @@ class CleanupPage(QWidget):
         self.scan_button.clicked.connect(self._scan)
         self.stop_button.clicked.connect(self.stop_requested.emit)
         self.recycle_button.clicked.connect(self.recycle_requested.emit)
+        self.blacklist_browse.clicked.connect(self._browse_blacklist)
+        self.blacklist_file.editingFinished.connect(
+            lambda: self.blacklist_changed.emit(self.blacklist_file.text().strip())
+        )
         self.refresh_disk_button.clicked.connect(self.refresh_disk_usage)
         self.open_models_button.clicked.connect(self._open_models)
         self.retranslate()
@@ -136,9 +155,16 @@ class CleanupPage(QWidget):
 
     def _open_models(self) -> None:
         if self.project_root is not None:
-            QDesktopServices.openUrl(
-                QUrl.fromLocalFile(str(self.project_root / "var" / "models"))
-            )
+            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.project_root / "var" / "models")))
+
+    def _browse_blacklist(self) -> None:
+        selected, _filter = QFileDialog.getOpenFileName(
+            self, self.catalog.text("cleanup.choose_blacklist"),
+            self.blacklist_file.text().strip(), self.catalog.text("options.text_filter"),
+        )
+        if selected:
+            self.blacklist_file.setText(selected)
+            self.blacklist_changed.emit(selected)
 
     def _add(self) -> None:
         path = QFileDialog.getExistingDirectory(self, self.catalog.text("cleanup.choose_folder"))
@@ -188,6 +214,9 @@ class CleanupPage(QWidget):
         self.open_models_button.setText(text("cleanup.disk_open_models"))
         self.group.setTitle(text("cleanup.group"))
         self.help.setText(text("cleanup.help"))
+        self.blacklist_group.setTitle(text("cleanup.blacklist_group"))
+        self.blacklist_label.setText(text("cleanup.blacklist_file"))
+        self.blacklist_browse.setText(text("options.browse"))
         self.add_button.setText(text("cleanup.add"))
         self.remove_button.setText(text("cleanup.remove"))
         self.clear_button.setText(text("cleanup.clear"))

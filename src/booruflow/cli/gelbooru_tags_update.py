@@ -16,8 +16,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--db",
         type=Path,
-        default=Path(os.environ.get("GELBOORU_TAG_DB", "gelbooru_tags.db")),
-        help="Base SQLite de destination (ou variable GELBOORU_TAG_DB).",
+        required=True,
+        help="Base SQLite de destination explicitement sélectionnée.",
     )
     return parser.parse_args()
 

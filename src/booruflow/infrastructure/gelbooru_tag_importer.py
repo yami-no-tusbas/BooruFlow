@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from booruflow.infrastructure.gelbooru_aliases import catalog_operation_lock
+
 API_URL = "https://gelbooru.com/index.php"
 IMPORT_VERSION = "2.1-after-id-ascending"
 SCHEMA = """
@@ -224,7 +226,7 @@ def _consolidate_names(connection: sqlite3.Connection, progress: Callable[[str],
     )
 
 
-def rebuild_database(
+def _rebuild_database_unlocked(
     destination: Path,
     user_id: str,
     api_key: str,
@@ -381,3 +383,31 @@ def rebuild_database(
         f"bytes {previous_bytes:,} -> {destination.stat().st_size:,}"
     )
     return ImportSummary(rows, maximum_id, zero_counts, backup, destination)
+
+
+def rebuild_database(
+    destination: Path,
+    user_id: str,
+    api_key: str,
+    *,
+    fetcher: Callable[[int, str, str], list[dict]] = fetch_page,
+    progress: Callable[[str], None] = print,
+    minimum_rows: int = 100_000,
+    required_tags: tuple[str, ...] = ("office_lady", "military", "teacher", "witch"),
+    retries: int = 6,
+    maximum_id: int | None = None,
+) -> ImportSummary:
+    """Serialize all catalogue writers around the safe atomic rebuild."""
+    destination = destination.resolve()
+    with catalog_operation_lock(destination):
+        return _rebuild_database_unlocked(
+            destination,
+            user_id,
+            api_key,
+            fetcher=fetcher,
+            progress=progress,
+            minimum_rows=minimum_rows,
+            required_tags=required_tags,
+            retries=retries,
+            maximum_id=maximum_id,
+        )

@@ -15,6 +15,7 @@ class TaggingRequest:
     maximum_tags: int
     critical_maximum: int
     high_maximum: int
+    site: str = "gelbooru"
 
     def __post_init__(self) -> None:
         if self.pages_per_block < 1 or self.start_page < 1:
@@ -23,6 +24,8 @@ class TaggingRequest:
             raise ValueError("invalid tag-count range")
         if not self.minimum_tags <= self.critical_maximum <= self.high_maximum <= self.maximum_tags:
             raise ValueError("thresholds must satisfy minimum <= critical <= high <= maximum")
+        if self.site not in {"gelbooru", "e621"}:
+            raise ValueError("unsupported tagging site")
 
 
 def tagging_priority(count: int, critical_maximum: int, high_maximum: int) -> str:

@@ -1,3 +1,4 @@
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -9,6 +10,7 @@ from booruflow.application.publish_preparation import (
     PublishVerificationError,
 )
 from booruflow.domain.image_analysis import PublishState
+from booruflow.infrastructure.gelbooru_aliases import AliasRelation, GelbooruAliasRepository
 from booruflow.infrastructure.image_sources import ImageSourceError, PostNotFoundError
 
 
@@ -186,3 +188,82 @@ def test_post_submit_verification_accepts_requested_deltas() -> None:
     provider.tags = ["a", "c", "d", "external_tag"]
 
     assert service.verify_remote(prepared) == ("a", "c", "d", "external_tag")
+
+
+def test_verification_accepts_active_alias_addition_and_requires_alias_target_removal_absent(tmp_path):
+    database = Path(tmp_path) / "tags.db"
+    aliases = GelbooruAliasRepository(database)
+    from booruflow.infrastructure.gelbooru_aliases import ensure_alias_schema
+    ensure_alias_schema(database)
+    aliases.upsert(AliasRelation("china_dress", "qipao", "active"))
+    batch = entry(additions=["china_dress"], removals=["china_dress"])
+    provider = FakeGelbooru(["a", "b", "c"])
+    service = PublishPreparationService(FakeRepository(batch), provider, alias_database=database)
+    prepared = service.prepare(1)
+    provider.tags = ["a", "b", "c", "qipao"]
+    with pytest.raises(PublishVerificationError) as failure:
+        service.verify_remote(prepared)
+    assert failure.value.additions_missing == ()
+    assert failure.value.removals_still_present == ("china_dress",)
+
+
+def test_verification_uses_literal_fallback_when_alias_catalogue_is_absent(tmp_path):
+    missing_catalogue = Path(tmp_path) / "missing-aliases.db"
+    logs: list[str] = []
+    provider = FakeGelbooru(["a", "b", "c"])
+    service = PublishPreparationService(
+        FakeRepository(entry(additions=["china_dress"])),
+        provider,
+        alias_database=missing_catalogue,
+        log=logs.append,
+    )
+    prepared = service.prepare(1)
+
+    provider.tags = ["a", "b", "c", "china_dress"]
+    assert service.verify_remote(prepared) == ("a", "b", "c", "china_dress")
+    assert any("configured_path=" in line and "literal fallback" in line for line in logs)
+
+    provider.tags = ["a", "b", "c", "qipao"]
+    with pytest.raises(PublishVerificationError, match="additions_missing=1"):
+        service.verify_remote(prepared)
+
+
+def test_verification_logs_active_alias_resolution_when_canonical_tag_is_present(tmp_path):
+    database = Path(tmp_path) / "aliases.db"
+    from booruflow.infrastructure.gelbooru_aliases import ensure_alias_schema
+
+    ensure_alias_schema(database)
+    GelbooruAliasRepository(database).upsert(AliasRelation("china_dress", "qipao", "active"))
+    logs: list[str] = []
+    provider = FakeGelbooru(["a", "b", "c"])
+    service = PublishPreparationService(
+        FakeRepository(entry(additions=["china_dress"])),
+        provider,
+        alias_database=database,
+        log=logs.append,
+    )
+    prepared = service.prepare(1)
+
+    provider.tags = ["a", "b", "c", "qipao"]
+    assert service.verify_remote(prepared) == ("a", "b", "c", "qipao")
+    assert any("china_dress resolved to qipao: present" in line for line in logs)
+
+
+def test_verification_logs_a_valid_but_empty_alias_catalogue_once(tmp_path):
+    database = Path(tmp_path) / "aliases.db"
+    from booruflow.infrastructure.gelbooru_aliases import ensure_alias_schema
+
+    ensure_alias_schema(database)
+    logs: list[str] = []
+    provider = FakeGelbooru(["a", "b", "c"])
+    service = PublishPreparationService(
+        FakeRepository(entry(additions=["china_dress"])),
+        provider,
+        alias_database=database,
+        log=logs.append,
+    )
+    prepared = service.prepare(1)
+    provider.tags = ["a", "b", "c", "china_dress"]
+
+    assert service.verify_remote(prepared) == ("a", "b", "c", "china_dress")
+    assert sum("has no active aliases" in line for line in logs) == 1

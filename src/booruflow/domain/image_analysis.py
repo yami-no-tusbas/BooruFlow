@@ -43,6 +43,7 @@ class ObservationSource(StrEnum):
     GELBOORU = "gelbooru"
     E621 = "e621"
     WD14 = "wd14"
+    HYDRA = "hydra"
     YOLO = "yolo"
     MANUAL = "manual"
 

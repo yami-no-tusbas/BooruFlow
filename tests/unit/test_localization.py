@@ -39,3 +39,18 @@ class BundledCatalogTests(unittest.TestCase):
         english = json.loads((languages / "en.json").read_text(encoding="utf-8"))
         french = json.loads((languages / "fr.json").read_text(encoding="utf-8"))
         self.assertEqual(set(english) - {"_meta"}, set(french) - {"_meta"})
+
+    def test_tagging_meta_and_reviewed_batch_labels_never_render_raw_keys(self) -> None:
+        languages = Path(__file__).resolve().parents[2] / "resources" / "i18n"
+        expected = {
+            "en": ("Meta", "Reviewed locally"),
+            "fr": ("Méta", "Révisé localement"),
+        }
+        for language, values in expected.items():
+            catalog = LanguageCatalog(languages, language)
+            rendered = (
+                catalog.text("tagging.category.meta"),
+                catalog.text("tagging.batch.state.reviewed"),
+            )
+            self.assertEqual(rendered, values)
+            self.assertTrue(all(not value.startswith("tagging.") for value in rendered))

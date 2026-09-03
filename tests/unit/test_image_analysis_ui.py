@@ -521,7 +521,12 @@ class ImageAnalysisUiTests(unittest.TestCase):
         page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
         controller = ImageAnalysisController(
             self.root, sys.executable, page,
-            {"image_analysis_analysis_prefetch": 2}, dict, lambda _message: None,
+            {
+                "image_analysis_analysis_prefetch": 2,
+                "image_analysis_wd14_enabled": False,
+            },
+            dict,
+            lambda _message: None,
         )
         controller.add_local_files(paths)
         deadline = time.monotonic() + 10
@@ -567,6 +572,162 @@ class ImageAnalysisUiTests(unittest.TestCase):
         self.assertTrue(any("interpreter='D:\\\\python\\\\BooruFlow" in line for line in logs))
         process.state.return_value=QProcess.ProcessState.NotRunning; process.state.side_effect=None
         controller.shutdown(); page.close()
+
+    def test_worker_uses_current_wd14_settings_and_restarts_after_them(self)->None:
+        from unittest.mock import MagicMock
+
+        from PySide6.QtCore import QProcess
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+
+        settings = {
+            "image_analysis_wd14_enabled": True,
+            "image_analysis_wd14_model_directory": "D:/models/wd14-current",
+            "image_analysis_wd14_model_id": "current/model",
+            "image_analysis_wd14_store_threshold": 0.17,
+            "image_analysis_worker_recycle_after": 321,
+        }
+        page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
+        controller = ImageAnalysisController(
+            self.root, "python", page, settings, dict, lambda _line: None, auto_start_worker=False
+        )
+        process = MagicMock()
+        process.state.return_value = QProcess.ProcessState.NotRunning
+        controller.process = process
+        controller.start_worker()
+        arguments = process.start.call_args.args[1]
+        self.assertEqual(arguments[arguments.index("--wd14-model-directory") + 1], "D:/models/wd14-current")
+        self.assertEqual(arguments[arguments.index("--wd14-model-id") + 1], "current/model")
+        self.assertEqual(arguments[arguments.index("--wd14-store-threshold") + 1], "0.17")
+        self.assertEqual(arguments[arguments.index("--worker-recycle-after") + 1], "321")
+
+        process.state.return_value = QProcess.ProcessState.Running
+        changed = dict(settings, image_analysis_wd14_store_threshold=0.18)
+        controller.apply_settings(changed)
+        self.assertTrue(controller._restart_worker_on_exit)
+        process.write.assert_called_once_with(b"STOP\n")
+        process.state.return_value = QProcess.ProcessState.NotRunning
+        controller.shutdown(); page.close()
+
+    def test_worker_startup_failure_is_unavailable_without_restart_loop(self)->None:
+        from unittest.mock import MagicMock
+
+        from PySide6.QtCore import QProcess
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+
+        page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
+        controller = ImageAnalysisController(self.root, "python", page, {}, dict, lambda _line: None, auto_start_worker=False)
+        process = MagicMock(); process.state.return_value = QProcess.ProcessState.NotRunning
+        controller.process = process
+        controller._set_worker_state("initializing", "WD14 initialization")
+        controller._worker_finished(2, None)
+        self.assertEqual(controller.worker_startup_state, "unavailable")
+        self.assertFalse(controller.worker_restart_timer.isActive())
+        self.assertIn("unavailable", page.worker_state.text().casefold())
+        controller.shutdown(); page.close()
+
+    def test_unexpected_worker_exit_uses_bounded_restart_backoff(self)->None:
+        from unittest.mock import MagicMock
+
+        from PySide6.QtCore import QProcess
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import (
+            WORKER_RESTART_DELAYS_MS,
+            ImageAnalysisController,
+        )
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+
+        page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
+        controller = ImageAnalysisController(self.root, "python", page, {}, dict, lambda _line: None, auto_start_worker=False)
+        process = MagicMock(); process.state.return_value = QProcess.ProcessState.NotRunning
+        controller.process = process
+        controller._set_worker_state("starting", "ImageAnalysis starting")
+        controller._worker_finished(1, None)
+        self.assertEqual(controller.worker_startup_state, "restarting")
+        self.assertEqual(controller._restart_attempt, 1)
+        self.assertTrue(controller.worker_restart_timer.isActive())
+        controller.worker_restart_timer.stop()
+        for _attempt in WORKER_RESTART_DELAYS_MS[1:]:
+            controller._schedule_worker_restart("test failure", immediate=False)
+            controller.worker_restart_timer.stop()
+        controller._schedule_worker_restart("test failure", immediate=False)
+        self.assertEqual(controller.worker_startup_state, "unavailable")
+        self.assertFalse(controller.worker_restart_timer.isActive())
+        controller.shutdown(); page.close()
+
+    def test_pending_tagging_item_surfaces_worker_unavailable_state(self)->None:
+        from types import SimpleNamespace
+
+        from booruflow.domain.image_analysis import AnalysisState
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(LanguageCatalog(LANGUAGES, "en"), {})
+        controller = TaggingController(LanguageCatalog(LANGUAGES, "en"), page, dict, lambda _line: None)
+        item = SimpleNamespace(
+            id=7,
+            state=AnalysisState.PENDING,
+            cached_path=None,
+            last_error=None,
+        )
+        repository = SimpleNamespace(
+            item_by_remote_source=lambda _site, _post_id: item,
+            source_tags=lambda _item_id: (),
+            observations=lambda _item_id: [],
+        )
+        controller.image_analysis = SimpleNamespace(
+            repository=repository,
+            settings={},
+            worker_startup_state="unavailable",
+            worker_startup_detail="WD14 model is missing",
+        )
+        controller.current_post_id = 42
+        controller.current_post = {"id": 42, "tags": "solo"}
+        controller.refresh_local_review()
+        self.assertIn("unavailable", page.analysis_state.text().casefold())
+        page.close()
+
+    def test_tagging_reanalyze_button_reuses_current_item_and_retranslates(self)->None:
+        from types import SimpleNamespace
+
+        from booruflow.domain.image_analysis import AnalysisState
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        catalog = LanguageCatalog(LANGUAGES, "en")
+        page = TaggingPage(catalog, {})
+        controller = TaggingController(catalog, page, dict, lambda _line: None)
+        item = SimpleNamespace(id=8, state=AnalysisState.READY_FOR_REVIEW, cached_path=None, last_error=None)
+        calls = []
+        controller.image_analysis = SimpleNamespace(
+            repository=SimpleNamespace(
+                item_by_remote_source=lambda _site, _post_id: item,
+                source_tags=lambda _item_id: (),
+                observations=lambda _item_id: [],
+            ),
+            reanalyze_item=calls.append,
+            settings={},
+            worker_startup_state="ready",
+            worker_startup_detail="",
+        )
+        controller.current_post_id = 8
+        controller.current_post = {"id": 8, "tags": "solo"}
+        controller.refresh_local_review()
+        self.assertFalse(page.reanalyze_button.isHidden())
+        page.reanalyze_button.click()
+        self.assertEqual(calls, [8])
+        catalog.set_language("fr")
+        page.retranslate()
+        self.assertEqual(page.reanalyze_button.text(), "Ré-analyser")
+        page.close()
 
     def test_image_worker_shutdown_uses_cooperative_stop_before_fallback(self)->None:
         from unittest.mock import MagicMock, patch

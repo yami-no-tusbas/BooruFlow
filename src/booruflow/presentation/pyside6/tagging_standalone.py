@@ -78,8 +78,10 @@ class StandaloneTaggingWindow(QMainWindow):
         key_row = QHBoxLayout()
         key_row.addWidget(self.api_key, 1)
         key_row.addWidget(self.show_key)
-        credentials_layout.addRow(self.catalog.text("options.user_id"), self.user_id)
-        credentials_layout.addRow(self.catalog.text("options.api_key"), key_row)
+        self.user_id_label = QLabel(self.catalog.text("options.user_id"))
+        self.api_key_label = QLabel(self.catalog.text("options.api_key"))
+        credentials_layout.addRow(self.user_id_label, self.user_id)
+        credentials_layout.addRow(self.api_key_label, key_row)
         self.credential_note = QLabel(self.catalog.text("standalone.credential_note"))
         self.credential_note.setWordWrap(True)
         credentials_layout.addRow(self.credential_note)
@@ -119,6 +121,20 @@ class StandaloneTaggingWindow(QMainWindow):
         )
         self.page.start_requested.connect(self.start)
         self.page.stop_requested.connect(self.controller.stop)
+
+    def retranslate(self) -> None:
+        """Refresh standalone chrome and the embedded Tagging page in place."""
+        text = self.catalog.text
+        self.setWindowTitle(text("standalone.title"))
+        self.credentials_group.setTitle(text("standalone.credentials"))
+        self.user_id_label.setText(text("options.user_id"))
+        self.api_key_label.setText(text("options.api_key"))
+        self.show_key.setText(text("options.show_api_key"))
+        self.credential_note.setText(text("standalone.credential_note"))
+        self.save_credentials_button.setText(text("standalone.save_credentials"))
+        self.log_button.setText(text("log.hide" if self.log_view.isVisible() else "log.show"))
+        self.clear_button.setText(text("log.clear"))
+        self.page.retranslate()
 
     def credentials(self) -> dict[str, object]:
         return {

@@ -92,3 +92,31 @@ def search_tags(database: Path, request: TagSearch) -> list[TagRow]:
         return [TagRow(*row) for row in connection.execute(sql, values)]
     finally:
         connection.close()
+
+
+def exact_tags(database: Path, names: list[str]) -> list[TagRow]:
+    """Fetch several exact tag names with one read-only SQLite round trip."""
+    normalized = list(dict.fromkeys(str(name).strip() for name in names if str(name).strip()))
+    if not normalized:
+        return []
+    if not database.is_file():
+        raise FileNotFoundError(database)
+    connection = sqlite3.connect(f"file:{database.resolve().as_posix()}?mode=ro", uri=True)
+    try:
+        columns = {str(row[1]).casefold() for row in connection.execute("PRAGMA table_info(tags)")}
+        required = {"id", "name", "post_count", "category"}
+        if not required.issubset(columns):
+            raise ValueError(f"Unsupported tags schema; missing: {', '.join(sorted(required - columns))}")
+        ambiguous_column = "ambiguous" if "ambiguous" in columns else "0"
+        rows: list[TagRow] = []
+        for offset in range(0, len(normalized), 500):
+            chunk = normalized[offset : offset + 500]
+            placeholders = ",".join("?" for _name in chunk)
+            sql = (
+                f"SELECT id,name,post_count,category,{ambiguous_column} AS ambiguous "
+                f"FROM tags WHERE name COLLATE NOCASE IN ({placeholders})"
+            )
+            rows.extend(TagRow(*row) for row in connection.execute(sql, chunk))
+        return rows
+    finally:
+        connection.close()

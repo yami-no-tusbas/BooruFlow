@@ -12,8 +12,15 @@ from pathlib import Path
 from uuid import uuid4
 
 from booruflow.application.embedding import EmbeddingResult
-from booruflow.domain.image_analysis import AnalysisState, ColorStatistics, ModelIdentity
+from booruflow.application.tag_canonicalization import canonicalize_new_gelbooru_tag
+from booruflow.domain.image_analysis import (
+    AnalysisState,
+    ColorStatistics,
+    ModelIdentity,
+    ObservationSource,
+)
 from booruflow.infrastructure.classic_image_analysis import ClassicImageAnalyzer
+from booruflow.infrastructure.hydra import HydraBackend, HydraConfig, HydraResult
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
 from booruflow.infrastructure.image_sources import ImageSourceService
 from booruflow.infrastructure.media_frames import representative_frames
@@ -27,10 +34,19 @@ from booruflow.infrastructure.wd14 import (
 )
 
 
+def wd14_canonicalizer(site: str | None, alias_database: Path | None):
+    """Use Gelbooru aliases only for Gelbooru/local analysis contexts."""
+    if site not in {None, "gelbooru"}:
+        return None
+    return lambda name: canonicalize_new_gelbooru_tag(
+        name, alias_database
+    ).canonical_name
+
+
 class AnalysisBackend:
     identity: ModelIdentity
 
-    def analyze(self, path: Path) -> ColorStatistics | WD14Result:
+    def analyze(self, path: Path) -> ColorStatistics | WD14Result | HydraResult:
         raise NotImplementedError
 
 
@@ -38,7 +54,9 @@ class ItemHeartbeat:
     """Keep a claim alive while a backend performs a long blocking inference."""
 
     def __init__(self, database: Path, item_id: int, interval: float) -> None:
-        self.database = database; self.item_id = item_id; self.interval = max(0.1, interval)
+        self.database = database
+        self.item_id = item_id
+        self.interval = max(0.1, interval)
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self._run, daemon=True)
 
@@ -47,7 +65,8 @@ class ItemHeartbeat:
         return self
 
     def __exit__(self, *_args) -> None:
-        self.stop.set(); self.thread.join(timeout=self.interval + 1.0)
+        self.stop.set()
+        self.thread.join(timeout=self.interval + 1.0)
 
     def _run(self) -> None:
         with ImageAnalysisRepository(self.database) as repository:
@@ -63,12 +82,16 @@ class ImageAnalysisWorker:
         *,
         analysis_prefetch: int = 2,
         heartbeat_interval: float = 2.0,
+        alias_database: Path | None = None,
+        require_wd14: bool = False,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.repository = repository
         self.backends = tuple(backends)
         self.analysis_prefetch = analysis_prefetch
         self.heartbeat_interval = heartbeat_interval
+        self.alias_database = alias_database
+        self.require_wd14 = require_wd14
         self.clock = clock
         self.sources = ImageSourceService(repository, repository.path.parent.parent / "cache")
         self.last_scheduler_signature: tuple | None = None
@@ -78,19 +101,33 @@ class ImageAnalysisWorker:
     def log_scheduler_if_changed(self) -> None:
         diagnostic = self.repository.scheduler_diagnostic(self.analysis_prefetch)
         signature = tuple(
-            diagnostic[key] for key in (
-                "pending", "processing", "ready_ahead", "review_active",
-                "eligible", "interactive", "reason",
+            diagnostic[key]
+            for key in (
+                "pending",
+                "processing",
+                "ready_ahead",
+                "review_active",
+                "eligible",
+                "interactive",
+                "reason",
             )
         ) + tuple(diagnostic["candidate_ids"])
-        if signature == self.last_scheduler_signature: return
+        if signature == self.last_scheduler_signature:
+            return
         self.last_scheduler_signature = signature
         print(
             "[DEBUG] [Worker] Scheduler: "
             + "; ".join(
-                f"{key}={diagnostic[key]}" for key in (
-                    "pending", "processing", "ready_ahead", "review_active",
-                    "analysis_prefetch", "eligible", "interactive", "reason",
+                f"{key}={diagnostic[key]}"
+                for key in (
+                    "pending",
+                    "processing",
+                    "ready_ahead",
+                    "review_active",
+                    "analysis_prefetch",
+                    "eligible",
+                    "interactive",
+                    "reason",
                 )
             ),
             flush=True,
@@ -114,19 +151,41 @@ class ImageAnalysisWorker:
         print(f"[DEBUG] [Worker] [item:{item.id}] Item claimed", flush=True)
         run_id: int | None = None
         try:
+            active_backends = ", ".join(
+                backend.identity.backend for backend in self.backends
+            ) or "none"
+            print(
+                f"[DEBUG] [Worker] [item:{item.id}] Active backends: {active_backends}",
+                flush=True,
+            )
+            item_site = item.source.site
+            selected_backends = tuple(
+                backend for backend in self.backends
+                if not hasattr(backend, "supported_sites") or item_site in backend.supported_sites
+            )
+            if item_site == "e621" and not any(
+                backend.identity.backend == "hydra" for backend in selected_backends
+            ):
+                raise RuntimeError("Hydra is required for e621 but no Hydra backend is active")
+            if item_site != "e621" and self.require_wd14 and not any(
+                backend.identity.backend == "wd14" for backend in self.backends
+            ):
+                raise RuntimeError("WD14 was required but no WD14 backend is active")
             path = self.sources.validate_item_file(item)
             last_heartbeat = self.clock()
-            for backend in self.backends:
+            for backend in selected_backends:
                 identity = backend.identity
                 name = getattr(identity, "name", getattr(identity, "model", ""))
-                config_hash = getattr(
-                    identity, "configuration_hash", getattr(identity, "key", "")
-                )
+                config_hash = getattr(identity, "configuration_hash", getattr(identity, "key", ""))
                 device = getattr(identity, "device", getattr(backend, "device", ""))
                 run_id = self.repository.begin_model_run(
-                    item.id, identity.backend, name,
-                    identity.version, config_hash,
-                    str(getattr(backend, "runtime", "")), device,
+                    item.id,
+                    identity.backend,
+                    name,
+                    identity.version,
+                    config_hash,
+                    str(getattr(backend, "runtime", "")),
+                    device,
                 )
                 if run_id is None:
                     print(
@@ -151,7 +210,8 @@ class ImageAnalysisWorker:
                     with ItemHeartbeat(self.repository.path, item.id, self.heartbeat_interval):
                         results = [backend.analyze(frame) for frame in analysis_frames]
                 finally:
-                    if temporary is not None: temporary.cleanup()
+                    if temporary is not None:
+                        temporary.cleanup()
                 result = _merge_results(results)
                 if isinstance(result, ColorStatistics):
                     self.repository.save_statistics(item.id, run_id, result)
@@ -159,14 +219,30 @@ class ImageAnalysisWorker:
                     predictions = [
                         (tag.raw_name, tag.category, tag.score) for tag in result.predictions
                     ]
-                    self.repository.save_tag_predictions(item.id, run_id, predictions)
+                    self.repository.save_tag_predictions(
+                        item.id,
+                        run_id,
+                        predictions,
+                        canonicalize=wd14_canonicalizer(
+                            item.source.site, self.alias_database
+                        ),
+                    )
                     print(
-                        f"[DEBUG] [WD14] [item:{item.id}] "
-                        f"{len(predictions)} observations stored",
+                        f"[DEBUG] [WD14] [item:{item.id}] {len(predictions)} observations stored",
+                        flush=True,
+                    )
+                elif isinstance(result, HydraResult):
+                    predictions = [(tag.raw_name, tag.category, tag.score) for tag in result.predictions]
+                    self.repository.save_tag_predictions(
+                        item.id, run_id, predictions, source=ObservationSource.HYDRA
+                    )
+                    print(
+                        f"[DEBUG] [Hydra] [item:{item.id}] {len(predictions)} e621 observations stored",
                         flush=True,
                     )
                 elif isinstance(result, EmbeddingResult):
                     from array import array
+
                     values = array("f", result.vector)
                     self.repository.save_embedding(
                         item.id, run_id, values.tobytes(), len(values), "float32", True
@@ -218,14 +294,18 @@ def _merge_results(results):
         for result in results:
             for tag in result.predictions:
                 previous = merged.get((tag.raw_name, tag.category))
-                if previous is None or tag.score > previous.score: merged[(tag.raw_name, tag.category)] = tag
-        return WD14Result(tuple(sorted(merged.values(), key=lambda tag: (tag.raw_name, tag.category))))
+                if previous is None or tag.score > previous.score:
+                    merged[(tag.raw_name, tag.category)] = tag
+        return WD14Result(
+            tuple(sorted(merged.values(), key=lambda tag: (tag.raw_name, tag.category)))
+        )
     return results[0]
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(description="BooruFlow image-analysis worker")
     result.add_argument("--database", type=Path, required=True)
+    result.add_argument("--gelbooru-alias-database", type=Path)
     result.add_argument("--analysis-prefetch", type=int, default=2)
     result.add_argument("--heartbeat-interval", type=float, default=2.0)
     result.add_argument("--poll-interval", type=float, default=1.0)
@@ -236,6 +316,11 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--wd14-model-directory", type=Path)
     result.add_argument("--wd14-model-id", default=DEFAULT_MODEL_ID)
     result.add_argument("--wd14-store-threshold", type=float, default=0.10)
+    result.add_argument("--hydra-enabled", action="store_true")
+    result.add_argument("--hydra-source-directory", type=Path)
+    result.add_argument("--hydra-model-path", type=Path)
+    result.add_argument("--hydra-device", default="auto")
+    result.add_argument("--hydra-seqlen", type=int, default=256)
     result.add_argument("--worker-recycle-after", type=int, default=100)
     return result
 
@@ -265,7 +350,9 @@ def _watch_parent(
         kernel32.CloseHandle.restype = wintypes.BOOL
         handle = kernel32.OpenProcess(0x00100000, False, parent_pid)
         if not handle:
-            log(f"WARNING parent handle open failed error={ctypes.get_last_error()}; watchdog disabled")
+            log(
+                f"WARNING parent handle open failed error={ctypes.get_last_error()}; watchdog disabled"
+            )
             return
         log("parent handle opened")
         try:
@@ -274,7 +361,9 @@ def _watch_parent(
                 log("parent exit detected")
                 os._exit(0)
             if result == 0xFFFFFFFF:
-                log(f"WARNING parent wait failed error={ctypes.get_last_error()}; watchdog disabled")
+                log(
+                    f"WARNING parent wait failed error={ctypes.get_last_error()}; watchdog disabled"
+                )
         finally:
             kernel32.CloseHandle(handle)
         return
@@ -314,7 +403,8 @@ def main(
         print(
             f"[INFO] [Worker] Worker started pid={os.getpid()} parent={args.parent_pid} "
             f"session={worker_id} interpreter={sys.executable!r} "
-            f"base_interpreter={getattr(sys, '_base_executable', sys.executable)!r}", flush=True,
+            f"base_interpreter={getattr(sys, '_base_executable', sys.executable)!r}",
+            flush=True,
         )
         if stop.is_set():
             repository.stop_worker(worker_id)
@@ -323,29 +413,38 @@ def main(
         backends: list[AnalysisBackend] = [ClassicImageAnalyzer()]
         if args.wd14_enabled:
             if args.wd14_model_directory is None:
-                print("WD14_UNAVAILABLE model directory was not provided", flush=True)
+                message = "model directory was not provided"
+                print(f"WD14_UNAVAILABLE {message}", flush=True)
+                trace(f"WD14 unavailable: {message}")
+                trace("Worker startup failed code=2")
+                repository.stop_worker(worker_id, message)
+                return 2
             else:
+                trace("WD14 initialization begin")
                 trace("WD14 init begin")
-                wd14 = WD14Backend(WD14Config(
-                    args.wd14_model_directory, args.wd14_model_id, args.wd14_store_threshold
-                ))
+                wd14 = WD14Backend(
+                    WD14Config(
+                        args.wd14_model_directory, args.wd14_model_id, args.wd14_store_threshold
+                    )
+                )
                 try:
                     trace("ONNX/WD14 prepare begin")
                     wd14.prepare(trace)
+                    trace("ONNX/WD14 prepare complete")
                     if stop.is_set():
                         repository.stop_worker(worker_id)
                         wd14.close()
                         trace("stop observed after WD14 prepare")
                         return 0
                     trace("WD14 model loaded")
+                    trace("WD14 init complete")
                     backends.append(wd14)
                     print(
                         f"[INFO] [WD14] Model loaded; provider={wd14.provider}; "
-                        f"device={wd14.device}", flush=True,
+                        f"device={wd14.device}",
+                        flush=True,
                     )
-                    print(
-                        f"WD14_READY {wd14.provider} {wd14.device} {wd14.runtime}", flush=True
-                    )
+                    print(f"WD14_READY {wd14.provider} {wd14.device} {wd14.runtime}", flush=True)
                     diagnostic = wd14.runtime_diagnostic
                     print(
                         "WD14_RUNTIME "
@@ -359,6 +458,21 @@ def main(
                     )
                 except WD14UnavailableError as exc:
                     print(f"WD14_UNAVAILABLE {exc}", flush=True)
+                    trace(f"WD14 model load failed: {exc}")
+                    trace(f"WD14 unavailable: {exc}")
+                    trace("Worker startup failed code=2")
+                    wd14.close()
+                    repository.stop_worker(worker_id, str(exc))
+                    return 2
+        if args.hydra_enabled:
+            hydra = HydraBackend(HydraConfig(
+                args.hydra_source_directory or Path(),
+                args.hydra_model_path or Path(),
+                args.hydra_device,
+                args.hydra_seqlen,
+            ))
+            backends.append(hydra)
+            print("[INFO] [Hydra] Registered lazily for e621; batch_size=1", flush=True)
         if not parent_watchdog_started:
             trace("watchdog thread start requested")
             threading.Thread(
@@ -370,9 +484,24 @@ def main(
         threading.Thread(target=_watch_stdin, args=(stop,), daemon=True).start()
         trace("cooperative stop watcher started")
         worker = ImageAnalysisWorker(
-            repository, backends,
+            repository,
+            backends,
             analysis_prefetch=args.analysis_prefetch,
             heartbeat_interval=args.heartbeat_interval,
+            alias_database=args.gelbooru_alias_database,
+            require_wd14=args.wd14_enabled,
+        )
+        print(
+            "[INFO] [Worker] Active backends: "
+            + ", ".join(
+                getattr(
+                    getattr(backend, "identity", None),
+                    "backend",
+                    getattr(backend, "backend", type(backend).__name__),
+                )
+                for backend in backends
+            ),
+            flush=True,
         )
         print(f"READY {worker_id} pid={os.getpid()}", flush=True)
         completed = 0

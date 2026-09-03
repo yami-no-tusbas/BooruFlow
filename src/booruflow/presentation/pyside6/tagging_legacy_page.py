@@ -41,6 +41,7 @@ from booruflow.application.tagging import (
     build_final_tags_clipboard,
     parse_review_row_token,
 )
+from booruflow.domain.booru_sites import site_definition
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.presentation.pyside6.image_analysis_page import ScaledImageLabel
 
@@ -123,44 +124,44 @@ class TaggingLegacyPage(QWidget):
 
     def _build_review(self) -> None:
         layout = QVBoxLayout(self.review); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(5)
-        nav = QHBoxLayout(); self.back_button = QPushButton("← Retour aux résultats [Esc]"); self.previous_button = QPushButton("← Précédent"); self.next_button = QPushButton("Suivant →")
-        self.review_title = QLabel("Sélectionnez une vignette"); self.analysis_state = QLabel("Analyse locale : non demandée"); self.result_counter = QLabel("Post 0 / 0")
+        nav = QHBoxLayout(); self.back_button = QPushButton(); self.previous_button = QPushButton(); self.next_button = QPushButton()
+        self.review_title = QLabel(); self.analysis_state = QLabel(); self.result_counter = QLabel()
         for widget in (self.back_button, self.previous_button, self.next_button, self.review_title): nav.addWidget(widget)
         self.video_error_link = QPushButton(); self.video_error_link.hide(); self.video_error_link.clicked.connect(self._open_current_post)
         nav.addWidget(self.analysis_state, 1); nav.addWidget(self.video_error_link); nav.addWidget(self.result_counter); layout.addLayout(nav)
         self.review_splitter = QSplitter(Qt.Orientation.Horizontal); image_panel = QWidget(); image_layout = QVBoxLayout(image_panel); image_layout.setContentsMargins(0,0,4,0)
         self.preview = ScaledImageLabel(); image_layout.addWidget(self.preview, 1); self.video = QVideoWidget(); self.video.hide(); image_layout.addWidget(self.video, 1); self.video_player = QMediaPlayer(self); self.video_audio = QAudioOutput(self); self.video_player.setAudioOutput(self.video_audio); self.video_player.setVideoOutput(self.video)
-        self.video_play = QPushButton("Lire"); self.video_stop = QPushButton("Stop"); self.video_seek = QSlider(Qt.Orientation.Horizontal); self.video_controls = QHBoxLayout(); self.video_controls.addWidget(self.video_play); self.video_controls.addWidget(self.video_stop); self.video_controls.addWidget(self.video_seek, 1); self.video_controls_widget = QWidget(); self.video_controls_widget.setLayout(self.video_controls); self.video_controls_widget.hide(); image_layout.addWidget(self.video_controls_widget)
+        self.video_play = QPushButton(); self.video_stop = QPushButton(); self.video_seek = QSlider(Qt.Orientation.Horizontal); self.video_controls = QHBoxLayout(); self.video_controls.addWidget(self.video_play); self.video_controls.addWidget(self.video_stop); self.video_controls.addWidget(self.video_seek, 1); self.video_controls_widget = QWidget(); self.video_controls_widget.setLayout(self.video_controls); self.video_controls_widget.hide(); image_layout.addWidget(self.video_controls_widget)
         self.video_play.clicked.connect(self._toggle_video); self.video_stop.clicked.connect(self._stop_video); self.video_seek.sliderMoved.connect(self.video_player.setPosition); self.video_player.positionChanged.connect(self.video_seek.setValue); self.video_player.durationChanged.connect(self.video_seek.setMaximum); self.video_player.errorOccurred.connect(self._video_error); self.video_player.mediaStatusChanged.connect(self._video_media_status_changed); self.video_player.playbackStateChanged.connect(self._video_playback_state_changed); self.video_player.durationChanged.connect(self._video_duration_changed)
         for name in ("videoTracksChanged", "audioTracksChanged"):
             signal = getattr(self.video_player, name, None)
             if signal is not None:
                 signal.connect(self._video_tracks_changed)
-        zoom_row = QHBoxLayout(); zoom_row.addWidget(QLabel("Zoom")); self.zoom = QComboBox()
+        zoom_row = QHBoxLayout(); self.zoom_label = QLabel(); zoom_row.addWidget(self.zoom_label); self.zoom = QComboBox()
         for label, value in (("Ajuster",0),("100 %",100),("200 %",200),("400 %",400)): self.zoom.addItem(label, value)
         zoom_row.addWidget(self.zoom); zoom_row.addStretch(1); image_layout.addLayout(zoom_row); self.review_splitter.addWidget(image_panel)
         self.right_splitter = QSplitter(Qt.Orientation.Vertical)
         suggestions_panel = QWidget(); suggestions_layout = QVBoxLayout(suggestions_panel); suggestions_layout.setContentsMargins(4,0,0,0)
-        filter_row = QHBoxLayout(); filter_row.addWidget(QLabel("Revue des tags")); filter_row.addStretch(1); filter_row.addWidget(QLabel("Décision :")); self.decision_filter = QComboBox()
-        for label, value in (("Tous","all"),("À examiner","unreviewed"),("Conserver / ajouter","accepted"),("Retirer / ignorer","rejected")): self.decision_filter.addItem(label,value)
+        filter_row = QHBoxLayout(); self.review_section_label = QLabel(); filter_row.addWidget(self.review_section_label); filter_row.addStretch(1); self.decision_label = QLabel(); filter_row.addWidget(self.decision_label); self.decision_filter = QComboBox()
+        for key, value in (("all","all"),("unreviewed","unreviewed"),("accepted","accepted"),("rejected","rejected")): self.decision_filter.addItem(self.catalog.text(f"tagging.review.filter.{key}"),value)
         self.decision_filter.setCurrentIndex(1); filter_row.addWidget(self.decision_filter); suggestions_layout.addLayout(filter_row)
-        self.suggestions = QTableWidget(0,5); self.suggestions.setHorizontalHeaderLabels(("Tag","Confiance","Décision","Origine / correspondance","ID")); self.suggestions.setColumnHidden(4,True)
+        self.suggestions = QTableWidget(0,5); self.suggestions.setHorizontalHeaderLabels(("Tag","Confidence","Decision","Origin / match","ID")); self.suggestions.setColumnHidden(4,True)
         self.suggestions.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.suggestions.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.suggestions.setSortingEnabled(True); self.suggestions.sortByColumn(1, Qt.SortOrder.DescendingOrder)
         self.suggestions.horizontalHeader().sortIndicatorChanged.connect(self._sort_changed); self.decision_filter.currentIndexChanged.connect(self._render_suggestions)
         suggestions_layout.addWidget(self.suggestions,1); self.right_splitter.addWidget(suggestions_panel)
         self.review_splitter.addWidget(self.right_splitter); self.review_splitter.setStretchFactor(0,3); self.review_splitter.setStretchFactor(1,2); layout.addWidget(self.review_splitter,1)
-        self.legacy_tag_row = QWidget(); tags = QHBoxLayout(self.legacy_tag_row); tags.setContentsMargins(0, 0, 0, 0); tags.addWidget(QLabel("Tags finaux :")); self.tags_to_add = QLineEdit(); self.tags_to_add.setReadOnly(True); tags.addWidget(self.tags_to_add, 2); tags.addWidget(QLabel("Ajouter :")); self.manual_tag = QLineEdit(); self.manual_add = QPushButton("Ajouter"); tags.addWidget(self.manual_tag, 1); tags.addWidget(self.manual_add); layout.addWidget(self.legacy_tag_row)
+        self.legacy_tag_row = QWidget(); tags = QHBoxLayout(self.legacy_tag_row); tags.setContentsMargins(0, 0, 0, 0); self.final_tags_label = QLabel(); tags.addWidget(self.final_tags_label); self.tags_to_add = QLineEdit(); self.tags_to_add.setReadOnly(True); tags.addWidget(self.tags_to_add, 2); self.legacy_add_label = QLabel(); tags.addWidget(self.legacy_add_label); self.manual_tag = QLineEdit(); self.manual_add = QPushButton(); tags.addWidget(self.manual_tag, 1); tags.addWidget(self.manual_add); layout.addWidget(self.legacy_tag_row)
         from PySide6.QtCore import QStringListModel
         self.manual_suggestions = QStringListModel(self); self.manual_completer = QCompleter(self.manual_suggestions, self); self.manual_tag.setCompleter(self.manual_completer)
         self.manual_lookup_timer = QTimer(self); self.manual_lookup_timer.setSingleShot(True); self.manual_lookup_timer.setInterval(200); self.manual_lookup_timer.timeout.connect(lambda: self.manual_lookup_requested.emit(self.manual_tag.text().strip()))
         self.manual_tag.textEdited.connect(lambda text: self._schedule_manual_lookup(text)); self.manual_add.clicked.connect(self._emit_manual_add); self.manual_tag.returnPressed.connect(self._emit_manual_add)
         self.action_bar = QFrame(); self.action_bar.setFrameShape(QFrame.Shape.StyledPanel); self.action_bar.setSizePolicy(QSizePolicy.Policy.Expanding,QSizePolicy.Policy.Fixed)
         actions = QVBoxLayout(self.action_bar); actions.setContentsMargins(6,4,6,4); validation = QHBoxLayout()
-        self.analyze_button = QPushButton("Analyser localement"); self.accept_button = QPushButton("Accepter [A]"); self.reject_button = QPushButton("Rejeter [R]"); self.map_button = QPushButton("Associer…"); self.refresh_button = QPushButton("Actualiser les métadonnées")
+        self.analyze_button = QPushButton(); self.accept_button = QPushButton(); self.reject_button = QPushButton(); self.map_button = QPushButton(); self.refresh_button = QPushButton()
         for button in (self.analyze_button,self.accept_button,self.reject_button,self.map_button): validation.addWidget(button)
         validation.addStretch(1); validation.addWidget(self.refresh_button); actions.addLayout(validation); workflow = QHBoxLayout(); workflow.addStretch(1)
-        self.copy_button = QPushButton("Copier les tags finaux"); self.copy_all_button = QPushButton("Copier (tags finaux)"); self.copy_open_button = QPushButton("Copier + ouvrir"); self.open_button = QPushButton("Ouvrir Gelbooru")
+        self.copy_button = QPushButton(); self.copy_all_button = QPushButton(); self.copy_open_button = QPushButton(); self.open_button = QPushButton()
         for button in (self.copy_button,self.copy_all_button,self.copy_open_button,self.open_button): workflow.addWidget(button)
         for button in (
             self.analyze_button, self.accept_button, self.reject_button, self.map_button,
@@ -194,7 +195,7 @@ class TaggingLegacyPage(QWidget):
                 card.setText(self.catalog.text("tagging.card",id=pid,count=int(post.get("tag_count",0)))); card.clicked.connect(lambda _checked=False,value=post:self._open_result_post(value)); section.add_card(card); self.result_buttons[pid]=card
                 preview=str(post.get("preview_url") or "")
                 if preview:
-                    request=QNetworkRequest(QUrl(preview)); request.setRawHeader(b"User-Agent",b"BooruFlow/0.1"); request.setRawHeader(b"Referer",b"https://gelbooru.com/"); reply=self.network.get(request)
+                    request=QNetworkRequest(QUrl(preview)); request.setRawHeader(b"User-Agent",b"BooruFlow/0.1"); request.setRawHeader(b"Referer",site_definition(getattr(self,"active_site","gelbooru")).base_url.encode()); reply=self.network.get(request)
                     reply.finished.connect(lambda current=reply,target=card,value=generation:self._thumbnail_ready(current,target,value))
         self.result_posts=ordered; self.current_result_index=-1; self.show_search()
     def _clear_results(self) -> None:
@@ -225,7 +226,7 @@ class TaggingLegacyPage(QWidget):
         if self.result_posts and self.current_result_index>=0:self._open_result(self.current_result_index+delta)
     def _update_counter(self)->None:
         total=len(self.result_posts); current=self.current_result_index+1 if self.current_result_index>=0 else 0; remaining=sum(int(p.get("id",0)) not in self.processed_in_session for p in self.result_posts)
-        self.result_counter.setText(f"Post {current} / {total} · {remaining} restants"); self.previous_button.setEnabled(total>1); self.next_button.setEnabled(total>1)
+        self.result_counter.setText(self.catalog.text("tagging.review.counter", current=current, total=total, remaining=remaining)); self.previous_button.setEnabled(total>1); self.next_button.setEnabled(total>1)
     def _open_post(self,post_id:int)->None:
         self.activity_logged.emit("Open",f"Gelbooru #{post_id}"); url=f"https://gelbooru.com/index.php?page=post&s=view&id={post_id}"
         if self.browser_launcher:self.browser_launcher.open(url)
@@ -267,10 +268,10 @@ class TaggingLegacyPage(QWidget):
     def _mark_processed_and_advance(self)->None:
         if not self.result_posts or self.current_post_id is None:return
         self.processed_in_session.add(self.current_post_id); button=self.result_buttons.get(self.current_post_id)
-        if button and "✓" not in button.text():button.setText(f"✓ Traité\n{button.text()}")
+        if button and "✓" not in button.text():button.setText(self.catalog.text("tagging.review.processed", label=button.text()))
         indexes=list(range(self.current_result_index+1,len(self.result_posts)))+list(range(self.current_result_index))
         target=next((i for i in indexes if int(self.result_posts[i].get("id",0)) not in self.processed_in_session),None)
-        if target is None:self.state.setText("Tous les résultats de cette recherche ont été traités."); self.show_search()
+        if target is None:self.state.setText(self.catalog.text("tagging.review.all_processed")); self.show_search()
         else:self._open_result(target)
     def _clipboard_text(self,mode:str)->str:
         _ = mode
@@ -286,19 +287,23 @@ class TaggingLegacyPage(QWidget):
     def show_local_review(self,state,image_path,source_tags,rows,suggested_additions,final_tags)->None:
         self.mode_stack.setCurrentWidget(self.review)
         self.analysis_state.setText(state); self._set_preview_media(image_path); self._all_suggestion_rows=list(rows); self._render_suggestions()
-        self._review_ready=state.startswith(("Analyse disponible","Déjà analysée"));busy=state.startswith(("Analyse en attente","Analyse en cours"))
-        self.analyze_button.setEnabled(bool(self.current_post_id) and not self._review_ready and not busy);self.analyze_button.setText("Réessayer" if state.startswith("Erreur") else "Analyse en cours…" if busy else "Analyser localement")
+        self._review_ready=state.startswith((self.catalog.text("tagging.analysis.ready"),self.catalog.text("tagging.analysis.reviewed")));busy=state.startswith((self.catalog.text("tagging.analysis.pending"),self.catalog.text("tagging.analysis.processing")))
+        failed = state.startswith((self.catalog.text("tagging.error_prefix"), self.catalog.text("tagging.analysis.failed", error="").strip()))
+        self.analyze_button.setEnabled(bool(self.current_post_id) and not self._review_ready and not busy);self.analyze_button.setText(self.catalog.text("tagging.review.retry") if failed else self.catalog.text("tagging.analysis.processing") if busy else self.catalog.text("tagging.review.analyze"))
         _ = suggested_additions
         self.tags_to_add.setText(" ".join(final_tags));self.copy_all_button.setProperty("tags"," ".join(final_tags));self.copy_button.setEnabled(bool(final_tags));self.copy_all_button.setEnabled(bool(final_tags));self._update_review_action_states()
     def _sort_changed(self,column,order)->None:self._sort_column=column;self._sort_order=order
     def _render_suggestions(self,*_args)->None:
         selected_id=self._selected_observation_id(); decision=str(self.decision_filter.currentData()); visible={"accepted":{"accepted","keep"},"rejected":{"rejected","remove"}}.get(decision,{decision}); rows=[row for row in self._all_suggestion_rows if decision=="all" or row["decision"] in visible]
-        self.suggestions.setSortingEnabled(False); self.suggestions.clearContents(); self.suggestions.setRowCount(len(rows)); decision_order={"unreviewed":0,"accepted":1,"keep":1,"rejected":2,"remove":2}; match_order={"exact":0,"mapping":1,"déjà présent":2,"introuvable localement":3,"non applicable":4}
+        self.suggestions.setSortingEnabled(False); self.suggestions.clearContents(); self.suggestions.setRowCount(len(rows)); decision_order={"unreviewed":0,"accepted":1,"keep":1,"rejected":2,"remove":2}; match_order={"exact":0,"mapping":1,self.catalog.text("tagging.match.already_present").casefold():2,self.catalog.text("tagging.match.missing").casefold():3,self.catalog.text("tagging.match.not_applicable").casefold():4}
         for r,row in enumerate(rows):
             confidence=float(row["confidence"] or -1); match_text=str(row["match"]); match_key=next((rank for name,rank in match_order.items() if name in match_text.casefold()),9)
             token_kind, token_value = parse_review_row_token(row["id"])
-            values=((row["tag"],str(row["tag"]).casefold()),(row["confidence"],confidence),(row["decision"],decision_order.get(row["decision"],9)),(match_text,match_key),(str(row["id"]),(token_kind, token_value)))
-            for c,(text,key) in enumerate(values):self.suggestions.setItem(r,c,SuggestionItem(str(text),key))
+            values=((row["tag"],str(row["tag"]).casefold()),(row["confidence"],confidence),(self.catalog.text(f"tagging.review.decision.{row['decision']}"),decision_order.get(row["decision"],9)),(match_text,match_key),(str(row["id"]),(token_kind, token_value)))
+            for c,(text,key) in enumerate(values):
+                item=SuggestionItem(str(text),key)
+                if c==2:item.setData(Qt.ItemDataRole.UserRole,row["decision"])
+                self.suggestions.setItem(r,c,item)
         self.suggestions.setSortingEnabled(True); self.suggestions.sortItems(self._sort_column,self._sort_order); self.suggestions.resizeColumnsToContents(); target_id=self._pending_next_id if self._pending_fallback_row is not None else selected_id; selected_row=-1
         if target_id is not None:
             for r in range(self.suggestions.rowCount()):
@@ -318,18 +323,18 @@ class TaggingLegacyPage(QWidget):
         self.video.setVisible(is_video); self.video_controls_widget.setVisible(is_video); self.preview.setVisible(not is_video)
         if is_video:
             source = QUrl(video_source) if video_source else QUrl.fromLocalFile(str(path))
-            self._log_video_diagnostic("source", source); self.video_player.setSource(source); self.video_play.setText("Lire")
+            self._log_video_diagnostic("source", source); self.video_player.setSource(source); self.video_play.setText(self.catalog.text("tagging.review.play"))
         else: self.preview.set_animated_image(path) or self.preview.set_image(path)
     def _toggle_video(self)->None:
-        if self.video_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:self.video_player.pause();self.video_play.setText("Lire")
-        else:self.video_player.play();self.video_play.setText("Pause")
+        if self.video_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:self.video_player.pause();self.video_play.setText(self.catalog.text("tagging.review.play"))
+        else:self.video_player.play();self.video_play.setText(self.catalog.text("tagging.review.pause"))
     def _stop_video(self)->None:
-        self.video_player.stop(); self.video_seek.setValue(0); self.video_play.setText("Lire")
+        self.video_player.stop(); self.video_seek.setValue(0); self.video_play.setText(self.catalog.text("tagging.review.play"))
     def _video_error(self, *_args)->None:
         self._log_video_diagnostic("error")
-        self._stop_video(); self.analysis_state.setText("Lecture vidéo impossible dans BooruFlow.")
+        self._stop_video(); self.analysis_state.setText(self.catalog.text("tagging.review.video_error"))
         if self.current_post_id:
-            self.video_error_link.setText(f"Ouvrir le post #{self.current_post_id}")
+            self.video_error_link.setText(self.catalog.text("tagging.review.open_post", post_id=self.current_post_id))
             self.video_error_link.show()
     def _video_media_status_changed(self, *_args)->None:
         self._log_video_diagnostic("media-status")
@@ -361,7 +366,7 @@ class TaggingLegacyPage(QWidget):
         value=self.manual_tag.text().strip()
         if value:self.manual_add_requested.emit(value)
     def clear_manual_entry(self)->None:self.manual_tag.clear();self.manual_suggestions.setStringList([])
-    def set_analysis_request_state(self,text:str,busy:bool)->None:self.analysis_state.setText(text);self.analyze_button.setEnabled(not busy);self.analyze_button.setText("Analyse en cours…" if busy else "Analyser localement")
+    def set_analysis_request_state(self,text:str,busy:bool)->None:self.analysis_state.setText(text);self.analyze_button.setEnabled(not busy);self.analyze_button.setText(self.catalog.text("tagging.analysis.processing") if busy else self.catalog.text("tagging.review.analyze"))
     def eventFilter(self,watched,event)->bool:
         if event.type()!=QEvent.Type.KeyPress:return super().eventFilter(watched,event)
         widget=watched if isinstance(watched,QWidget) else None
@@ -379,9 +384,21 @@ class TaggingLegacyPage(QWidget):
             return True
         return super().eventFilter(watched,event)
     def retranslate(self)->None:
-        text=self.catalog.text;self.title.setText(text("nav.tagging_legacy"));self.group.setTitle(text("tagging.group"));self.query_label.setText(text("tagging.query"))
-        for key,label in self.spin_labels.items():label.setText(text(f"tagging.{key}"))
-        self.start_button.setText(text("tagging.start_button"));self.stop_button.setText(text("tagging.stop"))
-        if self.catalog.code=="fr":self.copy_open_button.setText("Copier + ouvrir [Espace]");self.copy_open_button.setToolTip("Copier les tags puis ouvrir le post (Espace)")
-        else:self.copy_open_button.setText("Copy + open [Space]");self.copy_open_button.setToolTip("Copy tags then open the post (Space)")
-        if self.start_button.isEnabled():self.state.setText(text("tagging.ready"))
+        text = self.catalog.text
+        self.title.setText(text("nav.tagging_legacy")); self.group.setTitle(text("tagging.group")); self.query_label.setText(text("tagging.query"))
+        for key,label in self.spin_labels.items(): label.setText(text(f"tagging.{key}"))
+        self.start_button.setText(text("tagging.start_button")); self.stop_button.setText(text("tagging.stop"))
+        self.back_button.setText(text("tagging.review.back")); self.previous_button.setText(text("tagging.review.previous")); self.next_button.setText(text("tagging.review.next"))
+        self.zoom_label.setText(text("tagging.review.zoom")); self.zoom.setItemText(0, text("tagging.review.zoom_fit"))
+        self.review_section_label.setText(text("tagging.review.section")); self.decision_label.setText(text("tagging.review.decision_label"))
+        for index, key in enumerate(("all", "unreviewed", "accepted", "rejected")): self.decision_filter.setItemText(index, text(f"tagging.review.filter.{key}"))
+        for index, key in enumerate(("tag", "confidence", "decision", "match", "id")): self.suggestions.horizontalHeaderItem(index).setText(text(f"tagging.review.header.{key}"))
+        for row in range(self.suggestions.rowCount()):
+            item=self.suggestions.item(row,2)
+            if item is not None and item.data(Qt.ItemDataRole.UserRole):item.setText(text(f"tagging.review.decision.{item.data(Qt.ItemDataRole.UserRole)}"))
+        self.final_tags_label.setText(text("tagging.review.final_tags")); self.legacy_add_label.setText(text("tagging.review.add_label")); self.manual_add.setText(text("tagging.review.add"))
+        self.analyze_button.setText(text("tagging.review.analyze")); self.accept_button.setText(text("tagging.review.accept")); self.reject_button.setText(text("tagging.review.reject")); self.map_button.setText(text("tagging.review.map")); self.refresh_button.setText(text("tagging.review.refresh_metadata"))
+        self.copy_button.setText(text("tagging.review.copy_final")); self.copy_all_button.setText(text("tagging.review.copy_all")); self.copy_open_button.setText(text("tagging.review.copy_open")); self.copy_open_button.setToolTip(text("tagging.review.copy_open_tip")); self.open_button.setText(text("tagging.review.open_gelbooru"))
+        self.video_play.setText(text("tagging.review.play")); self.video_stop.setText(text("tagging.review.stop_video"))
+        self._update_counter()
+        if self.start_button.isEnabled(): self.state.setText(text("tagging.ready"))

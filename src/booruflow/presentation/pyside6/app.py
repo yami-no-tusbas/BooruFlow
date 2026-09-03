@@ -10,6 +10,12 @@ from PySide6.QtCore import QCoreApplication
 from PySide6.QtWidgets import QApplication
 
 from booruflow.application import resolve_capabilities
+from booruflow.application.database_paths import (
+    gelbooru_alias_database,
+    gelbooru_tag_database,
+    migrate_database_settings,
+)
+from booruflow.infrastructure.gelbooru_aliases import migrate_alias_catalog
 from booruflow.infrastructure.grabber import GrabberInstallation
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.settings import JsonSettingsRepository, migrate_blacklist_setting
@@ -24,7 +30,8 @@ def project_root() -> Path:
 def initial_settings(root: Path) -> dict[str, object]:
     return {
         "language": "en",
-        "gelbooru_database": str(root / "data" / "databases" / "gelbooru_tags.db"),
+        "gelbooru_tag_database": str(root / "data" / "databases" / "gelbooru_tags.db"),
+        "gelbooru_alias_database": str(root / "data" / "databases" / "gelbooru_aliases.db"),
         "e621_database": str(root / "data" / "databases" / "e621_tags.db"),
         "blacklist_file": "",
         "output_root": str(root / "var" / "results"),
@@ -42,6 +49,11 @@ def initial_settings(root: Path) -> dict[str, object]:
             root / "var" / "models" / "image_analysis" / "wd-vit-tagger-v3"
         ),
         "image_analysis_wd14_store_threshold": 0.10,
+        "image_analysis_hydra_enabled": False,
+        "image_analysis_hydra_source_directory": str(root / "var" / "models" / "image_analysis" / "hydra-3.5-src"),
+        "image_analysis_hydra_model_path": str(root / "var" / "models" / "image_analysis" / "hydra-3.5-src" / "models" / "hydra-3.5.safetensors"),
+        "image_analysis_hydra_device": "auto",
+        "image_analysis_hydra_seqlen": 256,
         "image_analysis_wd14_display_threshold": 0.30,
         "image_analysis_worker_recycle_after": 100,
         "image_analysis_drop_confirmation_threshold": 250,
@@ -65,8 +77,13 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
         settings_repository.save(settings)
     else:
         settings, migrated = migrate_blacklist_setting(settings)
+        settings, database_migrated = migrate_database_settings(settings, root)
+        migrated = migrated or database_migrated
         if migrated:
             settings_repository.save(settings)
+    alias_database = gelbooru_alias_database(settings)
+    if alias_database is not None and not alias_database.exists():
+        migrate_alias_catalog(gelbooru_tag_database(settings), alias_database)
     grabber_executable = str(settings.get("grabber_executable", "")).strip() or shutil.which(
         "Grabber.exe"
     )

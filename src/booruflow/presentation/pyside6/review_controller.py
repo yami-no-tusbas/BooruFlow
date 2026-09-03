@@ -12,6 +12,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QThread, QTimer, Signal
 
+from booruflow.application.database_paths import gelbooru_tag_database
 from booruflow.application.ports import SettingsRepository
 from booruflow.application.review import EngineCommand, ReviewRequest, build_review_commands
 from booruflow.infrastructure.gelbooru_client import fetch_result_count
@@ -401,7 +402,7 @@ class ReviewCoordinator(QObject):
         request_sites = tuple(self.page.site.currentData())
         settings = self.settings_repository.load() if self.settings_repository else {}
         candidates = (
-            ("Gelbooru", Path(str(settings.get("gelbooru_database", "")))),
+            ("Gelbooru", gelbooru_tag_database(settings) or Path()),
             ("e621", Path(str(settings.get("e621_database", "")))),
         )
         databases = tuple(

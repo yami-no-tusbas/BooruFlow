@@ -117,6 +117,9 @@ def prepare_wd14_image(image: Image.Image, target_size: int):
 
 class WD14Backend:
     backend = "wd14"
+    # WD14 is BooruFlow's Gelbooru/local tagger.  The worker uses this explicit
+    # capability marker to prevent the e621-only Hydra route from invoking it.
+    supported_sites = frozenset({None, "gelbooru"})
 
     def __init__(self, config: WD14Config) -> None:
         self.config = config

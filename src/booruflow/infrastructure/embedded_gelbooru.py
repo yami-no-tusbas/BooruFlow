@@ -16,17 +16,21 @@ from typing import Any
 from urllib.parse import parse_qs, urlencode, urljoin, urlparse
 
 from PySide6.QtCore import QObject, QThread, QTimer, QUrl, Signal, Slot
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWebEngineCore import QWebEnginePage, QWebEngineProfile
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtWidgets import (
     QCheckBox,
     QDialog,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMessageBox,
     QPushButton,
+    QTabWidget,
     QVBoxLayout,
+    QWidget,
 )
 
 from booruflow.infrastructure.gelbooru_cdp_diagnostic import (
@@ -51,6 +55,8 @@ from booruflow.infrastructure.gelbooru_http_diagnostic import (
 
 GELBOORU_HOME = "https://gelbooru.com/"
 GELBOORU_ACCOUNT = "https://gelbooru.com/index.php?page=account&s=home"
+E621_HOME = "https://e621.net/"
+E621_ACCOUNT = "https://e621.net/users/home"
 
 _SAFE_FIELD_RE = re.compile(r"[^A-Za-z0-9_-]")
 _SENSITIVE_FORM_FIELDS = frozenset({"csrf-token", "uid", "uname", "lupdated"})
@@ -2062,23 +2068,23 @@ class LazyGelbooruEditTransport:
 class GelbooruEditPrototypeDialog(QDialog):
     """Visible real-Edit experiment; Save remains a separate user action."""
 
-    def __init__(self, profile: EmbeddedGelbooruProfile, parent=None, *, log=None) -> None:
+    def __init__(self, profile: EmbeddedGelbooruProfile, catalog, parent=None, *, log=None) -> None:
         super().__init__(parent)
-        self.profile = profile; self.log = log or (lambda _message: None)
-        self.setWindowTitle("Browser automation prototype")
+        self.profile = profile; self.catalog = catalog; self.log = log or (lambda _message: None)
+        self.setWindowTitle(catalog.text("browser.prototype.title"))
         self.resize(1000, 720)
         self.view = QWebEngineView(self); self.view.setPage(profile.create_page(self.view))
         self.post_id = QLineEdit("14795705"); self.additions = QLineEdit(); self.removals = QLineEdit()
-        self.status = QLabel("Prêt — aucun Save automatique")
-        self.open_button = QPushButton("Ouvrir et cliquer Edit")
-        self.apply_button = QPushButton("Appliquer les deltas")
-        self.save_button = QPushButton("Save test")
+        self.status = QLabel(catalog.text("browser.prototype.ready"))
+        self.open_button = QPushButton(catalog.text("browser.prototype.open"))
+        self.apply_button = QPushButton(catalog.text("browser.prototype.apply"))
+        self.save_button = QPushButton(catalog.text("browser.prototype.save"))
         self.apply_button.setEnabled(False); self.save_button.setEnabled(False)
         self.open_button.clicked.connect(self._open); self.apply_button.clicked.connect(self._apply)
         self.save_button.clicked.connect(self._save_test); self.view.loadFinished.connect(self._loaded)
-        form = QHBoxLayout(); form.addWidget(QLabel("Post #")); form.addWidget(self.post_id)
-        form.addWidget(QLabel("Ajouts")); form.addWidget(self.additions)
-        form.addWidget(QLabel("Retraits")); form.addWidget(self.removals)
+        form = QHBoxLayout(); form.addWidget(QLabel(catalog.text("browser.prototype.post"))); form.addWidget(self.post_id)
+        form.addWidget(QLabel(catalog.text("browser.prototype.additions"))); form.addWidget(self.additions)
+        form.addWidget(QLabel(catalog.text("browser.prototype.removals"))); form.addWidget(self.removals)
         controls = QHBoxLayout(); controls.addWidget(self.open_button); controls.addWidget(self.apply_button)
         controls.addWidget(self.save_button); controls.addStretch(1); controls.addWidget(self.status)
         layout = QVBoxLayout(self); layout.addLayout(form); layout.addWidget(self.view, 1); layout.addLayout(controls)
@@ -2092,22 +2098,22 @@ class GelbooruEditPrototypeDialog(QDialog):
     def _open(self) -> None:
         post_id = self.post_id.text().strip()
         if not post_id.isdigit():
-            self.status.setText("Post ID invalide"); return
+            self.status.setText(self.catalog.text("browser.prototype.invalid_id")); return
         self.apply_button.setEnabled(False); self.save_button.setEnabled(False)
         self._opening = True; self._waiting = 0
-        self.status.setText("Chargement de la page — aucun Save")
+        self.status.setText(self.catalog.text("browser.prototype.loading"))
         self.view.load(QUrl(f"https://gelbooru.com/index.php?page=post&s=view&id={post_id}"))
 
     def _loaded(self, ok: bool) -> None:
         if not self._opening: return
         if not ok:
-            self.status.setText("Erreur de chargement"); self._opening = False; return
+            self.status.setText(self.catalog.text("browser.prototype.load_error")); self._opening = False; return
         self.view.page().runJavaScript(EDIT_WORKFLOW_CLICK_EDIT_SCRIPT, self._edit_clicked)
 
     def _edit_clicked(self, result: object) -> None:
         values = EmbeddedGelbooruBridge._decoded_mapping(result)
         if values.get("status") not in {"edit_clicked", "already_visible"}:
-            self.status.setText("Contrôle Edit réel introuvable"); self._opening = False; return
+            self.status.setText(self.catalog.text("browser.prototype.edit_missing")); self._opening = False; return
         self._poll_visible()
 
     def _poll_visible(self) -> None:
@@ -2121,7 +2127,7 @@ class GelbooruEditPrototypeDialog(QDialog):
         ready = all(values.get(key) is True for key in ("editFormVisible", "tagsFieldPresent", "savePresent", "postIdMatches"))
         writable = ready and values.get("tagsFieldDisabled") is False and values.get("tagsFieldReadonly") is False and values.get("saveDisabled") is False
         self.apply_button.setEnabled(writable)
-        self.status.setText("Edit ouvert — Save disponible" if writable else "Edit non prêt ou Save désactivé")
+        self.status.setText(self.catalog.text("browser.prototype.edit_ready" if writable else "browser.prototype.edit_not_ready"))
         self.log("Gelbooru real Edit prototype: " + " ".join(
             f"{key}={str(values.get(key) is True).lower()}" for key in (
                 "editFormVisible", "tagsFieldPresent", "savePresent", "postIdMatches"
@@ -2139,10 +2145,10 @@ class GelbooruEditPrototypeDialog(QDialog):
             "additionsPresent", "removalsAbsent", "unrelatedPreserved"
         )) and values.get("saveDisabled") is False
         self.save_button.setEnabled(ready)
-        self.status.setText("Deltas préparés — vérifiez visuellement avant Save test" if ready else "Préparation refusée")
+        self.status.setText(self.catalog.text("browser.prototype.prepared" if ready else "browser.prototype.refused"))
 
     def _save_test(self) -> None:
-        if QMessageBox.question(self, "Confirmer Save test", "Le vrai bouton Save changes va être cliqué.") != QMessageBox.StandardButton.Yes:
+        if QMessageBox.question(self, self.catalog.text("browser.prototype.confirm_title"), self.catalog.text("browser.prototype.confirm")) != QMessageBox.StandardButton.Yes:
             return
         self.view.page().runJavaScript(r"""(() => {
             const save = document.querySelector('#edit_form input[type="submit"][name="submit"][value="Save changes"]');
@@ -2151,42 +2157,39 @@ class GelbooruEditPrototypeDialog(QDialog):
 
 
 class GelbooruSessionDialog(QDialog):
-    """Small visible login/Cloudflare window sharing the publisher profile."""
+    """Visible tabbed booru browser sharing authentication, never publisher pages."""
 
     http_diagnostic_state_changed = Signal(bool)
 
-    def __init__(self, profile: EmbeddedGelbooruProfile, parent=None, *, log=None) -> None:
+    def __init__(self, profile: EmbeddedGelbooruProfile, catalog, parent=None, *, log=None) -> None:
         super().__init__(parent)
         self.profile = profile
+        self.catalog = catalog
         self.log = log or (lambda _message: None)
-        self.setWindowTitle("Session Gelbooru")
+        self.setWindowTitle(self.catalog.text("browser.title"))
         self.resize(1000, 720)
-        self.view = QWebEngineView(self)
-        self.view.setPage(profile.create_page(self.view))
-        self.address = QLineEdit(); self.address.setReadOnly(True)
-        self.status = QLabel("État : session à vérifier")
-        self.manual_diagnostic = QCheckBox("Diagnostic formulaire (bloque Save changes)")
-        self.manual_diagnostic.setToolTip(
-            "Intercepte Save changes et remplace Publier le lot par un snapshot "
-            "FormData sans POST."
-        )
+        self.tabs = QTabWidget(self); self.tabs.setTabsClosable(True); self.tabs.setMovable(True)
+        self.tabs.tabCloseRequested.connect(self.close_tab)
+        self.tabs.currentChanged.connect(self._tab_changed)
+        self.view: QWebEngineView | None = None
+        self.address = QLineEdit(); self.address.returnPressed.connect(self._navigate_address)
+        self.status = QLabel()
+        self.manual_diagnostic = QCheckBox()
         self.http_additions = QLineEdit()
-        self.http_additions.setPlaceholderText("Ajouts HTTP attendus")
         self.http_removals = QLineEdit()
-        self.http_removals.setPlaceholderText("Retraits HTTP attendus")
-        self.http_diagnostic = QCheckBox("Tracer le prochain POST réel via CDP")
-        self.http_diagnostic.setToolTip(
-            "N'envoie rien seul. Requiert un lancement avec "
-            "--embedded-cdp-diagnostic ; le prochain Save changes réellement "
-            "cliqué sera analysé puis la trace se désarmera."
-        )
-        self.prototype_button = QPushButton("Prototype Edit réel")
-        back = QPushButton("←"); forward = QPushButton("→")
-        reload_button = QPushButton("Recharger"); close_button = QPushButton("Fermer")
-        back.clicked.connect(self.view.back); forward.clicked.connect(self.view.forward)
-        reload_button.clicked.connect(self.view.reload); close_button.clicked.connect(self.close)
-        self.view.urlChanged.connect(lambda url: self.address.setText(url.toString()))
-        self.view.loadFinished.connect(self._loaded)
+        self.http_diagnostic = QCheckBox()
+        self.prototype_button = QPushButton()
+        self.back_button = QPushButton("←"); self.forward_button = QPushButton("→")
+        self.reload_button = QPushButton(); self.home_button = QPushButton()
+        self.account_button = QPushButton(); self.new_tab_button = QPushButton("+")
+        self.close_button = QPushButton()
+        self.back_button.clicked.connect(lambda: self.view and self.view.back())
+        self.forward_button.clicked.connect(lambda: self.view and self.view.forward())
+        self.reload_button.clicked.connect(lambda: self.view and self.view.reload())
+        self.home_button.clicked.connect(lambda: self.open_url(self._site_urls()[0]))
+        self.account_button.clicked.connect(lambda: self.open_url(self._site_urls()[1]))
+        self.new_tab_button.clicked.connect(lambda: self.new_tab(self._site_urls()[0]))
+        self.close_button.clicked.connect(self.close)
         self.manual_diagnostic.toggled.connect(self._toggle_manual_diagnostic)
         self.http_diagnostic.toggled.connect(self._toggle_manual_http_diagnostic)
         self.prototype_button.clicked.connect(self._open_real_edit_prototype)
@@ -2197,26 +2200,120 @@ class GelbooruSessionDialog(QDialog):
         self._manual_probe_timer.setInterval(250)
         self._manual_probe_timer.timeout.connect(self._poll_manual_snapshot)
         controls = QHBoxLayout()
-        for widget in (back, forward, reload_button, self.address): controls.addWidget(widget)
-        layout = QVBoxLayout(self); layout.addLayout(controls); layout.addWidget(self.view, 1)
+        for widget in (self.back_button, self.forward_button, self.reload_button, self.home_button, self.account_button, self.address, self.new_tab_button): controls.addWidget(widget)
+        layout = QVBoxLayout(self); layout.addLayout(controls); layout.addWidget(self.tabs, 1)
         http_controls = QHBoxLayout()
-        http_controls.addWidget(QLabel("Cibles du diagnostic HTTP :"))
+        self.http_targets_label = QLabel(); http_controls.addWidget(self.http_targets_label)
         http_controls.addWidget(self.http_additions)
         http_controls.addWidget(self.http_removals)
         http_controls.addWidget(self.http_diagnostic)
-        layout.addLayout(http_controls)
-        footer = QHBoxLayout(); footer.addWidget(self.status); footer.addStretch(1)
-        footer.addWidget(self.manual_diagnostic); footer.addWidget(self.prototype_button); footer.addWidget(close_button)
+        self.diagnostics_group = QGroupBox()
+        self.diagnostics_group.setCheckable(True); self.diagnostics_group.setChecked(False)
+        diagnostics_layout = QVBoxLayout(self.diagnostics_group); diagnostics_layout.addLayout(http_controls)
+        diagnostic_actions = QHBoxLayout(); diagnostic_actions.addStretch(1)
+        diagnostic_actions.addWidget(self.manual_diagnostic); diagnostic_actions.addWidget(self.prototype_button)
+        diagnostics_layout.addLayout(diagnostic_actions); layout.addWidget(self.diagnostics_group)
+        footer = QHBoxLayout(); footer.addWidget(self.status); footer.addStretch(1); footer.addWidget(self.close_button)
         layout.addLayout(footer)
-        self.view.load(QUrl(GELBOORU_HOME))
+        self.diagnostics_group.toggled.connect(self._set_diagnostics_visible)
+        self.new_tab(GELBOORU_HOME)
+        self.focus_address_shortcut = QShortcut(QKeySequence("Ctrl+L"), self)
+        self.new_tab_shortcut = QShortcut(QKeySequence("Ctrl+T"), self)
+        self.close_tab_shortcut = QShortcut(QKeySequence("Ctrl+W"), self)
+        self.focus_address_shortcut.activated.connect(self._focus_address)
+        self.new_tab_shortcut.activated.connect(lambda: self.new_tab(self._site_urls()[0]))
+        self.close_tab_shortcut.activated.connect(lambda: self.close_tab(self.tabs.currentIndex()))
+        self._set_diagnostics_visible(False)
+        self.retranslate()
+
+    def retranslate(self) -> None:
+        text = self.catalog.text
+        self.setWindowTitle(text("browser.title"))
+        self.reload_button.setText(text("browser.reload"))
+        self.home_button.setText(text("browser.home"))
+        self.account_button.setText(text("browser.account"))
+        self.close_button.setText(text("browser.close"))
+        self.new_tab_button.setToolTip(text("browser.new_tab"))
+        self.address.setPlaceholderText(text("browser.address"))
+        self.diagnostics_group.setTitle(text("browser.developer_diagnostics"))
+        self.status.setText(text("browser.status_not_tested"))
+        self.manual_diagnostic.setText(text("browser.diagnostic_form"))
+        self.http_additions.setPlaceholderText(text("browser.diagnostic_additions"))
+        self.http_removals.setPlaceholderText(text("browser.diagnostic_removals"))
+        self.http_diagnostic.setText(text("browser.diagnostic_http"))
+        self.prototype_button.setText(text("browser.diagnostic_prototype"))
+        self.http_targets_label.setText(text("browser.diagnostic_targets"))
+        self.manual_diagnostic.setToolTip(text("browser.diagnostic_form_tip"))
+        self.http_diagnostic.setToolTip(text("browser.diagnostic_http_tip"))
+
+    def _set_diagnostics_visible(self, visible: bool) -> None:
+        for child in self.diagnostics_group.findChildren(QWidget):
+            child.setVisible(visible)
+
+    def new_tab(self, url: str | QUrl = GELBOORU_HOME) -> QWebEngineView:
+        view = QWebEngineView(self.tabs)
+        view.setPage(self.profile.create_page(view))
+        index = self.tabs.addTab(view, "New tab")
+        view.urlChanged.connect(lambda value, tab=view: self._url_changed(tab, value))
+        view.titleChanged.connect(lambda title, tab=view: self._title_changed(tab, title))
+        view.loadFinished.connect(lambda ok, tab=view: self._tab_loaded(tab, ok))
+        self.tabs.setCurrentIndex(index)
+        view.load(url if isinstance(url, QUrl) else QUrl.fromUserInput(url))
+        return view
+
+    def close_tab(self, index: int) -> None:
+        if self.tabs.count() <= 1:
+            self.tabs.widget(0).load(QUrl(self._site_urls()[0]))
+            return
+        widget = self.tabs.widget(index)
+        self.tabs.removeTab(index)
+        widget.deleteLater()
+
+    def open_url(self, url: str, *, new_tab: bool = False) -> None:
+        if new_tab or self.view is None:
+            self.new_tab(url)
+        else:
+            self.view.load(QUrl.fromUserInput(url))
+
+    def _site_urls(self) -> tuple[str, str]:
+        host = self.view.url().host().casefold() if self.view is not None else ""
+        if host in {"e621.net", "www.e621.net", "e926.net", "www.e926.net"}:
+            return E621_HOME, E621_ACCOUNT
+        return GELBOORU_HOME, GELBOORU_ACCOUNT
+
+    def _tab_changed(self, index: int) -> None:
+        widget = self.tabs.widget(index)
+        self.view = widget if isinstance(widget, QWebEngineView) else None
+        if self.view is not None:
+            self.address.setText(self.view.url().toString())
+
+    def _navigate_address(self) -> None:
+        if self.view is not None:
+            self.view.load(QUrl.fromUserInput(self.address.text().strip()))
+
+    def _focus_address(self) -> None:
+        self.address.setFocus(); self.address.selectAll()
+
+    def _url_changed(self, view: QWebEngineView, url: QUrl) -> None:
+        if view is self.view:
+            self.address.setText(url.toString())
+
+    def _title_changed(self, view: QWebEngineView, title: str) -> None:
+        index = self.tabs.indexOf(view)
+        if index >= 0:
+            self.tabs.setTabText(index, (title.strip() or view.url().host() or "New tab")[:40])
+
+    def _tab_loaded(self, view: QWebEngineView, ok: bool) -> None:
+        if view is self.view:
+            self._loaded(ok)
 
     def _open_real_edit_prototype(self) -> None:
-        self._prototype_dialog = GelbooruEditPrototypeDialog(self.profile, self, log=self.log)
+        self._prototype_dialog = GelbooruEditPrototypeDialog(self.profile, self.catalog, self, log=self.log)
         self._prototype_dialog.show(); self._prototype_dialog.raise_(); self._prototype_dialog.activateWindow()
 
     def _loaded(self, ok: bool) -> None:
         if not ok:
-            self.status.setText("État : erreur de chargement")
+            self.status.setText(self.catalog.text("browser.status_load_error"))
             return
         self.view.page().runJavaScript(SESSION_DIAGNOSTIC_SCRIPT, self._show_session_state)
         if self.manual_diagnostic.isChecked():
@@ -2225,11 +2322,11 @@ class GelbooruSessionDialog(QDialog):
     def _show_session_state(self, result: object) -> None:
         state = classify_session(result).state
         if state is SessionState.AUTHENTICATED:
-            self.status.setText("État : connecté")
+            self.status.setText(self.catalog.text("browser.status_ready"))
         elif state is SessionState.UNAUTHENTICATED:
-            self.status.setText("État : non connecté")
+            self.status.setText(self.catalog.text("browser.status_login_required"))
         else:
-            self.status.setText("État : session à vérifier / challenge éventuel")
+            self.status.setText(self.catalog.text("browser.status_unknown"))
 
     def _toggle_manual_diagnostic(self, enabled: bool) -> None:
         if enabled:
@@ -2241,7 +2338,7 @@ class GelbooruSessionDialog(QDialog):
         else:
             self._manual_probe_timer.stop()
             self.view.page().runJavaScript(MANUAL_FORM_DIAGNOSTIC_DISABLE_SCRIPT)
-            self.status.setText("État : diagnostic formulaire désactivé")
+            self.status.setText(self.catalog.text("browser.diagnostic_disabled"))
             self.log("Gelbooru manual form diagnostic: disabled")
 
     @staticmethod
@@ -2255,7 +2352,7 @@ class GelbooruSessionDialog(QDialog):
             additions = self._diagnostic_tags(self.http_additions.text())
             removals = self._diagnostic_tags(self.http_removals.text())
             self._pending_http_expectation = (additions, removals)
-            self.status.setText("État : blocage Save changes pendant l'armement CDP…")
+            self.status.setText(self.catalog.text("browser.diagnostic_arming"))
             self.view.page().runJavaScript(
                 MANUAL_FORM_DIAGNOSTIC_INSTALL_SCRIPT,
                 self._http_submit_guard_ready,
@@ -2269,7 +2366,7 @@ class GelbooruSessionDialog(QDialog):
     def _http_submit_guard_ready(self, result: object) -> None:
         values = EmbeddedGelbooruBridge._decoded_mapping(result)
         if str(values.get("status", "")) != "armed":
-            self.status.setText("État : blocage Save changes indisponible — aucun POST")
+            self.status.setText(self.catalog.text("browser.diagnostic_unavailable"))
             self._pending_http_expectation = None
             return
         expectation = self._pending_http_expectation
@@ -2281,25 +2378,18 @@ class GelbooruSessionDialog(QDialog):
         )
         if not armed:
             reason = self.profile.last_http_diagnostic_error or "unknown"
-            self.status.setText(
-                "État : diagnostic CDP indisponible "
-                f"({reason}) — Save changes reste bloqué"
-            )
+            self.status.setText(self.catalog.text("browser.diagnostic_cdp_error", reason=reason))
             self._pending_http_expectation = None
             return
         self._pending_http_expectation = None
         self.view.page().runJavaScript(MANUAL_FORM_DIAGNOSTIC_DISABLE_SCRIPT)
         self.http_diagnostic_state_changed.emit(True)
-        self.status.setText(
-            "État : trace HTTP armée — Save changes enverra exactement un POST"
-        )
+        self.status.setText(self.catalog.text("browser.diagnostic_http_armed"))
 
     def _http_diagnostic_finished(self, source: str) -> None:
         if self.http_diagnostic.isChecked():
             self.http_diagnostic.setChecked(False)
-        self.status.setText(
-            f"État : trace HTTP {source} capturée — diagnostic désarmé"
-        )
+        self.status.setText(self.catalog.text("browser.diagnostic_http_done", source=source))
 
     def _arm_manual_diagnostic(self) -> None:
         self.view.page().runJavaScript(
@@ -2310,11 +2400,9 @@ class GelbooruSessionDialog(QDialog):
         values = EmbeddedGelbooruBridge._decoded_mapping(result)
         status = str(values.get("status", ""))
         if status == "armed":
-            self.status.setText(
-                "État : diagnostic armé — Save changes sera bloqué"
-            )
+            self.status.setText(self.catalog.text("browser.diagnostic_form_armed"))
         elif status not in {"form", "tags"}:
-            self.status.setText("État : diagnostic formulaire non disponible")
+            self.status.setText(self.catalog.text("browser.diagnostic_form_unavailable"))
 
     def _poll_manual_snapshot(self) -> None:
         if self._manual_probe_running or not self.manual_diagnostic.isChecked():
@@ -2340,8 +2428,6 @@ class GelbooruSessionDialog(QDialog):
             set_checked = getattr(self.manual_diagnostic, "setChecked", None)
             if callable(set_checked):
                 set_checked(False)
-            self.status.setText(
-                "État : snapshot manuel capturé — envoi bloqué et diagnostic désarmé"
-            )
+            self.status.setText(self.catalog.text("browser.diagnostic_snapshot_done"))
         else:
-            self.status.setText("État : erreur du diagnostic manuel — envoi bloqué")
+            self.status.setText(self.catalog.text("browser.diagnostic_snapshot_error"))

@@ -23,6 +23,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from booruflow.application.database_paths import gelbooru_tag_database
 from booruflow.application.review import ReviewRequest
 from booruflow.infrastructure.localization import LanguageCatalog
 
@@ -204,7 +205,7 @@ class ReviewPage(QWidget):
     def build_request(self) -> ReviewRequest:
         sites = tuple(self.site.currentData())
         entity = str(self.entity.currentData())
-        gel_db = Path(str(self.settings.get("gelbooru_database", "")))
+        gel_db = gelbooru_tag_database(self.settings) or Path()
         e621_db = Path(str(self.settings.get("e621_database", "")))
         blacklist_value = str(self.settings.get("blacklist_file", "")).strip()
         return ReviewRequest(

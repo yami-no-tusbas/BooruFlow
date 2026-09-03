@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal
-from PySide6.QtGui import QDragEnterEvent, QDropEvent
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from booruflow.application.model_inventory import format_size, inventory_models, model_totals
 from booruflow.infrastructure.localization import LanguageCatalog
 
 
@@ -54,14 +55,28 @@ class CleanupPage(QWidget):
     stop_requested = Signal()
     recycle_requested = Signal()
 
-    def __init__(self, catalog: LanguageCatalog) -> None:
+    def __init__(self, catalog: LanguageCatalog, project_root: Path | None = None) -> None:
         super().__init__()
         self.catalog = catalog
+        self.project_root = project_root
         layout = QVBoxLayout(self)
         layout.setContentsMargins(28, 20, 28, 24)
         self.title = QLabel()
         self.title.setStyleSheet("font-size: 22px; font-weight: 600;")
         layout.addWidget(self.title)
+        self.disk_group = QGroupBox()
+        disk_layout = QVBoxLayout(self.disk_group)
+        self.disk_usage = QLabel()
+        disk_layout.addWidget(self.disk_usage)
+        disk_actions = QHBoxLayout()
+        self.refresh_disk_button = QPushButton()
+        self.open_models_button = QPushButton()
+        self.open_models_button.setEnabled(project_root is not None)
+        disk_actions.addWidget(self.refresh_disk_button)
+        disk_actions.addWidget(self.open_models_button)
+        disk_actions.addStretch(1)
+        disk_layout.addLayout(disk_actions)
+        layout.addWidget(self.disk_group)
         self.group = QGroupBox()
         box = QVBoxLayout(self.group)
         self.help = QLabel()
@@ -103,7 +118,27 @@ class CleanupPage(QWidget):
         self.scan_button.clicked.connect(self._scan)
         self.stop_button.clicked.connect(self.stop_requested.emit)
         self.recycle_button.clicked.connect(self.recycle_requested.emit)
+        self.refresh_disk_button.clicked.connect(self.refresh_disk_usage)
+        self.open_models_button.clicked.connect(self._open_models)
         self.retranslate()
+        self.refresh_disk_usage()
+
+    def refresh_disk_usage(self) -> None:
+        if self.project_root is None:
+            self.disk_usage.setText(self.catalog.text("cleanup.disk_unavailable"))
+            return
+        totals = model_totals(inventory_models(self.project_root))
+        self.disk_usage.setText(self.catalog.text(
+            "cleanup.disk_models", total=format_size(totals["total"]),
+            wd14=format_size(totals["wd14"]), embeddings=format_size(totals["embeddings"]),
+            e621=format_size(totals["e621"]), other=format_size(totals["other"]),
+        ))
+
+    def _open_models(self) -> None:
+        if self.project_root is not None:
+            QDesktopServices.openUrl(
+                QUrl.fromLocalFile(str(self.project_root / "var" / "models"))
+            )
 
     def _add(self) -> None:
         path = QFileDialog.getExistingDirectory(self, self.catalog.text("cleanup.choose_folder"))
@@ -148,6 +183,9 @@ class CleanupPage(QWidget):
     def retranslate(self) -> None:
         text = self.catalog.text
         self.title.setText(text("nav.cleanup"))
+        self.disk_group.setTitle(text("cleanup.disk_group"))
+        self.refresh_disk_button.setText(text("cleanup.disk_refresh"))
+        self.open_models_button.setText(text("cleanup.disk_open_models"))
         self.group.setTitle(text("cleanup.group"))
         self.help.setText(text("cleanup.help"))
         self.add_button.setText(text("cleanup.add"))

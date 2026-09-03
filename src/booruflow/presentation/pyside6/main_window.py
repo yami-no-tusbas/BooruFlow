@@ -265,7 +265,7 @@ class MainWindow(QMainWindow):
         )
         self.wiki_page.organization_tag_requested.connect(self._open_organization_tag)
         add_page(self.wiki_page)
-        self.cleanup_page = CleanupPage(catalog)
+        self.cleanup_page = CleanupPage(catalog, self.project_root)
         self.cleanup_controller = CleanupController(
             self.project_root,
             self.catalog,

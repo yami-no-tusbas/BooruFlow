@@ -42,6 +42,13 @@ image-analysis-openclip = [
     "torch>=2.5,<3",
     "open-clip-torch>=2.29,<4",
 ]
+image-analysis-hydra = [
+    "Pillow>=10,<13",
+    "numpy>=1.26,<3",
+    "torch>=2.6,<3",
+    "einops>=0.8,<1",
+    "safetensors>=0.5,<1",
+]
 
 [tool.setuptools]
 package-dir = { "" = "src" }

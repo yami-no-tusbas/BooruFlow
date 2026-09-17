@@ -1,0 +1,6 @@
+fundoshi 1boy
+loincloth 1boy
+swim_trunks 1boy
+briefs 1boy
+boxers 1boy
+jockstrap 1boy

@@ -1,0 +1,7 @@
+facial_hair 1boy
+beard 1boy
+mustache 1boy
+armpit_hair 1boy
+chest_hair 1boy
+body_hair 1boy
+leg_hair 1boy

@@ -1,0 +1,910 @@
+{
+  "_meta": {"name": "Français"},
+  "app.title": "BooruFlow",
+  "nav.home": "Accueil",
+  "nav.review": "Révision",
+  "nav.tagging": "Tagging",
+  "nav.image_analysis": "Analyse d’images",
+  "nav.auto_organize": "Rangement auto",
+  "nav.similar_artists": "Artistes similaires",
+  "nav.organization": "Organisation",
+  "nav.tag_browser": "Explorateur de tags",
+  "nav.wiki": "Wiki",
+  "nav.cleanup": "Nettoyage",
+  "nav.options": "Options",
+  "nav.grabber": "Grabber",
+  "nav.tasks": "Centre de tâches",
+  "standalone.title": "Assistant de tagging Gelbooru",
+  "standalone.credentials": "Accès Gelbooru",
+  "standalone.credential_note": "Enregistré uniquement sur cet ordinateur dans le dossier config local. Ne partagez jamais ce fichier ni votre clé API.",
+  "standalone.credentials_required": "Indiquez votre identifiant utilisateur et votre clé API Gelbooru avant de commencer.",
+  "standalone.save_credentials": "Enregistrer l’accès localement",
+  "standalone.credentials_saved": "Accès Gelbooru enregistré localement.",
+  "standalone.ready": "Prêt — aucun tag n’est envoyé automatiquement.",
+  "tasks.description": "Les opérations longues et leur dernier état connu. Les travaux interrompus restent visibles après le redémarrage.",
+  "tasks.column_title": "Opération",
+  "tasks.column_state": "État",
+  "tasks.column_phase": "Phase",
+  "tasks.column_message": "Détails",
+  "tasks.column_progress": "Progression",
+  "tasks.column_started": "Début",
+  "tasks.state_running": "En cours",
+  "tasks.state_completed": "Terminée",
+  "tasks.state_failed": "Échec",
+  "tasks.state_cancelled": "Arrêtée",
+  "tasks.state_interrupted": "Interrompue",
+  "table.empty_search_results": "Aucun résultat de recherche.",
+  "table.empty_tasks": "Aucune tâche n’a encore été enregistrée.",
+  "table.empty_batch": "Aucun élément de revue ne correspond à ce filtre.",
+  "table.empty_analysis": "Lancez une analyse pour prévisualiser les opérations proposées.",
+  "status.ready": "{page} — Prêt.",
+  "status.saved": "Options — Enregistrées.",
+  "status.save_failed": "Options — Échec de l’enregistrement.",
+  "log.show": "Afficher le journal",
+  "log.hide": "Masquer le journal",
+  "log.clear": "Effacer le journal",
+  "log.started": "BooruFlow PySide6 a démarré.",
+  "log.grabber_unavailable": "Intégration Grabber facultative indisponible : {reason}",
+  "log.options_saved": "Options enregistrées.",
+  "log.options_failed": "Impossible d’enregistrer les options : {error}",
+  "home.subtitle": "Rechercher, réviser, organiser et maintenir les métadonnées Booru depuis un même espace.",
+  "home.open": "Ouvrir",
+  "home.wiki": "Préparer des brouillons wiki Gelbooru validés depuis des modèles réutilisables.",
+  "home.review": "Trouver et réviser des tags par catégorie ou depuis une liste TXT.",
+  "home.tagging": "Examiner les posts insuffisamment tagués sans envoi automatique.",
+  "home.image_analysis": "Préparer des images locales ou booru et réviser les analyses persistantes.",
+  "home.similar_artists": "Explorer les profils d’artistes selon plusieurs axes visuels indépendants.",
+  "home.organization": "Maintenir la taxonomie locale et ses sources.",
+  "home.tag_browser": "Rechercher rapidement dans la base locale, sélectionner des plages et copier des listes de tags.",
+  "home.cleanup": "Auditer des dossiers avant tout nettoyage récupérable.",
+  "home.options": "Configurer les sites, bases, langues et identifiants.",
+  "home.grabber": "Générer et reprendre des lots Grabber lorsque l’outil est disponible.",
+  "image_analysis.add_files": "Ajouter des images…",
+  "image_analysis.choose_images": "Choisir des images",
+  "image_analysis.image_filter": "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp);;Tous les fichiers (*)",
+  "image_analysis.add_manual": "Ajouter le tag",
+  "image_analysis.accept": "Accepter",
+  "image_analysis.reject": "Refuser",
+  "image_analysis.retry": "Réessayer l’échec",
+  "image_analysis.skip": "Passer",
+  "image_analysis.complete": "Valider et suivante",
+  "image_analysis.column_tag": "Tag",
+  "image_analysis.column_source": "Source",
+  "image_analysis.column_state": "État",
+  "image_analysis.column_error": "Erreur",
+  "image_analysis.column_confidence": "Confiance",
+  "image_analysis.column_decision": "Décision",
+  "image_analysis.worker_starting": "Démarrage du worker…",
+  "image_analysis.worker_active": "Worker actif",
+  "image_analysis.worker_stopped": "Worker arrêté",
+  "image_analysis.worker_error": "Worker en erreur",
+  "image_analysis.worker_initializing": "Initialisation du worker…",
+  "image_analysis.worker_restarting": "Redémarrage du worker…",
+  "image_analysis.worker_unavailable": "Worker indisponible",
+  "image_analysis.pipeline": "À résoudre : {unresolved} · Locales : {resolved} · En attente : {pending} · En analyse : {processing} · Prêtes : {ready} · Erreurs : {failed}",
+  "options.image_analysis": "Analyse d’images",
+  "options.download_prefetch": "Préchargement des téléchargements (images) :",
+  "options.analysis_prefetch": "Préchargement des analyses (images) :",
+  "grabber.available": "Grabber : disponible",
+  "grabber.unavailable": "Grabber : indisponible — {reason}",
+  "page.review": "La révision par catégorie et depuis une liste TXT sera consolidée ici.",
+  "page.tagging": "La révision manuelle des tags assistée par navigateur sera migrée ici.",
+  "page.organization": "La consultation, l’édition et la mise à jour des sources de taxonomie seront ici.",
+  "page.cleanup": "Le dépôt de dossiers, l’audit et les actions récupérables seront ici.",
+  "page.grabber": "Cette section est facultative. Le reste de BooruFlow fonctionne sans Grabber.",
+  "capability.available": "Disponible",
+  "capability.unavailable": "Indisponible",
+  "options.general": "Général",
+  "options.language": "Langue :",
+  "options.credentials": "Identifiants du site",
+  "options.site": "Site :",
+  "options.user_id": "Identifiant utilisateur :",
+  "options.e621_username": "Nom d’utilisateur :",
+  "options.api_key": "Clé API :",
+  "options.show_api_key": "Afficher la clé API",
+  "options.reveal_api_key": "👁",
+  "options.reveal_api_key_tip": "Afficher ou masquer la clé API",
+  "options.test_credentials": "Tester les identifiants",
+  "options.credentials_status_not_tested": "Non testé",
+  "options.credentials_status_testing": "Test en cours…",
+  "options.credentials_status_valid": "Valides",
+  "options.credentials_status_invalid": "Identifiants invalides",
+  "options.credentials_status_missing": "Identifiants manquants",
+  "options.credentials_status_network_error": "Erreur réseau",
+  "options.credentials_status_rate_limited": "Limite de requêtes atteinte",
+  "options.credentials_status_server_error": "Erreur serveur",
+  "options.credentials_status_malformed_response": "Réponse serveur invalide",
+  "options.paths": "Chemins locaux",
+  "options.database_path": "Chemin de la base :",
+  "options.browser": "Navigateur",
+  "options.browser_open_external": "Ouvrir les liens externes avec :",
+  "options.browser_command": "Modèle de commande :",
+  "options.browser_command_placeholder": "\"C:\\Chemin\\navigateur.exe\" {url}",
+  "options.browser_clear_profile": "Effacer le profil à la fermeture",
+  "options.browser_reset": "Réinitialiser le profil dédié",
+  "options.browser_reset_title": "Réinitialiser le profil dédié",
+  "options.browser_reset_confirm": "Supprimer le profil de navigateur dédié et ses données isolées ?",
+  "options.browser_reset_done": "Le profil dédié a été réinitialisé.",
+  "options.browser_reset_missing": "Aucun profil de navigateur dédié compatible n’a été trouvé.",
+  "options.browser_test": "Tester le navigateur externe",
+  "options.browser_explanation": "BooruFlow utilise son navigateur interne pour la navigation booru normale. Ce réglage concerne uniquement les liens explicitement ouverts à l’extérieur.",
+  "options.browser_mode_system": "Navigateur système",
+  "options.browser_mode_dedicated": "Profil dédié",
+  "options.browser_mode_custom": "Navigateur personnalisé",
+  "options.publisher": "Publication automatique",
+  "options.publisher_login": "Connexion / Reconnexion",
+  "options.publisher_check": "Vérifier la session",
+  "options.publisher_reset": "Réinitialiser la session",
+  "options.publisher_status_not_tested": "Session Gelbooru : Non testée",
+  "options.publisher_status_testing": "Session Gelbooru : Vérification…",
+  "options.publisher_status": "Session Gelbooru : {status}",
+  "options.publisher_explanation": "La publication utilise une page cachée séparée dans le même profil Gelbooru isolé. Elle ne remplace jamais les onglets visibles.",
+  "options.publisher_cdp_explanation": "Le mode de compatibilité avancé pilote un profil Chromium dédié uniquement via localhost.",
+  "options.publisher_disabled": "La publication automatique Gelbooru est désactivée.",
+  "options.publisher_reset_title": "Réinitialiser la session Gelbooru",
+  "options.publisher_reset_confirm": "Supprimer uniquement les cookies et données de session du profil Gelbooru interne de BooruFlow ?",
+  "options.publisher_reset_done": "La session Gelbooru interne a été réinitialisée.",
+  "options.wd14_enabled": "Activer WD14",
+  "options.wd14_display_threshold": "Seuil d’affichage des tags :",
+  "options.advanced": "Avancé",
+  "options.wd14_store_threshold": "Seuil de stockage :",
+  "options.worker_heartbeat": "Intervalle heartbeat du worker (secondes) :",
+  "options.worker_stale": "Délai d’expiration du worker (secondes) :",
+  "options.worker_recycle": "Nombre avant recyclage du worker (analyses) :",
+  "options.wd14_enabled_tip": "Lance le modèle local WD14 pour les nouvelles images analysées. Les observations WD14 déjà en cache restent visibles si cette option est désactivée.",
+  "options.wd14_display_threshold_tip": "Confiance minimale affichée dans Analyse d’images. 10 % est enregistré sous la forme 0,10.",
+  "options.wd14_store_threshold_tip": "Confiance minimale enregistrée lors des nouvelles analyses WD14. Une valeur plus basse conserve davantage de candidats.",
+  "options.download_prefetch_tip": "Nombre d’images source préparées à l’avance (images).",
+  "options.analysis_prefetch_tip": "Nombre maximal d’images mises en attente d’analyse (images).",
+  "options.worker_heartbeat_tip": "Fréquence à laquelle le worker confirme qu’une analyse longue est toujours active (secondes).",
+  "options.worker_stale_tip": "Après ce délai sans heartbeat, un travail interrompu peut être récupéré (secondes).",
+  "options.worker_recycle_tip": "Redémarre le worker après ce nombre d’analyses ; 0 désactive le recyclage.",
+  "browser.title": "Navigateur BooruFlow",
+  "browser.reload": "Recharger",
+  "browser.home": "Accueil",
+  "browser.account": "Compte",
+  "browser.close": "Fermer",
+  "browser.new_tab": "Nouvel onglet",
+  "browser.address": "Saisir une URL",
+  "browser.developer_diagnostics": "Diagnostics développeur",
+  "browser.status_not_tested": "Session : Non testée",
+  "browser.status_load_error": "Session : Échec du chargement de la page",
+  "browser.status_ready": "Session : Prête",
+  "browser.status_login_required": "Session : Connexion requise",
+  "browser.status_unknown": "Session : État indéterminé ou challenge en cours",
+  "browser.diagnostic_form": "Diagnostic du formulaire (bloque Save changes)",
+  "browser.diagnostic_form_tip": "Intercepte Save changes et capture un snapshot FormData sans envoyer de POST.",
+  "browser.diagnostic_additions": "Ajouts HTTP attendus",
+  "browser.diagnostic_removals": "Retraits HTTP attendus",
+  "browser.diagnostic_http": "Tracer le prochain POST réel via CDP",
+  "browser.diagnostic_http_tip": "N’envoie rien seul. Nécessite le mode de diagnostic CDP au démarrage et se désarme après le POST capturé.",
+  "browser.diagnostic_prototype": "Prototype Edit réel",
+  "browser.diagnostic_targets": "Cibles du diagnostic HTTP :",
+  "browser.diagnostic_disabled": "Diagnostic du formulaire désactivé",
+  "browser.diagnostic_arming": "Armement CDP pendant le blocage de Save changes…",
+  "browser.diagnostic_unavailable": "Diagnostic indisponible — aucun POST envoyé",
+  "browser.diagnostic_http_armed": "Trace HTTP armée — Save changes enverra exactement un POST",
+  "browser.diagnostic_http_done": "Trace HTTP {source} capturée — diagnostic désarmé",
+  "browser.diagnostic_cdp_error": "Diagnostic CDP indisponible ({reason}) — Save changes reste bloqué",
+  "browser.diagnostic_form_armed": "Diagnostic du formulaire armé — Save changes sera bloqué",
+  "browser.diagnostic_form_unavailable": "Diagnostic du formulaire indisponible",
+  "browser.diagnostic_snapshot_done": "Snapshot manuel capturé — envoi bloqué et diagnostic désarmé",
+  "browser.diagnostic_snapshot_error": "Échec du diagnostic manuel — envoi bloqué",
+  "browser.prototype.title": "Prototype d’automatisation du navigateur",
+  "browser.prototype.ready": "Prêt — aucun Save automatique",
+  "browser.prototype.open": "Ouvrir et cliquer Edit",
+  "browser.prototype.apply": "Appliquer les deltas",
+  "browser.prototype.save": "Test Save",
+  "browser.prototype.post": "Post n°",
+  "browser.prototype.additions": "Ajouts",
+  "browser.prototype.removals": "Retraits",
+  "browser.prototype.invalid_id": "ID de post invalide",
+  "browser.prototype.loading": "Chargement de la page — aucun Save",
+  "browser.prototype.load_error": "Échec du chargement",
+  "browser.prototype.edit_missing": "Contrôle Edit réel introuvable",
+  "browser.prototype.edit_ready": "Edit ouvert — Save disponible",
+  "browser.prototype.edit_not_ready": "Edit non prêt ou Save désactivé",
+  "browser.prototype.prepared": "Deltas préparés — vérifiez visuellement avant le test Save",
+  "browser.prototype.refused": "Préparation refusée",
+  "browser.prototype.confirm_title": "Confirmer le test Save",
+  "browser.prototype.confirm": "Le vrai bouton Save changes va être cliqué.",
+  "options.gelbooru_database": "Base de tags Gelbooru",
+  "options.e621_database": "Base de tags e621",
+  "options.blacklist_file": "Fichier blacklist",
+  "options.output_folder": "Dossier de sortie",
+  "options.browse": "Parcourir…",
+  "options.choose_folder": "Choisir un dossier",
+  "options.choose_database": "Choisir une base",
+  "options.database_filter": "Bases SQLite (*.db *.sqlite);;Tous les fichiers (*)",
+  "options.choose_blacklist": "Choisir un fichier blacklist",
+  "options.text_filter": "Fichiers texte (*.txt);;Tous les fichiers (*)",
+  "options.note": "Les identifiants restent dans le dossier config local et sont exclus de Git.",
+  "options.save": "Enregistrer les options",
+  "options.update_database": "Mettre à jour",
+  "options.stop_database": "Arrêter",
+  "options.database_stopping": "Arrêt de la reconstruction… La base temporaire permettra de reprendre plus tard.",
+  "options.database_running": "Mise à jour de la base {site}… Les détails sont dans le journal.",
+  "options.database_start": "Démarrage de la mise à jour {site} : {path}",
+  "options.database_already_running": "Une mise à jour de base est déjà en cours.",
+  "options.database_finished": "Mise à jour de la base {site} terminée et validée.",
+  "options.database_failed": "Mise à jour {site} interrompue avec le code {code}. Consulte le journal.",
+  "options.database_path_required": "Choisissez un chemin de base avant de lancer la mise à jour.",
+  "options.alias_database_path_required": "Configurez le chemin de la base d’alias avant de lancer la mise à jour.",
+  "options.alias_update": "Mettre à jour",
+  "options.alias_label": "Alias Gelbooru",
+  "options.alias_pending": "Vérifier pending",
+  "options.alias_reconcile": "Réconcilier",
+  "options.alias_start": "Démarrage de l’opération alias Gelbooru {mode} : {path}",
+  "options.alias_summary": "Alias — actifs : {active} · pending : {pending} · missing : {missing} · nouveaux : {new} · modifiés : {modified} · checkpoint : {checkpoint} · état : {state}",
+  "options.alias_state_completed": "terminé",
+  "options.alias_state_initial_import_required": "import initial requis",
+  "options.alias_state_overlap_not_found": "chevauchement du checkpoint introuvable ; réconciliation explicite requise",
+  "options.alias_state_pagination_incoherent": "pagination modifiée ; réconciliation explicite requise",
+  "options.alias_state_full_reconciliation_recommended": "réconciliation complète recommandée",
+  "options.alias_state_unknown": "inconnu",
+  "tag_browser.filters": "Recherche en lecture seule",
+  "tag_browser.database": "Base :",
+  "tag_browser.query": "Nom du tag :",
+  "tag_browser.placeholder": "Exemple : *_ears ou ^.*_(ears|tail)$",
+  "tag_browser.mode_contains": "Contient",
+  "tag_browser.mode_auto": "Automatique",
+  "tag_browser.mode_glob": "Motif * et ?",
+  "tag_browser.mode_regex": "Expression régulière",
+  "tag_browser.mode_exact": "Nom exact",
+  "tag_browser.search": "Rechercher",
+  "tag_browser.copy_selected": "Copier la sélection",
+  "tag_browser.copy_results": "Copier tous les résultats",
+  "tag_browser.ready": "Prêt. La base ne sera jamais modifiée depuis cet onglet.",
+  "tag_browser.searching": "Recherche en cours…",
+  "tag_browser.results": "{count} résultat(s) affiché(s).",
+  "tag_browser.copied": "{count} tag(s) copié(s).",
+  "tag_browser.database_missing": "Base Gelbooru introuvable. Vérifie son chemin dans Options.",
+  "tag_browser.error": "Recherche impossible : {error}",
+"review.search_group": "1 — Générer la liste à examiner",
+  "review.site": "Site :",
+  "review.entity": "Type d’entité :",
+  "review.queries": "Une recherche par ligne (le point-virgule est aussi accepté) :",
+  "review.criteria": "2 — Pages et critères de résultat",
+  "review.pages": "Pages à explorer :",
+  "review.start_page": "Première page :",
+  "review.minimum": "Nombre de résultats min. :",
+  "review.maximum": "Nombre de résultats max. :",
+  "review.match": "Correspondance des résultats :",
+  "review.remember": "Mémoriser les recherches terminées",
+  "review.auto_continue": "Continuer automatiquement si rien n’est retenu",
+  "review.example": "Exemple : avec {total} résultats au total, {percent}% demande au moins {required} résultat(s) correspondant(s).",
+  "review.count": "Compter",
+  "review.start": "Lancer la révision",
+  "review.stop": "Arrêter",
+  "review.ready": "Prêt.",
+  "review.running": "Révision en cours…",
+  "review.stopping": "Arrêt du moteur en cours…",
+  "review.finished": "Révision terminée.",
+  "review.interrupted": "Révision arrêtée ou échouée. Consulte le journal.",
+  "review.progress": "Page {page} — {current}/{total} dans ce bloc",
+  "review.counting": "Comptage {current}/{total} : {query}",
+  "review.count_result": "{query} : {count} résultat(s)",
+  "review.count_total": "{count} recherche(s) comptée(s) — total brut : {total}",
+  "review.count_error": "Échec du comptage pour {query} : {error}",
+  "review.count_gelbooru_only": "Le comptage préalable est actuellement disponible pour Gelbooru.",
+  "review.credentials_missing": "Identifiants Gelbooru absents. Renseigne-les dans Options.",
+  "review.database_missing": "Base introuvable : {path}",
+  "review.invalid": "Impossible de démarrer : {error}",
+  "review.no_query": "entre au moins une recherche",
+  "review.log_start": "Démarrage de la révision pour {count} recherche(s).",
+  "review.site_started": "=== Moteur {site} ===",
+  "review.outputs": "Résultats enregistrés dans : {paths}",
+  "review.continuing": "Aucun résultat retenu ; poursuite automatique à la page {page}…",
+  "review.results": "Tags retenus :",
+  "review.send_grabber": "Préparer la sélection dans Grabber",
+  "review.sent_grabber": "{count} résultat(s) préparé(s) dans Grabber.",
+  "entity.artists": "Artistes",
+  "entity.copyrights": "Copyrights",
+  "entity.characters": "Personnages",
+  "entity.species": "Espèces"
+  ,"tagging.group": "Repérer les posts Gelbooru pauvres en tags"
+  ,"tagging.query": "Recherche Gelbooru :"
+  ,"tagging.pages": "Pages par bloc :"
+  ,"tagging.start": "Première page :"
+  ,"tagging.minimum": "Tags minimum :"
+  ,"tagging.maximum": "Tags maximum :"
+  ,"tagging.critical": "Critique jusqu’à :"
+  ,"tagging.high": "Haute jusqu’à :"
+  ,"tagging.start_button": "Rechercher"
+  ,"tagging.stop": "Arrêter"
+  ,"tagging.ready": "Prêt. Les résultats s’ouvrent dans le navigateur authentifié ; BooruFlow n’envoie jamais de tags."
+  ,"tagging.site": "Site :"
+  ,"tagging.credentials_missing": "Identifiants API {site} manquants. Ajoutez-les dans Options."
+  ,"tagging.error.invalid_credentials": "Identifiants invalides"
+  ,"tagging.error.network_error": "Erreur réseau"
+  ,"tagging.error.rate_limited": "Limite de requêtes atteinte"
+  ,"tagging.error.server_error": "Erreur serveur"
+  ,"tagging.error.malformed_response": "Réponse serveur invalide"
+  ,"tagging.error.unexpected": "Erreur de recherche inattendue"
+  ,"tagging.publish.e621_unavailable": "Les révisions e621 sans modification restent enregistrées localement."
+  ,"tagging.publish.e621_credentials_missing": "Ajoutez et validez le nom d’utilisateur et la clé API e621 dans Options avant de publier."
+  ,"tagging.category.general": "Général"
+  ,"tagging.category.artist": "Artiste"
+  ,"tagging.category.contributor": "Contributeur"
+  ,"tagging.category.copyright": "Copyright"
+  ,"tagging.category.character": "Personnage"
+  ,"tagging.category.species": "Espèce"
+  ,"tagging.category.meta": "Méta"
+  ,"tagging.category.lore": "Lore"
+  ,"tagging.category.deprecated": "Obsolète"
+  ,"tagging.category.unknown": "Inconnue"
+  ,"tagging.running": "Recherche en cours…"
+  ,"tagging.stopping": "Arrêt après la requête actuelle…"
+  ,"tagging.progress": "Page {page} — {examined} post(s) examinés, {retained} retenus."
+  ,"tagging.invalid": "Impossible de démarrer : {error}"
+  ,"tagging.log_start": "Démarrage de la révision manuelle : {query}"
+  ,"tagging.failed": "Échec de la révision des tags : {error}"
+  ,"tagging.stopped": "Arrêté après {examined} post(s) examinés."
+  ,"tagging.end": "Fin réelle atteinte après {examined} post(s) ; aucun résultat retenu."
+  ,"tagging.finished": "Terminé — {examined} post(s) examinés, {retained} retenus. Double-clique un résultat pour l’ouvrir."
+  ,"tagging.priority.critical": "Critique"
+  ,"tagging.priority.high": "Haute"
+  ,"tagging.priority.low": "Faible"
+  ,"tagging.result": "{priority} — post #{id} — {count} tags"
+  ,"tagging.section": "{priority} — {count} image(s)"
+  ,"tagging.card": "#{id} · {count} tags"
+  ,"tagging.alias_suggestion": "{tag} — alias de {alias}"
+  ,"tagging.alias.title": "Alias de tags"
+  ,"tagging.review.back": "← Retour aux résultats [Échap]"
+  ,"tagging.review.previous": "← Précédent"
+  ,"tagging.review.next": "Suivant →"
+  ,"tagging.review.zoom": "Zoom"
+  ,"tagging.review.zoom_fit": "Ajuster"
+  ,"tagging.review.section": "Revue des tags"
+  ,"tagging.review.decision_label": "Décision :"
+  ,"tagging.review.decision.unreviewed": "À examiner"
+  ,"tagging.review.decision.accepted": "Accepté"
+  ,"tagging.review.decision.rejected": "Rejeté"
+  ,"tagging.review.decision.keep": "Conserver"
+  ,"tagging.review.decision.remove": "Retirer"
+  ,"tagging.review.filter.all": "Tous"
+  ,"tagging.review.filter.unreviewed": "À examiner"
+  ,"tagging.review.filter.accepted": "Conserver / ajouter"
+  ,"tagging.review.filter.rejected": "Retirer / ignorer"
+  ,"tagging.review.header.tag": "Tag"
+  ,"tagging.review.header.confidence": "Confiance"
+  ,"tagging.review.header.decision": "Décision"
+  ,"tagging.review.header.match": "Origine / correspondance"
+  ,"tagging.review.header.category": "Catégorie"
+  ,"tagging.review.header.id": "ID"
+  ,"tagging.review.final_tags": "Tags finaux :"
+  ,"tagging.review.add_label": "Ajouter :"
+  ,"tagging.review.manual_label": "Ajouter un tag :"
+  ,"tagging.review.manual_placeholder": "Rechercher dans la base locale…"
+  ,"tagging.review.add": "Ajouter"
+  ,"tagging.review.analyze": "Analyser localement"
+  ,"tagging.review.reanalyze": "Ré-analyser"
+  ,"tagging.review.reanalyze_tip": "Relancer l’analyse locale de l’image avec les réglages actuels."
+  ,"tagging.review.accept": "Accepter [A]"
+  ,"tagging.review.reject": "Rejeter [R]"
+  ,"tagging.review.map": "Associer…"
+  ,"tagging.review.refresh_metadata": "Actualiser les métadonnées"
+  ,"tagging.review.copy_final": "Copier les tags finaux"
+  ,"tagging.review.copy_all": "Copier (tags finaux)"
+  ,"tagging.review.copy_open": "Copier + ouvrir [Espace]"
+  ,"tagging.review.copy_open_tip": "Copier les tags puis ouvrir le post (Espace)"
+  ,"tagging.review.validate_next": "Valider + suivant [Espace]"
+  ,"tagging.review.validate_next_tip": "Enregistrer la revue locale puis passer au suivant"
+  ,"tagging.review.open_gelbooru": "Ouvrir Gelbooru"
+  ,"tagging.review.open_site": "Ouvrir {site}"
+  ,"tagging.review.play": "Lire"
+  ,"tagging.review.stop_video": "Stop"
+  ,"tagging.review.pause": "Pause"
+  ,"tagging.review.counter": "Post {current} / {total} · {remaining} restants"
+  ,"tagging.batch.button": "Batch"
+  ,"tagging.batch.back": "← Revue"
+  ,"tagging.batch.refresh": "Actualiser"
+  ,"tagging.batch.label": "Batch :"
+  ,"tagging.batch.filter.all": "Tous"
+  ,"tagging.batch.filter.pending": "En attente"
+  ,"tagging.batch.filter.published": "Publiés"
+  ,"tagging.batch.filter.failed": "Échecs"
+  ,"tagging.batch.filter.local": "Locaux"
+  ,"tagging.batch.header.identity": "Image / post"
+  ,"tagging.batch.header.site": "Site"
+  ,"tagging.batch.header.additions": "Ajouts"
+  ,"tagging.batch.header.removals": "Retraits"
+  ,"tagging.batch.header.state": "État"
+  ,"tagging.batch.header.reviewed_at": "Revu le"
+  ,"tagging.batch.header.item": "Item"
+  ,"tagging.batch.review": "Revoir"
+  ,"tagging.batch.remove": "Retirer du lot"
+  ,"tagging.batch.open": "Ouvrir le post"
+  ,"tagging.batch.retry": "Réessayer les échecs"
+  ,"tagging.batch.session_test": "Tester la session"
+  ,"tagging.batch.publish": "Publier le lot"
+  ,"tagging.batch.cancel": "Annuler la publication"
+  ,"tagging.batch.local": "Local"
+  ,"tagging.batch.local_file": "Fichier local"
+  ,"tagging.batch.progress": "Publication {current} / {total} — {target}"
+  ,"tagging.batch.state.pending_publish": "En attente"
+  ,"tagging.batch.state.published": "Publié"
+  ,"tagging.batch.state.failed": "Échec"
+  ,"tagging.batch.state.local": "Local"
+  ,"tagging.batch.state.reviewed": "Révisé localement"
+  ,"tagging.batch.counts": "{pending} · {local} · {published} · {failed}"
+  ,"tagging.batch.count.pending.one": "{count} en attente"
+  ,"tagging.batch.count.pending.other": "{count} en attente"
+  ,"tagging.batch.count.local.one": "{count} local"
+  ,"tagging.batch.count.local.other": "{count} locaux"
+  ,"tagging.batch.count.published.one": "{count} publié"
+  ,"tagging.batch.count.published.other": "{count} publiés"
+  ,"tagging.batch.count.failed.one": "{count} échec"
+  ,"tagging.batch.count.failed.other": "{count} échecs"
+  ,"tagging.analysis.startup_timeout": "Erreur : délai de démarrage ImageAnalysis dépassé. {detail}"
+  ,"tagging.analysis.unavailable": "Erreur : ImageAnalysis indisponible. {detail}"
+  ,"tagging.analysis.error": "Erreur : {error}"
+  ,"tagging.analysis.pending": "Analyse en attente…"
+  ,"tagging.analysis.worker_starting": "Démarrage du worker d’analyse…"
+  ,"tagging.analysis.worker_initializing": "Initialisation du worker d’analyse…"
+  ,"tagging.analysis.worker_restarting": "Redémarrage du worker d’analyse…"
+  ,"tagging.analysis.processing": "Analyse en cours"
+  ,"tagging.analysis.ready": "Analyse disponible"
+  ,"tagging.analysis.reviewed": "Déjà analysée"
+  ,"tagging.analysis.cached": "Analyse disponible — cache réutilisé"
+  ,"tagging.analysis.failed": "Erreur d’analyse : {error}"
+  ,"tagging.analysis.skipped": "Analyse ignorée"
+  ,"tagging.analysis.not_analyzed": "Non analysée"
+  ,"tagging.analysis.pending_prefetch": "Analyse en attente — file de préchargement pleine"
+  ,"tagging.analysis.pending_busy": "Analyse en attente — worker occupé"
+  ,"tagging.analysis.pending_source": "Analyse en attente — source en préparation"
+  ,"tagging.unknown": "inconnue"
+  ,"tagging.match.existing": "Existant"
+  ,"tagging.match.existing_wd14": "Existant · également détecté par WD14"
+  ,"tagging.match.missing": "introuvable localement"
+  ,"tagging.match.lookup_unavailable": "base locale indisponible"
+  ,"tagging.match.already_present": "déjà présent"
+  ,"tagging.review.tag_unavailable": "Tag absent ou déprécié dans la base Gelbooru."
+  ,"tagging.review.manual_error": "Ajout manuel impossible : {error}"
+  ,"tagging.review.decision_error": "Erreur de décision : {error}"
+  ,"tagging.review.refresh_error": "Actualisation impossible, données conservées : {error}"
+  ,"tagging.mapping.title": "Associer le tag"
+  ,"tagging.mapping.prompt": "Tag Gelbooru pour {source} :"
+  ,"tagging.mapping.impossible": "Association impossible"
+  ,"tagging.mapping.missing": "Ce tag est absent de la base locale."
+  ,"tagging.publish.disabled": "Publication Gelbooru désactivée."
+  ,"tagging.publish.none": "Aucune publication Gelbooru éligible."
+  ,"tagging.publish.session_missing": "Session Gelbooru authentifiée non configurée : aucune publication envoyée."
+  ,"tagging.session.testing": "Test de la session Gelbooru…"
+  ,"tagging.session.valid": "Session Gelbooru valide."
+  ,"tagging.session.expired": "Session Gelbooru non connectée."
+  ,"tagging.session.unknown": "État de session Gelbooru indéterminé. Ouvrez la session Gelbooru et vérifiez que la page est chargée et connectée."
+  ,"tagging.session.error": "Session Gelbooru non disponible : {error}"
+  ,"tagging.session.none": "Aucun site du batch n’est disponible pour un test."
+  ,"tagging.session.gelbooru.valid": "Gelbooru : authentifié"
+  ,"tagging.session.gelbooru.expired": "Gelbooru : session non connectée"
+  ,"tagging.session.gelbooru.unknown": "Gelbooru : état de session indéterminé"
+  ,"tagging.session.gelbooru.not_configured": "Gelbooru : session de publication non configurée"
+  ,"tagging.session.gelbooru.error": "Gelbooru : échec de l’authentification — {error}"
+  ,"tagging.session.e621.valid": "e621 : authentification API valide"
+  ,"tagging.session.e621.not_configured": "e621 : identifiants API non configurés"
+  ,"tagging.session.e621.error": "e621 : échec de l’authentification — {error}"
+  ,"tagging.publish.confirm_blocked": "\n\n{count} élément(s) d’un site non configuré resteront en attente."
+  ,"tagging.publish.cancelling": "Annulation demandée — le post courant se termine, aucun suivant ne sera lancé."
+  ,"tagging.publish.http_requires_one": "Le diagnostic HTTP réel exige exactement une entrée Gelbooru en attente. Aucun envoi effectué."
+  ,"tagging.publish.confirm_diagnostic_title": "Confirmer le diagnostic"
+  ,"tagging.publish.confirm_diagnostic": "Inspecter le formulaire Gelbooru de {count} entrée(s) ?\n\nLes tags seront appliqués uniquement au DOM local pour capturer FormData. Le diagnostic s’arrêtera avant tout submit et toute requête d’édition."
+  ,"tagging.publish.confirm_instrumented_title": "Confirmer la publication instrumentée"
+  ,"tagging.publish.confirm_instrumented": "Envoyer réellement {count} modification(s) sur Gelbooru ?\n\n{additions} ajout(s), {removals} retrait(s).\n\nLa trace HTTP est passive et se désarme après le premier POST. Elle ne déclenche aucun envoi par elle-même."
+  ,"tagging.publish.confirm_title": "Confirmer la publication"
+  ,"tagging.publish.confirm": "Publier {count} modification(s) sur Gelbooru ?\n\n{additions} ajout(s), {removals} retrait(s)."
+  ,"tagging.publish.confirm_sites": "Publier {count} modification(s) sur {sites} ?\n\n{additions} ajout(s), {removals} retrait(s)."
+  ,"tagging.publish.summary": "{total} entrées · {published} publiées · {no_op} no-op · {failed} échecs{suffix}"
+  ,"tagging.publish.summary.expired": " · session expirée, lot mis en pause"
+  ,"tagging.publish.summary.unknown": " · état de session indéterminé, lot mis en pause"
+  ,"tagging.publish.summary.cancelled": " · annulé avant le post suivant"
+  ,"tagging.publish.summary.deferred": " · diagnostic terminé, aucun envoi"
+  ,"tagging.publish.summary.sites": " · sites : {sites}"
+  ,"tagging.publish.interrupted": "Publication interrompue : {error}"
+  ,"tagging.review.pool_finished": "Revue enregistrée — pool terminé."
+  ,"tagging.review.next_local": "Revue enregistrée — prochain item local #{item_id}."
+  ,"tagging.review.local_item": "Fichier local #{item_id}"
+  ,"tagging.review.processed": "✓ Traité\n{label}"
+  ,"tagging.review.all_processed": "Tous les résultats de cette recherche ont été traités."
+  ,"tagging.review.retry": "Réessayer"
+  ,"tagging.review.video_error": "Lecture vidéo impossible dans BooruFlow."
+  ,"tagging.review.open_post": "Ouvrir le post #{post_id}"
+  ,"tagging.match.manual": "manuel"
+  ,"tagging.match.also": " · également {origin}"
+  ,"tagging.match.not_applicable": "non applicable"
+  ,"tagging.analysis.validated": " · déjà validée"
+  ,"tagging.error_prefix": "Erreur"
+  ,"cleanup.group": "Auditer les images téléchargées avec la blacklist Grabber"
+  ,"cleanup.disk_group": "Utilisation disque"
+  ,"cleanup.disk_models": "Modèles IA                 {total}\n\nWD14                       {wd14}\nEmbeddings                 {embeddings}\ne621 / furry               {e621}\nAutres                     {other}"
+  ,"cleanup.disk_refresh": "Actualiser"
+  ,"cleanup.disk_open_models": "Ouvrir le dossier"
+  ,"cleanup.disk_unavailable": "Taille des modèles indisponible."
+  ,"cleanup.hydra_installed": "Hydra 3.5 — installé et vérifié — {size}\nUtilisé par : analyse e621/furry"
+  ,"cleanup.hydra_absent": "Hydra 3.5 — absent\nUtilisé par : analyse e621/furry"
+  ,"cleanup.hydra_invalid": "Hydra 3.5 — installation invalide ({size})\nUne réinstallation est nécessaire."
+  ,"cleanup.hydra_install": "Télécharger / Réinstaller"
+  ,"cleanup.hydra_migrate": "Migrer l’installation existante"
+  ,"cleanup.hydra_remove": "Supprimer Hydra 3.5"
+  ,"cleanup.hydra_running": "Opération Hydra en cours…"
+  ,"cleanup.hydra_failed": "Échec de l’opération Hydra : {error}"
+  ,"cleanup.hydra_remove_title": "Supprimer Hydra 3.5 ?"
+  ,"cleanup.hydra_remove_confirm": "Cette opération désactivera l’analyse e621/furry utilisant Hydra.\nLe modèle pourra être téléchargé à nouveau plus tard.\n\nEspace libéré : {size}\n\nEnvoyer le modèle à la Corbeille ?"
+  ,"cleanup.hydra_removed": "Hydra 3.5 a été envoyé à la Corbeille."
+  ,"cleanup.blacklist_group": "Blacklist"
+  ,"cleanup.blacklist_file": "Fichier :"
+  ,"cleanup.choose_blacklist": "Choisir un fichier blacklist"
+  ,"cleanup.help": "Dépose un ou plusieurs dossiers ici. L’audit est en lecture seule ; aucune suppression n’est automatique."
+  ,"cleanup.add": "Ajouter un dossier…"
+  ,"cleanup.remove": "Retirer la sélection"
+  ,"cleanup.clear": "Vider"
+  ,"cleanup.scan": "Analyser (lecture seule)"
+  ,"cleanup.stop": "Arrêter"
+  ,"cleanup.recycle": "Envoyer les correspondances à la Corbeille"
+  ,"cleanup.ready": "Aucune analyse effectuée."
+  ,"cleanup.choose_folder": "Choisir un dossier à analyser"
+  ,"cleanup.no_folder": "Aucun dossier choisi. Ajoute ou dépose au moins un dossier."
+  ,"cleanup.missing": "Dossier introuvable : {path}"
+  ,"cleanup.blacklist_missing": "Blacklist Grabber introuvable : {path}"
+  ,"cleanup.running": "Analyse en lecture seule en cours…"
+  ,"cleanup.stopping": "Arrêt de l’analyse…"
+  ,"cleanup.progress": "{files} image(s) analysée(s) — {matches} correspondance(s)."
+  ,"cleanup.failed": "Échec de l’analyse : {error}"
+  ,"cleanup.finished": "Terminé — {files} image(s), {matches} fichier(s) correspondant(s)."
+  ,"cleanup.log_start": "Début de l’analyse en lecture seule de {count} dossier(s)."
+  ,"cleanup.report": "Rapport CSV : {path} — règles ignorées : {compound} composée(s), {non_tag} non-tag(s)."
+  ,"cleanup.confirm_title": "Confirmer l’envoi à la Corbeille"
+  ,"cleanup.confirm": "Envoyer exactement {count} fichier(s) ({size:.1f} Mio) à la Corbeille Windows ?\n\nLe rapport d’audit reste ici :\n{report}"
+  ,"cleanup.cancelled": "Envoi à la Corbeille annulé."
+  ,"cleanup.recycling": "Envoi de {count} fichier(s) à la Corbeille Windows…"
+  ,"cleanup.recycle_done": "Fichiers envoyés à la Corbeille. Le rapport CSV est conservé."
+  ,"cleanup.recycle_failed": "Envoi incomplet. Relance une analyse avant de continuer."
+  ,"grabber.group": "Créer et traiter des lots d’onglets"
+  ,"grabber.prefix": "Ajouté avant chaque recherche :"
+  ,"grabber.suffix": "Ajouté après chaque recherche :"
+  ,"grabber.tabs": "Onglets par lot :"
+  ,"grabber.images": "Images par onglet :"
+  ,"grabber.import": "Charger une liste TXT/TSV…"
+  ,"grabber.choose_list": "Choisir une liste de tags"
+  ,"grabber.create": "Créer la session"
+  ,"grabber.resume": "Recharger la session"
+  ,"grabber.previous": "Lot précédent"
+  ,"grabber.launch": "Lancer Grabber"
+  ,"grabber.no_session": "Aucune session chargée. Colle des tags ou charge une liste, puis crée une session."
+  ,"grabber.invalid": "Impossible de continuer : {error}"
+  ,"grabber.missing": "Grabber.exe est introuvable dans : {path}"
+  ,"grabber.created": "Session créée : {tags} tag(s), {batches} lot(s), {skipped} tag(s) blacklisté(s)/ignoré(s) retiré(s)."
+  ,"grabber.loaded": "Session chargée : {path}"
+  ,"grabber.progress": "Lot {current}/{total} prêt — {tags} tag(s) dans la session."
+  ,"grabber.complete": "Session terminée — {total}/{total} lots, {tags} tag(s)."
+  ,"grabber.running": "Grabber est ouvert. Ferme-le après la révision du lot actuel."
+  ,"grabber.started": "Grabber lancé pour le lot {batch}."
+  ,"grabber.failed": "Grabber s’est arrêté anormalement (code {code}) ; le lot actuel reste actif."
+  ,"grabber.paused": "Lot mis en pause avec {count} onglet(s) restant(s)."
+  ,"grabber.next": "Lot terminé ; lancement automatique du suivant."
+  ,"grabber.session_complete": "Session Grabber terminée."
+  ,"grabber.previous_done": "Lot précédent restauré."
+  ,"organization.board": "Site :"
+  ,"organization.search": "Rechercher un tag…"
+  ,"organization.search_button": "Rechercher"
+  ,"organization.update": "Mettre à jour depuis les wikis"
+  ,"organization.add_category": "Ajouter une catégorie"
+  ,"organization.add_tags": "Ajouter des tags"
+  ,"organization.add_child_tags": "Ajouter des tags enfants…"
+  ,"organization.add_child_category": "Ajouter une catégorie enfant…"
+  ,"organization.child_tags_prompt": "Un tag enfant par ligne (les virgules et points-virgules sont aussi acceptés) :"
+  ,"organization.tags_added": "{count} tag(s) enfant(s) ajouté(s). Appuie sur Enregistrer pour les conserver."
+  ,"organization.set_wiki": "Associer une page wiki…"
+  ,"organization.prepare_wiki": "Préparer une entrée wiki…"
+  ,"organization.wiki_prompt": "URL du wiki Gelbooru/e621 ou identifiant numérique (laisser vide pour retirer) :"
+  ,"organization.wiki_set": "Page wiki associée à ce nœud. Appuie sur Enregistrer pour la conserver."
+  ,"organization.wiki_removed": "Association avec la page wiki retirée. Appuie sur Enregistrer pour conserver."
+  ,"organization.import": "Importer une hiérarchie…"
+  ,"organization.imported": "Hiérarchie importée depuis {path}. Utilise Enregistrer pour la conserver."
+  ,"organization.send_review": "Envoyer vers Révision"
+  ,"organization.sent_review": "{count} tag(s) de la taxonomie envoyés vers Révision."
+  ,"organization.empty_entry": "Entrée historique vide : aucune sous-catégorie ni définition en cache n’est enregistrée."
+  ,"organization.search_results": "Résultats de la recherche"
+  ,"organization.no_tag_selected": "Sélectionne un tag pour l’examiner"
+  ,"organization.details_loading": "Chargement du wiki et de quelques images d’exemple…"
+  ,"organization.wiki_empty": "Le wiki est accessible, mais sa page ne contient aucune description."
+  ,"organization.cached_offline": "Internet est indisponible. Les dernières informations en cache sont affichées."
+  ,"organization.internet_required": "Une connexion Internet est nécessaire pour charger ce wiki et ses exemples.\n\n{error}"
+  ,"organization.open_wiki": "Ouvrir la page wiki dans le navigateur"
+  ,"organization.no_samples": "Aucune image d’exemple n’a été renvoyée pour ce tag."
+  ,"organization.wiki_references": "Tags référencés par ce wiki :"
+  ,"organization.recurring": "Top {count} des tags récurrents sur {sample_size} posts échantillonnés"
+  ,"organization.no_recurring": "Aucun tag récurrent n’a pu être calculé sur {sample_size} posts échantillonnés."
+  ,"organization.recurring_tooltip": "Coche ce tag pour la Revue ; clique sur son nom pour l’afficher ici."
+  ,"organization.send_recurring_review": "Envoyer les tags récurrents cochés vers Revue"
+  ,"organization.details_offline_log": "Impossible d’actualiser les détails de {tag} : {error}"
+  ,"organization.rename": "Renommer"
+  ,"organization.delete": "Supprimer"
+  ,"organization.save": "Enregistrer"
+  ,"organization.name": "Nom :"
+  ,"organization.tags_prompt": "Un tag par ligne :"
+  ,"organization.confirm_delete": "Supprimer « {name} » de la taxonomie locale ?"
+  ,"organization.ready": "Sélectionne une branche pour la parcourir ou la modifier. Les changements ne sont écrits qu’avec Enregistrer."
+  ,"organization.search_count": "{count} résultat(s) correspondant(s) affiché(s)."
+  ,"organization.saving": "Enregistrement du JSON, de la sauvegarde et des index SQLite…"
+  ,"organization.saved": "Taxonomie enregistrée et index SQLite synchronisés."
+  ,"organization.backup": "Sauvegarde de la taxonomie : {path}"
+  ,"organization.failed": "Échec de l’opération sur la taxonomie : {error}"
+  ,"organization.updating": "Téléchargement et analyse des sources wiki officielles…"
+  ,"organization.update_confirm": "Import analysé : {total} tags uniques, {added} ajout(s), {removed} retrait(s). L’appliquer ? Une sauvegarde datée sera créée avant."
+  ,"organization.cancelled": "Mise à jour wiki analysée puis annulée."
+  ,"wiki.tag": "Tag du wiki :"
+  ,"wiki.tag_placeholder": "Aulick_(Azur_Lane)"
+  ,"wiki.template": "Modèle :"
+  ,"wiki.apply_template": "Appliquer le modèle"
+  ,"wiki.replace_confirm": "Remplacer la source actuelle par le modèle sélectionné ?"
+  ,"wiki.template_character": "Personnage"
+  ,"wiki.template_copyright": "Copyright"
+  ,"wiki.template_artist": "Artiste"
+  ,"wiki.template_general": "Général"
+  ,"wiki.source": "Source Gelbooru"
+  ,"wiki.preview": "Aperçu local — vérifier le rendu final sur Gelbooru"
+  ,"wiki.tool_bold": "Gras"
+  ,"wiki.tool_heading": "Titre"
+  ,"wiki.heading_level": "Titre de niveau {level}"
+  ,"wiki.normal_text": "Texte normal"
+  ,"wiki.group_style": "Style"
+  ,"wiki.group_links": "Liens"
+  ,"wiki.group_insert": "Insertion"
+  ,"wiki.group_sections": "Sections"
+  ,"wiki.tool_italic": "Italique"
+  ,"wiki.tool_tag_link": "Tag wiki"
+  ,"wiki.tool_search_link": "Recherche de tag"
+  ,"wiki.tool_post": "Post"
+  ,"wiki.tool_quote": "Citation"
+  ,"wiki.tool_spoiler": "Spoiler"
+  ,"wiki.tool_external": "Liens externes"
+  ,"wiki.tool_see_also": "Voir aussi"
+  ,"wiki.validation_ok": "La syntaxe source semble valide pour Gelbooru."
+  ,"wiki.issue_alias": "Syntaxe d’alias Danbooru incompatible : [[{value}]]. Retirer | et son libellé."
+  ,"wiki.issue_spaces": "Les liens wiki exigent des underscores : [[{value}]]."
+  ,"wiki.issue_search_spaces": "Les recherches de tags exigent des underscores : {{{{{value}}}}}."
+  ,"wiki.issue_heading": "Les titres h1–h6 de Danbooru sont incompatibles ; utiliser [b]Titre :[/b]."
+  ,"wiki.issue_unbalanced": "Balise [{value}] non équilibrée."
+  ,"wiki.issue_missing": "Tag absent de la base Gelbooru locale sélectionnée : {value}."
+  ,"wiki.tag_required": "Indiquer le tag du wiki avant d’enregistrer le brouillon."
+  ,"wiki.load": "Charger un brouillon…"
+  ,"wiki.save": "Enregistrer le brouillon"
+  ,"wiki.copy": "Copier la source"
+  ,"wiki.open_create": "Copier et ouvrir la création Gelbooru"
+  ,"wiki.saved": "Brouillon enregistré localement : {path}"
+  ,"wiki.save_failed": "Impossible d’enregistrer le brouillon : {error}"
+  ,"wiki.load_failed": "Impossible de charger le brouillon : {error}"
+  ,"wiki.copied": "Source Gelbooru copiée dans le presse-papiers."
+  ,"wiki.opened_create": "Source copiée ; la page de création Gelbooru a été ouverte dans le navigateur."
+  ,"similar.subtitle": "Trouver des artistes à partir de références visuelles"
+  ,"similar.drop_zone": "Déposez une ou plusieurs images ou dossiers ici\\nou cliquez pour choisir des fichiers"
+  ,"similar.post_id": "ID du post"
+  ,"similar.load": "Charger"
+  ,"similar.remote_post": "Post distant :"
+  ,"similar.references_title": "1. Références — {count}"
+  ,"similar.add_images": "Ajouter des images"
+  ,"similar.remove_selection": "Retirer la sélection"
+  ,"similar.clear": "Vider"
+  ,"similar.continue_anyway": "Continuer quand même"
+  ,"similar.advanced_options": "Options avancées"
+  ,"similar.mode.artist": "Artiste → artistes"
+  ,"similar.mode.image": "Image → artistes / identification"
+  ,"similar.search_by": "Recherche par :"
+  ,"similar.primary_ranking": "Classement principal :"
+  ,"similar.minimum_images": "Minimum images :"
+  ,"similar.top": "Top :"
+  ,"similar.artist_search_placeholder": "Rechercher un artist tag…"
+  ,"similar.search": "Rechercher"
+  ,"similar.local_image_placeholder": "Déposer une image ou choisir un fichier"
+  ,"similar.choose": "Choisir…"
+  ,"similar.analyze_image": "Analyser l’image"
+  ,"similar.internal_item": "Ouvrir un AnalysisItem par ID interne :"
+  ,"similar.internal_item_tooltip": "Identifiant interne BooruFlow d’une image déjà indexée. Fonction destinée au diagnostic ou à un usage avancé."
+  ,"similar.open": "Ouvrir"
+  ,"similar.unused_days": "Inutilisés depuis (jours) :"
+  ,"similar.purge_remote": "Purger les profils distants inutilisés"
+  ,"similar.update_profiles": "Mettre à jour les profils"
+  ,"similar.review": "Examiner"
+  ,"similar.repair_filenames": "Réparer les filenames"
+  ,"similar.repair_filenames_tooltip": "Réparer les métadonnées depuis les noms de fichiers"
+  ,"similar.assign_artist": "Associer à un artiste"
+  ,"similar.analysis_title": "2. Analyse"
+  ,"similar.ready": "Prêt à recevoir des références."
+  ,"similar.full_corpus": "← Revenir au corpus complet"
+  ,"similar.results_title": "3. Artistes similaires — {count}"
+  ,"similar.column.rank": "#"
+  ,"similar.column.artist": "Artiste"
+  ,"similar.column.site": "Site"
+  ,"similar.column.style": "Style"
+  ,"similar.column.content": "Contenu"
+  ,"similar.column.palette": "Palette"
+  ,"similar.column.images": "Images"
+  ,"similar.column.profile": "Profil"
+  ,"similar.column.coherence": "Cohérence"
+  ,"similar.column.works": "Œuvres"
+  ,"similar.column.compare": "Comparer"
+  ,"similar.column.booru": "Booru"
+  ,"similar.tooltip.style": "Style = similarité Author_ID"
+  ,"similar.tooltip.content": "Contenu = similarité OpenCLIP"
+  ,"similar.tooltip.palette": "Palette = distance entre les caractéristiques de couleur"
+  ,"similar.view_close_works": "Voir les œuvres proches"
+  ,"similar.compare": "Comparer"
+  ,"similar.library_indexing": "Indexation bibliothèque"
+  ,"similar.index_folders": "Indexer des dossiers"
+  ,"similar.index_files": "Indexer des fichiers"
+  ,"similar.resume": "Reprendre"
+  ,"similar.pause": "Pause"
+  ,"similar.cancel": "Annuler"
+  ,"similar.no_indexing": "Aucune indexation active"
+  ,"similar.phase_none": "Phase : —"
+  ,"similar.current_file_none": "Fichier courant : —"
+  ,"similar.local_duplicates": "Voir les doublons locaux"
+  ,"similar.all": "Tous"
+  ,"similar.discovery_sources_tooltip": "Boards utilisés pour la découverte distante"
+  ,"similar.discovery_budget_tooltip": "Budget de découverte distante"
+  ,"similar.discovery_mode.quick": "Rapide"
+  ,"similar.discovery_mode.normal": "Normal"
+  ,"similar.discovery_mode.broad": "Large"
+  ,"similar.discovery_mode.quick_tooltip": "~20 artistes · ~8 images/artiste"
+  ,"similar.discovery_mode.normal_tooltip": "~60 artistes · ~16 images/artiste"
+  ,"similar.discovery_mode.broad_tooltip": "~120 artistes · ~30 images/artiste"
+  ,"similar.discover_remote": "Découvrir à distance"
+  ,"similar.only_new": "Nouveaux uniquement"
+  ,"similar.source": "Source :"
+  ,"similar.remote_title": "4. Découverte distante"
+  ,"similar.no_discovery": "Aucune découverte active"
+  ,"similar.cancel_discovery": "Annuler la découverte"
+  ,"similar.profile_unbuilt": "profil non construit"
+  ,"similar.image_count.one": "{count} image"
+  ,"similar.image_count.many": "{count} images"
+  ,"similar.unique_image_count.one": "{count} image unique"
+  ,"similar.unique_image_count.many": "{count} images uniques"
+  ,"similar.result_count.one": "{count} résultat"
+  ,"similar.result_count.many": "{count} résultats"
+  ,"similar.active_query": "Requête active"
+  ,"similar.coherence": "cohérence"
+  ,"similar.quality": "Qualité : {quality}"
+  ,"similar.probable_artists": "Artistes probables"
+  ,"similar.margin": "marge {value}"
+  ,"similar.use_references": "← Utiliser les {count} références"
+  ,"similar.best_result": "#1 · Meilleur résultat"
+  ,"similar.close_works": "Œuvres proches"
+  ,"similar.works_booru": "Œuvres / Booru"
+  ,"similar.works_booru_tooltip": "Clic : œuvres proches. L’artiste peut aussi être ouvert depuis le menu contextuel."
+  ,"similar.confidence.very_low": "très faible"
+  ,"similar.confidence.low": "faible"
+  ,"similar.confidence.medium": "moyen"
+  ,"similar.confidence.established": "établi"
+  ,"similar.confidence.unbuilt": "non construit"
+  ,"similar.dialog.choose_image": "Choisir une image"
+  ,"similar.dialog.choose_references": "Choisir des références"
+  ,"similar.dialog.image_filter": "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp)"
+  ,"similar.dialog.all_image_filter": "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp);;Tous les fichiers (*)"
+  ,"similar.gallery.closest": "Les plus proches"
+  ,"similar.gallery.all": "Toutes les œuvres"
+  ,"similar.gallery.load_more": "Charger 24 images supplémentaires"
+  ,"similar.gallery.load_on_selection": "Chargement à la sélection"
+  ,"similar.gallery.remote_unavailable": "Image distante actuellement indisponible : {error}"
+  ,"similar.gallery.sources": "Sources"
+  ,"similar.gallery.missing_file": "fichier introuvable"
+  ,"similar.gallery.local": "Local"
+  ,"similar.corpus_status": "Profils : {profiles} · Images avec artiste : {eligible} · sans artiste : {skipped} · Author_ID : {author_id} · OpenCLIP : {openclip}"
+  ,"similar.unassigned_images": "{count} images sans artiste"
+  ,"similar.resumable_index": "Indexation interrompue disponible : {count} fichiers traités"
+  ,"similar.author_id_missing": "Modèle Author_ID absent"
+  ,"similar.openclip_missing": "Dépendance OpenCLIP absente"
+  ,"similar.status.ranked": "{count} candidats classés — aucun tag artiste modifié."
+  ,"similar.status.no_compatible_embedding": "Profil sans embedding compatible : {error}. Utilisez Mettre à jour les profils."
+  ,"similar.status.backend_unavailable": "Backend indisponible : {error}"
+  ,"similar.status.embeddings_required": "{error}. Calcul des embeddings nécessaire."
+  ,"similar.status.preparation_active": "Une préparation est déjà en cours."
+  ,"similar.status.scanning_images": "Recherche des images…"
+  ,"similar.status.preparing": "Préparation : {done} / {total}"
+  ,"similar.status.corpus_cleared": "Corpus vidé"
+  ,"similar.warning.weak_sample": "Échantillon très faible : le résultat peut refléter le contenu plutôt que le style."
+  ,"similar.warning.heterogeneous": "Références visuellement hétérogènes : plusieurs styles peuvent être mélangés."
+  ,"similar.reference_coherence": "Cohérence {backend} : {value}"
+  ,"similar.source_artist_unknown": "Artiste source : inconnu"
+  ,"similar.detected_artist": "Artiste détecté"
+  ,"similar.primary_artist": "Artiste principal"
+  ,"similar.other_artists": " · Collaborateurs/autres : {artists}"
+  ,"similar.folder_artist_suggestion": "Artiste supposé d’après le dossier : {artist} — confirmation requise"
+  ,"similar.reference_usable": "{count} utilisable(s)"
+  ,"similar.reference_duplicates": "{count} doublon(s) ignoré(s)"
+  ,"similar.reference_invalid": "{count} invalide(s)"
+  ,"similar.local_files": "Local — {count} fichier(s)"
+  ,"similar.unknown_source": "Source inconnue"
+  ,"similar.warning.add_or_continue": "Échantillon très faible — ajoutez des images ou cliquez Continuer quand même."
+  ,"similar.status.ranking_active": "Un classement est déjà en cours…"
+  ,"similar.status.ranking_background": "Classement des artistes en arrière-plan…"
+  ,"similar.visual_reference_query": "Requête : {count} références visuelles"
+  ,"similar.status.analysis_complete": "Analyse terminée · Aucun tag artiste n’a été modifié."
+  ,"similar.dialog.image_details": "Détails de l’image"
+  ,"similar.details.preview": "<h2>Aperçu</h2><b>Dimensions :</b> {width} × {height}<br><b>État :</b> {state}"
+  ,"similar.details.provenance": "<h2>Provenance</h2>"
+  ,"similar.details.no_rating": "<br><h2>Rating</h2>Aucune donnée disponible"
+  ,"similar.details.artists": "<h2>Artistes</h2>"
+  ,"similar.details.no_artist": "Aucun artiste associé"
+  ,"similar.details.source_tags": "<h2>Tags source</h2>"
+  ,"similar.details.unknown_category": "catégorie inconnue"
+  ,"similar.details.no_source_data": "Aucune donnée source disponible"
+  ,"similar.details.no_wd14": "Aucune analyse WD14"
+  ,"similar.details.embeddings": "<h2>Embeddings</h2>Author_ID : {author}<br>OpenCLIP : {openclip}"
+  ,"similar.available": "disponible"
+  ,"similar.absent": "absent"
+  ,"similar.open_file": "Ouvrir le fichier"
+  ,"similar.open_booru": "Ouvrir sur le booru"
+  ,"similar.use_image_alone": "Utiliser cette image seule"
+  ,"similar.single_image_query": "Requête : 1 image sélectionnée — {label}"
+  ,"similar.status.single_image_complete": "Analyse terminée · Recherche basée sur une seule image : le sujet, la composition ou la palette peuvent davantage influencer les résultats."
+  ,"similar.identity": "Identité :"
+  ,"similar.artist": "Artiste :"
+  ,"similar.confirm_assignment": "Confirmer l’association"
+  ,"similar.confirm_assignment_message": "Associer {count} image(s) canoniques à {artist} ?"
+  ,"similar.assignment_complete": "Association terminée : {associated} ajout(s), profil {images} image(s)."
+  ,"similar.unassigned_title": "Images sans artiste — {count}"
+  ,"similar.unassigned_summary": "Local uniquement : {local} · Gelbooru : {gelbooru} · e621 : {e621} · metadata disponible : {available} · metadata manquante : {missing} · provenances multiples : {multiple}"
+  ,"similar.unassigned_column.item": "AnalysisItem"
+  ,"similar.unassigned_column.sha": "SHA"
+  ,"similar.unassigned_column.source": "Source"
+  ,"similar.unassigned_column.location": "Chemin / post"
+  ,"similar.unassigned_column.diagnostic": "Diagnostic"
+  ,"similar.assign_selection": "Associer la sélection"
+  ,"similar.repair_preview": "Images sans artiste : {without_artist}\nFilename compatible : {compatible}\nArtistes récupérables : {artist_count}\nSite Gelbooru : {gelbooru}\nSite e621 : {e621}\nIdentité locale : {local}\nNon parsables : {unrecognized}\n\nAppliquer sans recalculer les embeddings ?"
+  ,"similar.repair_dialog_title": "Réparation depuis les noms de fichiers"
+  ,"similar.repair_complete": "Réparation terminée : {associated} image(s), {artists} artiste(s), {conflicts} conflit(s)."
+  ,"similar.wait_remote_discovery": "Attendez la fin de la découverte distante."
+  ,"similar.source_count": "{count} source(s)"
+  ,"similar.phase": "Phase : {phase}"
+  ,"similar.current_file": "Fichier courant : {file}"
+  ,"similar.library_progress": "Nouveaux : {imported} · même chemin : {same} · local ↔ local : {local_local} · local ↔ distant : {local_remote} · métadonnées : {metadata} · invalides : {invalid}"
+  ,"similar.local_duplicates_title": "Doublons binaires locaux — {count} groupe(s)"
+  ,"similar.duplicate_column.preview": "Aperçu"
+  ,"similar.duplicate_column.sha": "SHA-256"
+  ,"similar.duplicate_column.paths": "Chemins locaux"
+  ,"similar.duplicate_column.open": "Ouvrir"
+  ,"similar.open_first_file": "Ouvrir le premier fichier"
+  ,"similar.library_done": "Indexation {state} : {scanned} scannés, {duplicates} doublons, {invalid} erreurs"
+  ,"similar.library_failed": "Échec indexation : {error}"
+  ,"similar.wait_library_index": "Attendez la fin de l’indexation de bibliothèque."
+  ,"similar.add_references_first": "Ajoutez d’abord des références visuelles."
+  ,"similar.remote_searching": "Source : {source}\nRecherche des candidats…"
+  ,"similar.remote_task": "Découverte d’artistes distants"
+  ,"similar.remote_phase.distinctive_tags": "Tags distinctifs"
+  ,"similar.remote_phase.candidates": "Recherche de candidats"
+  ,"similar.remote_phase.profiles": "Téléchargement / embeddings / profils"
+  ,"similar.remote_phase.retry": "Nouvelle tentative"
+  ,"similar.remote_phase.warning": "Post ignoré"
+  ,"similar.remote_phase.finished": "Terminé"
+  ,"similar.remote_progress": "Phase : {phase}\nTags distinctifs : {tags} · Requêtes : {queries} · Posts reçus : {posts} · Artistes trouvés : {artists} · Après filtrage : {filtered}\nImages utilisables : {images} · Ignorées : {ignored} · Profils : {profiles} / {total} · Erreurs réseau : {errors}"
+  ,"similar.remote_reason": "\nRaison : {reason}"
+  ,"similar.cancellation_requested": "Annulation demandée…"
+  ,"similar.new_prefix": "Nouveau · "
+  ,"similar.remote_results": "Résultats distants · {count} artistes évalués"
+  ,"similar.remote_failed": "Échec découverte distante : {error}"
+  ,"similar.purge_preview": "{profiles} profils distants concernés\n{embeddings} embeddings\nLes artistes présents dans la collection sont protégés."
+  ,"similar.purge_title": "Purge des profils distants"
+  ,"similar.apply_question": "\n\nAppliquer ?"
+  ,"similar.purge_complete": "Purge terminée : {profiles} profils, {embeddings} embeddings."
+  ,"similar.loading_post": "Chargement {site} #{post_id}…"
+  ,"similar.artist_profile_available": "Profil artiste disponible"
+  ,"similar.use_existing_profile": "{artist} possède {count} images connues. Utiliser le profil existant ?\nChoisissez Non pour utiliser seulement ce post."
+  ,"similar.weak_artist_profile": "{artist} n’est représenté que par {count} image(s). Ajoutez des références ou continuez quand même."
+  ,"similar.update_profiles_question": "{count} images peuvent être vérifiées. Les embeddings en cache seront réutilisés. Continuer ?"
+  ,"similar.embeddings_background": "Embeddings : 0 / {count} — opération en arrière-plan"
+  ,"similar.update_complete": "Mise à jour terminée : {report}"
+  ,"similar.failed": "Échec : {error}"
+  ,"similar.gallery_title": "Galerie"
+  ,"similar.gallery_all_references": "Toutes les images connues font partie des références. Les afficher quand même ?"
+  ,"similar.works_title": "Œuvres — {artist}"
+  ,"similar.references_vs": "Références vs {artist}"
+  ,"similar.no_query_to_compare": "Aucune requête à comparer."
+  ,"similar.similarity": "similarité {value}"
+  ,"similar.no_data": "Aucune donnée disponible"
+  ,"similar.frequent_source_tags": "Tags source fréquents"
+  ,"similar.frequent_wd14": "WD14 acceptés fréquents"
+  ,"similar.references": "Références"
+  ,"similar.no_common_tag": "Aucun tag fréquent commun"
+  ,"similar.comparison_section": "{section}\nCommuns : {common}\n{left}: {left_values}\n{right}: {right_values}"
+}

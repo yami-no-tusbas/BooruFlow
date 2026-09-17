@@ -1,0 +1,6322 @@
+{
+  "version": 3,
+  "roots": [
+    {
+      "id": "dedicated",
+      "label": "Branches dédiées / routage",
+      "kind": "branch",
+      "children": [
+        {
+          "id": "gelbooru_cl",
+          "label": "Tags C&L",
+          "kind": "route",
+          "sites": [
+            "gelbooru"
+          ],
+          "tags": [
+            "child",
+            "loli"
+          ],
+          "destination": "Tags C&L (gelbooru)",
+          "special": "dedicated"
+        },
+        {
+          "id": "e621_yl",
+          "label": "Tags Y&L",
+          "kind": "route",
+          "sites": [
+            "e621"
+          ],
+          "tags": [
+            "young",
+            "loli"
+          ],
+          "destination": "Tags Y&L (e621)",
+          "special": "dedicated"
+        },
+        {
+          "id": "boys_review",
+          "label": "Garçons — à vérifier",
+          "kind": "route",
+          "sites": [
+            "gelbooru"
+          ],
+          "tags": [
+            "shota",
+            "loli"
+          ],
+          "destination": "",
+          "special": "ambiguous"
+        }
+      ]
+    },
+    {
+      "id": "tags",
+      "label": "Tags",
+      "kind": "branch",
+      "children": [
+        {
+          "id": "relations",
+          "label": "Relations",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "brother_and_sister",
+              "label": "brother_and_sister",
+              "kind": "rule",
+              "tags": [
+                "brother_and_sister"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Relations/brother_and_sister",
+              "children": [
+                {
+                  "id": "brother_and_sister_lore",
+                  "label": "brother_and_sister_(lore)",
+                  "kind": "rule",
+                  "tags": [
+                    "brother_and_sister_(lore)"
+                  ],
+                  "sites": [
+                    "e621"
+                  ],
+                  "destination": "Tags/Relations/brother_and_sister/brother_and_sister_(lore)"
+                }
+              ]
+            },
+            {
+              "id": "couple",
+              "label": "couple",
+              "kind": "rule",
+              "tags": [
+                "couple"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Relations/couple"
+            },
+            {
+              "id": "father_and_daughter",
+              "label": "father_and_daughter",
+              "kind": "rule",
+              "tags": [
+                "father_and_daughter"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Relations/father_and_daughter"
+            },
+            {
+              "id": "mother_and_daughter",
+              "label": "mother_and_daughter",
+              "kind": "rule",
+              "tags": [
+                "mother_and_daughter"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Relations/mother_and_daughter",
+              "children": [
+                {
+                  "id": "mother_and_daughter_lore",
+                  "label": "mother_and_daughter_(lore)",
+                  "kind": "rule",
+                  "tags": [
+                    "mother_and_daughter_(lore)"
+                  ],
+                  "sites": [
+                    "e621"
+                  ],
+                  "destination": "Tags/Relations/mother_and_daughter/mother_and_daughter_(lore)"
+                }
+              ]
+            },
+            {
+              "id": "mother_and_son",
+              "label": "mother_and_son",
+              "kind": "rule",
+              "tags": [
+                "mother_and_son"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Relations/mother_and_son"
+            },
+            {
+              "id": "sisters",
+              "label": "sisters",
+              "kind": "rule",
+              "tags": [
+                "sisters"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Relations/sisters",
+              "children": [
+                {
+                  "id": "sisters_lore",
+                  "label": "sisters_(lore)",
+                  "kind": "rule",
+                  "tags": [
+                    "sisters_(lore)"
+                  ],
+                  "sites": [
+                    "e621"
+                  ],
+                  "destination": "Tags/Relations/sisters/sisters_(lore)"
+                }
+              ]
+            },
+            {
+              "id": "twins",
+              "label": "twins",
+              "kind": "rule",
+              "tags": [
+                "twins"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Relations/twins",
+              "children": [
+                {
+                  "id": "twins_lore",
+                  "label": "twins_(lore)",
+                  "kind": "rule",
+                  "tags": [
+                    "twins_(lore)"
+                  ],
+                  "sites": [
+                    "e621"
+                  ],
+                  "destination": "Tags/Relations/twins/twins_(lore)"
+                }
+              ]
+            },
+            {
+              "id": "father_and_son",
+              "label": "father_and_son",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "father_and_son_lore",
+                  "label": "father_and_son_(lore)",
+                  "kind": "rule",
+                  "tags": [
+                    "father_and_son_(lore)"
+                  ],
+                  "sites": [
+                    "e621"
+                  ],
+                  "destination": "Tags/Relations/father_and_son/father_and_son_(lore)"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "sexual_themes",
+          "label": "Sexual Themes",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "exposure_and_public",
+              "label": "Exposure and public",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "assisted_exposure",
+                  "label": "assisted_exposure",
+                  "kind": "rule",
+                  "tags": [
+                    "assisted_exposure"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Exposure and public/assisted_exposure"
+                },
+                {
+                  "id": "forced_exposure",
+                  "label": "forced_exposure",
+                  "kind": "rule",
+                  "tags": [
+                    "forced_exposure"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Exposure and public/forced_exposure"
+                },
+                {
+                  "id": "partially_visible_vulva",
+                  "label": "partially_visible_vulva",
+                  "kind": "rule",
+                  "tags": [
+                    "partially_visible_vulva"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Exposure and public/partially_visible_vulva"
+                },
+                {
+                  "id": "public_indecency",
+                  "label": "public_indecency",
+                  "kind": "rule",
+                  "tags": [
+                    "public_indecency"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Exposure and public/public_indecency"
+                },
+                {
+                  "id": "public_use",
+                  "label": "public_use",
+                  "kind": "rule",
+                  "tags": [
+                    "public_use"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Exposure and public/public_use"
+                }
+              ]
+            },
+            {
+              "id": "bdsm",
+              "label": "BDSM",
+              "kind": "rule",
+              "children": [
+                {
+                  "id": "ball_gag",
+                  "label": "ball_gag",
+                  "kind": "rule",
+                  "tags": [
+                    "ball_gag"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/ball_gag"
+                },
+                {
+                  "id": "chastity_belt",
+                  "label": "chastity_belt",
+                  "kind": "rule",
+                  "tags": [
+                    "chastity_belt"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/chastity_belt"
+                },
+                {
+                  "id": "enema",
+                  "label": "enema",
+                  "kind": "rule",
+                  "tags": [
+                    "enema"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/enema"
+                },
+                {
+                  "id": "pet_play",
+                  "label": "pet_play",
+                  "kind": "rule",
+                  "tags": [
+                    "pet_play"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/pet_play"
+                },
+                {
+                  "id": "pillory",
+                  "label": "pillory",
+                  "kind": "rule",
+                  "tags": [
+                    "pillory"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/pillory"
+                },
+                {
+                  "id": "whip_marks",
+                  "label": "whip_marks",
+                  "kind": "rule",
+                  "tags": [
+                    "whip_marks"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/whip_marks"
+                },
+                {
+                  "id": "wooden_horse",
+                  "label": "wooden_horse",
+                  "kind": "rule",
+                  "tags": [
+                    "wooden_horse"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/wooden_horse"
+                },
+                {
+                  "id": "shibari",
+                  "label": "shibari",
+                  "kind": "rule",
+                  "tags": [
+                    "shibari"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/shibari"
+                },
+                {
+                  "id": "bondage",
+                  "label": "bondage",
+                  "kind": "rule",
+                  "tags": [
+                    "bondage"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/bondage"
+                },
+                {
+                  "id": "restrained",
+                  "label": "restrained",
+                  "kind": "branch",
+                  "children": [
+                    {
+                      "id": "restrained",
+                      "label": "restrained",
+                      "kind": "rule",
+                      "tags": [
+                        "restrained"
+                      ],
+                      "sites": [
+                        "gelbooru",
+                        "e621"
+                      ],
+                      "destination": "Tags/Sexual Themes/BDSM/restrained/restrained"
+                    }
+                  ]
+                },
+                {
+                  "id": "shackles",
+                  "label": "shackles",
+                  "kind": "rule",
+                  "tags": [
+                    "shackles"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/shackles"
+                },
+                {
+                  "id": "torture",
+                  "label": "torture",
+                  "kind": "rule",
+                  "tags": [
+                    "torture"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/BDSM/torture"
+                }
+              ],
+              "tags": [
+                "Bdsm"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/Bdsm"
+            },
+            {
+              "id": "body_writing",
+              "label": "body_writing",
+              "kind": "rule",
+              "tags": [
+                "body_writing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/body_writing"
+            },
+            {
+              "id": "non_consensual",
+              "label": "Non-consensual",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "bullying",
+                  "label": "bullying",
+                  "kind": "rule",
+                  "tags": [
+                    "bullying"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/bullying"
+                },
+                {
+                  "id": "defeated",
+                  "label": "defeated",
+                  "kind": "rule",
+                  "tags": [
+                    "defeated"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/defeated"
+                },
+                {
+                  "id": "rape_gang_rape",
+                  "label": "rape gang_rape",
+                  "kind": "branch",
+                  "children": [
+                    {
+                      "id": "gang_rape",
+                      "label": "gang_rape",
+                      "kind": "rule",
+                      "tags": [
+                        "gang_rape"
+                      ],
+                      "sites": [
+                        "gelbooru",
+                        "e621"
+                      ],
+                      "destination": "Tags/Sexual Themes/Non-consensual/rape gang_rape/gang_rape"
+                    }
+                  ]
+                },
+                {
+                  "id": "molestation",
+                  "label": "molestation",
+                  "kind": "rule",
+                  "tags": [
+                    "molestation"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/molestation"
+                },
+                {
+                  "id": "rape",
+                  "label": "rape",
+                  "kind": "rule",
+                  "tags": [
+                    "rape"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/rape"
+                },
+                {
+                  "id": "after_rape",
+                  "label": "after_rape",
+                  "kind": "rule",
+                  "tags": [
+                    "after_rape"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/after_rape"
+                },
+                {
+                  "id": "imminent_rape",
+                  "label": "imminent_rape",
+                  "kind": "rule",
+                  "tags": [
+                    "imminent_rape"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/imminent_rape"
+                },
+                {
+                  "id": "feral_on_feral",
+                  "label": "feral_on_feral",
+                  "kind": "rule",
+                  "tags": [
+                    "feral_on_feral"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/feral_on_feral"
+                },
+                {
+                  "id": "pokemon",
+                  "label": "pokemon",
+                  "kind": "rule",
+                  "tags": [
+                    "pokemon"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/pokemon"
+                },
+                {
+                  "id": "smaller_female",
+                  "label": "smaller_female",
+                  "kind": "rule",
+                  "tags": [
+                    "smaller_female"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/smaller_female"
+                },
+                {
+                  "id": "taur",
+                  "label": "taur",
+                  "kind": "rule",
+                  "tags": [
+                    "taur"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/taur"
+                },
+                {
+                  "id": "tentacle_rape",
+                  "label": "tentacle_rape",
+                  "kind": "rule",
+                  "tags": [
+                    "tentacle_rape"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/tentacle_rape"
+                },
+                {
+                  "id": "tentacle_sex",
+                  "label": "tentacle_sex",
+                  "kind": "rule",
+                  "tags": [
+                    "tentacle_sex"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/tentacle_sex"
+                },
+                {
+                  "id": "forced",
+                  "label": "forced",
+                  "kind": "rule",
+                  "tags": [
+                    "forced"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/forced"
+                },
+                {
+                  "id": "assisted_rape",
+                  "label": "assisted_rape",
+                  "kind": "rule",
+                  "tags": [
+                    "assisted_rape"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/assisted_rape"
+                },
+                {
+                  "id": "broken_rape_victim",
+                  "label": "broken_rape_victim",
+                  "kind": "rule",
+                  "tags": [
+                    "broken_rape_victim"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/broken_rape_victim"
+                },
+                {
+                  "id": "you_gonna_get_raped",
+                  "label": "you_gonna_get_raped",
+                  "kind": "rule",
+                  "tags": [
+                    "you_gonna_get_raped"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Non-consensual/you_gonna_get_raped"
+                }
+              ]
+            },
+            {
+              "id": "condom_belt",
+              "label": "condom_belt",
+              "kind": "rule",
+              "tags": [
+                "condom_belt"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/condom_belt"
+            },
+            {
+              "id": "cum_in_bowl",
+              "label": "cum_in_bowl",
+              "kind": "rule",
+              "tags": [
+                "cum_in_bowl"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/cum_in_bowl"
+            },
+            {
+              "id": "ejaculation_and_semen",
+              "label": "Ejaculation and semen",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "cum_in_container",
+                  "label": "cum_in_container",
+                  "kind": "rule",
+                  "tags": [
+                    "cum_in_container"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Ejaculation and semen/cum_in_container"
+                }
+              ]
+            },
+            {
+              "id": "cum_in_cup",
+              "label": "cum_in_cup",
+              "kind": "rule",
+              "tags": [
+                "cum_in_cup"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/cum_in_cup"
+            },
+            {
+              "id": "oral",
+              "label": "Oral",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "cum_in_mouth",
+                  "label": "cum_in_mouth",
+                  "kind": "rule",
+                  "tags": [
+                    "cum_in_mouth"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Oral/cum_in_mouth"
+                },
+                {
+                  "id": "fellatio",
+                  "label": "fellatio",
+                  "kind": "rule",
+                  "tags": [
+                    "fellatio"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Oral/fellatio"
+                },
+                {
+                  "id": "cum_on_face",
+                  "label": "cum_on_face",
+                  "kind": "rule",
+                  "tags": [
+                    "cum_on_face"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Oral/cum_on_face"
+                },
+                {
+                  "id": "cunnilingus",
+                  "label": "cunnilingus",
+                  "kind": "rule",
+                  "tags": [
+                    "cunnilingus"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Oral/cunnilingus"
+                },
+                {
+                  "id": "glory_hole",
+                  "label": "glory_hole",
+                  "kind": "rule",
+                  "tags": [
+                    "glory_hole"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Oral/glory_hole"
+                },
+                {
+                  "id": "penis_on_face",
+                  "label": "penis_on_face",
+                  "kind": "rule",
+                  "tags": [
+                    "penis_on_face"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Oral/penis_on_face"
+                }
+              ]
+            },
+            {
+              "id": "drugs",
+              "label": "drugs",
+              "kind": "rule",
+              "tags": [
+                "drugs"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/drugs"
+            },
+            {
+              "id": "penetration",
+              "label": "Penetration",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "fisting",
+                  "label": "fisting",
+                  "kind": "rule",
+                  "tags": [
+                    "fisting"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Penetration/fisting"
+                },
+                {
+                  "id": "double_anal",
+                  "label": "double_anal",
+                  "kind": "rule",
+                  "tags": [
+                    "double_anal"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Penetration/double_anal"
+                },
+                {
+                  "id": "gaping",
+                  "label": "gaping",
+                  "kind": "rule",
+                  "tags": [
+                    "gaping"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Penetration/gaping"
+                },
+                {
+                  "id": "gynomorph_penetrating",
+                  "label": "gynomorph_penetrating",
+                  "kind": "rule",
+                  "tags": [
+                    "gynomorph_penetrating"
+                  ],
+                  "sites": [
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Penetration/gynomorph_penetrating"
+                },
+                {
+                  "id": "huge_penetration",
+                  "label": "huge_penetration",
+                  "kind": "rule",
+                  "tags": [
+                    "huge_penetration"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Penetration/huge_penetration"
+                },
+                {
+                  "id": "large_penetration",
+                  "label": "large_penetration",
+                  "kind": "rule",
+                  "tags": [
+                    "large_penetration"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Penetration/large_penetration"
+                },
+                {
+                  "id": "male_penetrating_taur",
+                  "label": "male_penetrating_taur",
+                  "kind": "rule",
+                  "tags": [
+                    "male_penetrating_taur"
+                  ],
+                  "sites": [
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Penetration/male_penetrating_taur"
+                }
+              ]
+            },
+            {
+              "id": "nyotaimori",
+              "label": "nyotaimori",
+              "kind": "rule",
+              "tags": [
+                "nyotaimori"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/nyotaimori"
+            },
+            {
+              "id": "sextoys",
+              "label": "Sextoys",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "dildos",
+                  "label": "Dildos",
+                  "kind": "branch",
+                  "children": [
+                    {
+                      "id": "dildo_under_panties",
+                      "label": "dildo_under_panties",
+                      "kind": "rule",
+                      "tags": [
+                        "dildo_under_panties"
+                      ],
+                      "sites": [
+                        "gelbooru"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Dildos/dildo_under_panties"
+                    },
+                    {
+                      "id": "horse_dildo",
+                      "label": "horse_dildo",
+                      "kind": "rule",
+                      "tags": [
+                        "horse_dildo"
+                      ],
+                      "sites": [
+                        "e621",
+                        "gelbooru"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Dildos/horse_dildo"
+                    },
+                    {
+                      "id": "dildo",
+                      "label": "dildo",
+                      "kind": "rule",
+                      "tags": [
+                        "dildo"
+                      ],
+                      "sites": [
+                        "gelbooru",
+                        "e621"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Dildos/dildo"
+                    },
+                    {
+                      "id": "dildo_harness",
+                      "label": "dildo_harness",
+                      "kind": "rule",
+                      "tags": [
+                        "dildo_harness"
+                      ],
+                      "sites": [
+                        "gelbooru",
+                        "e621"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Dildos/dildo_harness"
+                    }
+                  ]
+                },
+                {
+                  "id": "vibrators",
+                  "label": "Vibrators",
+                  "kind": "branch",
+                  "children": [
+                    {
+                      "id": "discreet_vibrator",
+                      "label": "discreet_vibrator",
+                      "kind": "rule",
+                      "tags": [
+                        "discreet_vibrator"
+                      ],
+                      "sites": [
+                        "gelbooru"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Vibrators/discreet_vibrator"
+                    },
+                    {
+                      "id": "hitachi_magic_wand",
+                      "label": "hitachi_magic_wand",
+                      "kind": "rule",
+                      "tags": [
+                        "hitachi_magic_wand"
+                      ],
+                      "sites": [
+                        "e621",
+                        "gelbooru"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Vibrators/hitachi_magic_wand"
+                    },
+                    {
+                      "id": "public_vibrator",
+                      "label": "public_vibrator",
+                      "kind": "rule",
+                      "tags": [
+                        "public_vibrator"
+                      ],
+                      "sites": [
+                        "gelbooru"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Vibrators/public_vibrator"
+                    },
+                    {
+                      "id": "vibrator_under_clothes",
+                      "label": "vibrator_under_clothes",
+                      "kind": "rule",
+                      "tags": [
+                        "vibrator_under_clothes"
+                      ],
+                      "sites": [
+                        "gelbooru"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Vibrators/vibrator_under_clothes"
+                    },
+                    {
+                      "id": "vibrator_under_panties",
+                      "label": "vibrator_under_panties",
+                      "kind": "rule",
+                      "tags": [
+                        "vibrator_under_panties"
+                      ],
+                      "sites": [
+                        "gelbooru"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Vibrators/vibrator_under_panties"
+                    },
+                    {
+                      "id": "vibrator",
+                      "label": "vibrator",
+                      "kind": "rule",
+                      "tags": [
+                        "vibrator"
+                      ],
+                      "sites": [
+                        "gelbooru",
+                        "e621"
+                      ],
+                      "destination": "Tags/Sexual Themes/Sextoys/Vibrators/vibrator"
+                    }
+                  ]
+                },
+                {
+                  "id": "speculum",
+                  "label": "speculum",
+                  "kind": "rule",
+                  "tags": [
+                    "speculum"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/speculum"
+                },
+                {
+                  "id": "vaginal_object_insertion",
+                  "label": "vaginal_object_insertion",
+                  "kind": "rule",
+                  "tags": [
+                    "vaginal_object_insertion"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/vaginal_object_insertion"
+                },
+                {
+                  "id": "anal_beads",
+                  "label": "anal_beads",
+                  "kind": "rule",
+                  "tags": [
+                    "anal_beads"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/anal_beads"
+                },
+                {
+                  "id": "anal_object_insertion",
+                  "label": "anal_object_insertion",
+                  "kind": "rule",
+                  "tags": [
+                    "anal_object_insertion"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/anal_object_insertion"
+                },
+                {
+                  "id": "animal_sex_toy",
+                  "label": "animal_sex_toy",
+                  "kind": "rule",
+                  "tags": [
+                    "animal_sex_toy"
+                  ],
+                  "sites": [
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/animal_sex_toy"
+                },
+                {
+                  "id": "butt_plug",
+                  "label": "butt_plug",
+                  "kind": "rule",
+                  "tags": [
+                    "butt_plug"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/butt_plug"
+                },
+                {
+                  "id": "sex_toy",
+                  "label": "sex_toy",
+                  "kind": "rule",
+                  "tags": [
+                    "sex_toy"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/sex_toy"
+                },
+                {
+                  "id": "sex_toy_in_ass",
+                  "label": "sex_toy_in_ass",
+                  "kind": "rule",
+                  "tags": [
+                    "sex_toy_in_ass"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/sex_toy_in_ass"
+                },
+                {
+                  "id": "sex_toy_in_pussy",
+                  "label": "sex_toy_in_pussy",
+                  "kind": "rule",
+                  "tags": [
+                    "sex_toy_in_pussy"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/sex_toy_in_pussy"
+                },
+                {
+                  "id": "sex_toy_insertion",
+                  "label": "sex_toy_insertion",
+                  "kind": "rule",
+                  "tags": [
+                    "sex_toy_insertion"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/sex_toy_insertion"
+                },
+                {
+                  "id": "sybian",
+                  "label": "sybian",
+                  "kind": "rule",
+                  "tags": [
+                    "sybian"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/sybian"
+                },
+                {
+                  "id": "spreader_bar",
+                  "label": "spreader_bar",
+                  "kind": "rule",
+                  "tags": [
+                    "spreader_bar"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Sextoys/spreader_bar"
+                }
+              ]
+            },
+            {
+              "id": "spanking",
+              "label": "spanking",
+              "kind": "rule",
+              "children": [
+                {
+                  "id": "spanked",
+                  "label": "spanked",
+                  "kind": "rule",
+                  "tags": [
+                    "spanked"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Sexual Themes/spanking/spanked"
+                }
+              ],
+              "tags": [
+                "spanking"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/spanking"
+            },
+            {
+              "id": "rope",
+              "label": "rope",
+              "kind": "rule",
+              "tags": [
+                "rope"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/rope"
+            },
+            {
+              "id": "bit_gag",
+              "label": "bit_gag",
+              "kind": "rule",
+              "tags": [
+                "bit_gag"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/bit_gag"
+            },
+            {
+              "id": "ring_gag",
+              "label": "ring_gag",
+              "kind": "rule",
+              "tags": [
+                "ring_gag"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/ring_gag"
+            },
+            {
+              "id": "tape_gag",
+              "label": "tape_gag",
+              "kind": "rule",
+              "tags": [
+                "tape_gag"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/tape_gag"
+            },
+            {
+              "id": "gagged",
+              "label": "gagged",
+              "kind": "rule",
+              "tags": [
+                "gagged"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/gagged"
+            },
+            {
+              "id": "blindfold",
+              "label": "blindfold",
+              "kind": "rule",
+              "tags": [
+                "blindfold"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/blindfold"
+            },
+            {
+              "id": "leash",
+              "label": "leash",
+              "kind": "rule",
+              "tags": [
+                "leash"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/leash"
+            },
+            {
+              "id": "chain",
+              "label": "chain",
+              "kind": "rule",
+              "tags": [
+                "chain"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/chain"
+            },
+            {
+              "id": "cuffs",
+              "label": "cuffs",
+              "kind": "rule",
+              "tags": [
+                "cuffs"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/cuffs"
+            },
+            {
+              "id": "handcuffs",
+              "label": "handcuffs",
+              "kind": "rule",
+              "tags": [
+                "handcuffs"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/handcuffs"
+            },
+            {
+              "id": "suspension",
+              "label": "suspension",
+              "kind": "rule",
+              "tags": [
+                "suspension"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/suspension"
+            },
+            {
+              "id": "eggs_and_insertion",
+              "label": "Eggs and insertion",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "egg_insertion",
+                  "label": "egg_insertion",
+                  "kind": "rule",
+                  "tags": [
+                    "egg_insertion"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Eggs and insertion/egg_insertion"
+                },
+                {
+                  "id": "egg_laying",
+                  "label": "egg_laying",
+                  "kind": "rule",
+                  "tags": [
+                    "egg_laying"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Eggs and insertion/egg_laying"
+                }
+              ]
+            },
+            {
+              "id": "fuck_bench",
+              "label": "fuck_bench",
+              "kind": "rule",
+              "tags": [
+                "fuck_bench"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/fuck_bench"
+            },
+            {
+              "id": "fucked_silly",
+              "label": "fucked_silly",
+              "kind": "rule",
+              "tags": [
+                "fucked_silly"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/fucked_silly"
+            },
+            {
+              "id": "gangbang",
+              "label": "gangbang",
+              "kind": "rule",
+              "tags": [
+                "gangbang"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/gangbang"
+            },
+            {
+              "id": "humiliation",
+              "label": "humiliation",
+              "kind": "rule",
+              "tags": [
+                "humiliation"
+              ],
+              "sites": [
+                "gelbooru",
+                "e621"
+              ],
+              "destination": "Tags/Sexual Themes/humiliation"
+            },
+            {
+              "id": "positions",
+              "label": "Positions",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "spread_pussy",
+                  "label": "spread_pussy",
+                  "kind": "rule",
+                  "tags": [
+                    "spread_pussy"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Positions/spread_pussy"
+                }
+              ]
+            },
+            {
+              "id": "tentacles",
+              "label": "Tentacles",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "tentacle_monster",
+                  "label": "tentacle_monster",
+                  "kind": "rule",
+                  "tags": [
+                    "tentacle_monster"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Sexual Themes/Tentacles/tentacle_monster"
+                }
+              ]
+            },
+            {
+              "id": "femdom",
+              "label": "femdom",
+              "kind": "rule",
+              "tags": [
+                "femdom"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/femdom"
+            },
+            {
+              "id": "chastity_cage",
+              "label": "chastity_cage",
+              "kind": "rule",
+              "tags": [
+                "chastity_cage"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/chastity_cage"
+            },
+            {
+              "id": "flat_chastity_cage",
+              "label": "flat_chastity_cage",
+              "kind": "rule",
+              "tags": [
+                "flat_chastity_cage"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/flat_chastity_cage"
+            },
+            {
+              "id": "erection_under_clothes",
+              "label": "erection_under_clothes",
+              "kind": "rule",
+              "tags": [
+                "erection_under_clothes"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/erection_under_clothes"
+            },
+            {
+              "id": "yaoi",
+              "label": "yaoi",
+              "kind": "rule",
+              "tags": [
+                "yaoi"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Sexual Themes/yaoi"
+            }
+          ]
+        },
+        {
+          "id": "races",
+          "label": "Races",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "android",
+              "label": "android",
+              "kind": "rule",
+              "tags": [
+                "android"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/android"
+            },
+            {
+              "id": "angel",
+              "label": "angel",
+              "kind": "rule",
+              "tags": [
+                "angel"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/angel"
+            },
+            {
+              "id": "black_skin",
+              "label": "black_skin",
+              "kind": "rule",
+              "tags": [
+                "black_skin"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/black_skin"
+            },
+            {
+              "id": "blue_skin",
+              "label": "blue_skin",
+              "kind": "rule",
+              "tags": [
+                "blue_skin"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/blue_skin"
+            },
+            {
+              "id": "centauroid",
+              "label": "centauroid",
+              "kind": "rule",
+              "tags": [
+                "centauroid"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/centauroid"
+            },
+            {
+              "id": "cyborg",
+              "label": "cyborg",
+              "kind": "rule",
+              "tags": [
+                "cyborg"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/cyborg"
+            },
+            {
+              "id": "dark_elf",
+              "label": "dark_elf",
+              "kind": "rule",
+              "tags": [
+                "dark_elf"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/dark_elf"
+            },
+            {
+              "id": "dark_skinned_female",
+              "label": "dark-skinned_female",
+              "kind": "rule",
+              "tags": [
+                "dark-skinned_female"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/dark-skinned_female"
+            },
+            {
+              "id": "demon_girl",
+              "label": "demon_girl",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "demon_girl",
+                  "label": "demon_girl",
+                  "kind": "rule",
+                  "tags": [
+                    "demon_girl"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Races/demon_girl/demon_girl"
+                },
+                {
+                  "id": "oni",
+                  "label": "oni",
+                  "kind": "rule",
+                  "tags": [
+                    "oni"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Races/demon_girl/oni"
+                },
+                {
+                  "id": "succubus",
+                  "label": "succubus",
+                  "kind": "rule",
+                  "tags": [
+                    "succubus"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Races/demon_girl/succubus"
+                }
+              ]
+            },
+            {
+              "id": "doll_joints",
+              "label": "doll_joints",
+              "kind": "rule",
+              "tags": [
+                "doll_joints"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/doll_joints"
+            },
+            {
+              "id": "elf",
+              "label": "elf",
+              "kind": "rule",
+              "tags": [
+                "elf"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/elf"
+            },
+            {
+              "id": "fairy",
+              "label": "fairy",
+              "kind": "rule",
+              "tags": [
+                "fairy"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/fairy"
+            },
+            {
+              "id": "giantess",
+              "label": "giantess",
+              "kind": "rule",
+              "tags": [
+                "giantess"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/giantess"
+            },
+            {
+              "id": "mecha_musume",
+              "label": "mecha_musume",
+              "kind": "rule",
+              "tags": [
+                "mecha_musume"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/mecha_musume"
+            },
+            {
+              "id": "monster_girl",
+              "label": "monster_girl",
+              "kind": "rule",
+              "tags": [
+                "monster_girl"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/monster_girl"
+            },
+            {
+              "id": "navi",
+              "label": "na'vi",
+              "kind": "rule",
+              "tags": [
+                "na'vi"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/na'vi"
+            },
+            {
+              "id": "orc",
+              "label": "orc",
+              "kind": "rule",
+              "tags": [
+                "orc"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/orc"
+            },
+            {
+              "id": "purple_skin",
+              "label": "purple_skin",
+              "kind": "rule",
+              "tags": [
+                "purple_skin"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/purple_skin"
+            },
+            {
+              "id": "vampire",
+              "label": "vampire",
+              "kind": "rule",
+              "tags": [
+                "vampire"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/vampire"
+            },
+            {
+              "id": "yandere",
+              "label": "yandere",
+              "kind": "rule",
+              "tags": [
+                "yandere"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/yandere"
+            },
+            {
+              "id": "dwarf",
+              "label": "dwarf",
+              "kind": "rule",
+              "tags": [
+                "dwarf"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/dwarf"
+            },
+            {
+              "id": "black_sclera",
+              "label": "black_sclera",
+              "kind": "rule",
+              "tags": [
+                "black_sclera"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/black_sclera"
+            },
+            {
+              "id": "spider_girl",
+              "label": "spider_girl",
+              "kind": "rule",
+              "tags": [
+                "spider_girl"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/spider_girl"
+            },
+            {
+              "id": "zombie",
+              "label": "zombie",
+              "kind": "rule",
+              "tags": [
+                "zombie"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Races/zombie"
+            }
+          ]
+        },
+        {
+          "id": "professions",
+          "label": "Professions",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "cleric",
+              "label": "cleric",
+              "kind": "rule",
+              "tags": [
+                "cleric"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/cleric"
+            },
+            {
+              "id": "fighter",
+              "label": "fighter",
+              "kind": "rule",
+              "tags": [
+                "fighter"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/fighter"
+            },
+            {
+              "id": "firefighter",
+              "label": "firefighter",
+              "kind": "rule",
+              "tags": [
+                "firefighter"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/firefighter"
+            },
+            {
+              "id": "jester",
+              "label": "jester",
+              "kind": "rule",
+              "tags": [
+                "jester"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/jester"
+            },
+            {
+              "id": "lifeguard",
+              "label": "lifeguard",
+              "kind": "rule",
+              "tags": [
+                "lifeguard"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/lifeguard"
+            },
+            {
+              "id": "military_uniform",
+              "label": "military_uniform",
+              "kind": "rule",
+              "tags": [
+                "military_uniform"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/military_uniform"
+            },
+            {
+              "id": "nude_model",
+              "label": "nude_model",
+              "kind": "rule",
+              "tags": [
+                "nude_model"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/nude_model"
+            },
+            {
+              "id": "priestess",
+              "label": "priestess",
+              "kind": "rule",
+              "tags": [
+                "priestess"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/priestess"
+            },
+            {
+              "id": "queen",
+              "label": "queen",
+              "kind": "rule",
+              "tags": [
+                "queen"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/queen"
+            },
+            {
+              "id": "princess",
+              "label": "princess",
+              "kind": "rule",
+              "tags": [
+                "princess"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/princess"
+            },
+            {
+              "id": "ranger",
+              "label": "ranger",
+              "kind": "rule",
+              "tags": [
+                "ranger"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/ranger"
+            },
+            {
+              "id": "samurai",
+              "label": "samurai",
+              "kind": "rule",
+              "tags": [
+                "samurai"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/samurai"
+            },
+            {
+              "id": "ninja",
+              "label": "ninja",
+              "kind": "rule",
+              "tags": [
+                "ninja"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/ninja"
+            },
+            {
+              "id": "alchemist",
+              "label": "alchemist",
+              "kind": "rule",
+              "tags": [
+                "alchemist"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/alchemist"
+            },
+            {
+              "id": "archer",
+              "label": "archer",
+              "kind": "rule",
+              "tags": [
+                "archer"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/Professions/archer"
+            },
+            {
+              "id": "barbarian",
+              "label": "barbarian",
+              "kind": "rule",
+              "tags": [
+                "barbarian"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/barbarian"
+            },
+            {
+              "id": "belly_dancer",
+              "label": "belly_dancer",
+              "kind": "rule",
+              "tags": [
+                "belly_dancer"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/belly_dancer"
+            },
+            {
+              "id": "dancer",
+              "label": "dancer",
+              "kind": "rule",
+              "tags": [
+                "dancer"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/dancer"
+            },
+            {
+              "id": "dj",
+              "label": "dj",
+              "kind": "rule",
+              "tags": [
+                "dj"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/dj"
+            },
+            {
+              "id": "doctor",
+              "label": "doctor",
+              "kind": "rule",
+              "tags": [
+                "doctor"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/doctor"
+            },
+            {
+              "id": "druid",
+              "label": "druid",
+              "kind": "rule",
+              "tags": [
+                "druid"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/druid"
+            },
+            {
+              "id": "knight",
+              "label": "knight",
+              "kind": "rule",
+              "tags": [
+                "knight"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/knight"
+            },
+            {
+              "id": "mage",
+              "label": "mage",
+              "kind": "rule",
+              "tags": [
+                "mage"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/mage"
+            },
+            {
+              "id": "maid",
+              "label": "maid",
+              "kind": "rule",
+              "tags": [
+                "maid"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/maid"
+            },
+            {
+              "id": "mechanic",
+              "label": "mechanic",
+              "kind": "rule",
+              "tags": [
+                "mechanic"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/mechanic"
+            },
+            {
+              "id": "monk",
+              "label": "monk",
+              "kind": "rule",
+              "tags": [
+                "monk"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/monk"
+            },
+            {
+              "id": "necromancer",
+              "label": "necromancer",
+              "kind": "rule",
+              "tags": [
+                "necromancer"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/necromancer"
+            },
+            {
+              "id": "nun",
+              "label": "nun",
+              "kind": "rule",
+              "tags": [
+                "nun"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/nun"
+            },
+            {
+              "id": "nurse",
+              "label": "nurse",
+              "kind": "rule",
+              "tags": [
+                "nurse"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/nurse"
+            },
+            {
+              "id": "office_lady",
+              "label": "office_lady",
+              "kind": "rule",
+              "tags": [
+                "office_lady"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/office_lady"
+            },
+            {
+              "id": "paladin",
+              "label": "paladin",
+              "kind": "rule",
+              "tags": [
+                "paladin"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/paladin"
+            },
+            {
+              "id": "police_uniform",
+              "label": "police_uniform",
+              "kind": "rule",
+              "tags": [
+                "police_uniform"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/police_uniform"
+            },
+            {
+              "id": "priest",
+              "label": "priest",
+              "kind": "rule",
+              "tags": [
+                "priest"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/priest"
+            },
+            {
+              "id": "prisoner",
+              "label": "prisoner",
+              "kind": "rule",
+              "tags": [
+                "prisoner"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/prisoner"
+            },
+            {
+              "id": "prostitution",
+              "label": "prostitution",
+              "kind": "rule",
+              "tags": [
+                "prostitution"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/prostitution"
+            },
+            {
+              "id": "sex_slave",
+              "label": "sex_slave",
+              "kind": "rule",
+              "tags": [
+                "sex_slave"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/sex_slave"
+            },
+            {
+              "id": "shaman",
+              "label": "shaman",
+              "kind": "rule",
+              "tags": [
+                "shaman"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/shaman"
+            },
+            {
+              "id": "slave",
+              "label": "slave",
+              "kind": "rule",
+              "tags": [
+                "slave"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/slave"
+            },
+            {
+              "id": "soldier",
+              "label": "soldier",
+              "kind": "rule",
+              "tags": [
+                "soldier"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/soldier"
+            },
+            {
+              "id": "sorceress",
+              "label": "sorceress",
+              "kind": "rule",
+              "tags": [
+                "sorceress"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/sorceress"
+            },
+            {
+              "id": "stripper",
+              "label": "stripper",
+              "kind": "rule",
+              "tags": [
+                "stripper"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/stripper"
+            },
+            {
+              "id": "teacher",
+              "label": "teacher",
+              "kind": "rule",
+              "tags": [
+                "teacher"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/teacher"
+            },
+            {
+              "id": "thief",
+              "label": "thief",
+              "kind": "rule",
+              "tags": [
+                "thief"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/thief"
+            },
+            {
+              "id": "warrior",
+              "label": "warrior",
+              "kind": "rule",
+              "tags": [
+                "warrior"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/warrior"
+            },
+            {
+              "id": "witch",
+              "label": "witch",
+              "kind": "rule",
+              "tags": [
+                "witch"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/witch"
+            },
+            {
+              "id": "wizard",
+              "label": "wizard",
+              "kind": "rule",
+              "tags": [
+                "wizard"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/wizard"
+            },
+            {
+              "id": "cheerleader",
+              "label": "cheerleader",
+              "kind": "rule",
+              "tags": [
+                "cheerleader"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/cheerleader"
+            },
+            {
+              "id": "miko",
+              "label": "miko",
+              "kind": "rule",
+              "tags": [
+                "miko"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/miko"
+            },
+            {
+              "id": "bard",
+              "label": "bard",
+              "kind": "rule",
+              "tags": [
+                "bard"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/bard"
+            },
+            {
+              "id": "lancer",
+              "label": "lancer",
+              "kind": "rule",
+              "tags": [
+                "lancer"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Professions/lancer"
+            }
+          ]
+        },
+        {
+          "id": "weapons",
+          "label": "Weapons",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "firearms",
+              "label": "Firearms",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "anti_materiel_rifle",
+                  "label": "anti-materiel_rifle",
+                  "kind": "rule",
+                  "tags": [
+                    "anti-materiel_rifle"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/anti-materiel_rifle"
+                },
+                {
+                  "id": "anti_tank_rifle",
+                  "label": "anti-tank_rifle",
+                  "kind": "rule",
+                  "tags": [
+                    "anti-tank_rifle"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/anti-tank_rifle"
+                },
+                {
+                  "id": "assault_rifle",
+                  "label": "assault_rifle",
+                  "kind": "rule",
+                  "tags": [
+                    "assault_rifle"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/assault_rifle"
+                },
+                {
+                  "id": "firearm",
+                  "label": "firearm",
+                  "kind": "rule",
+                  "tags": [
+                    "firearm"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/firearm"
+                },
+                {
+                  "id": "gun",
+                  "label": "gun",
+                  "kind": "rule",
+                  "tags": [
+                    "gun"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/gun"
+                },
+                {
+                  "id": "pistol",
+                  "label": "pistol",
+                  "kind": "rule",
+                  "tags": [
+                    "pistol"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/pistol"
+                },
+                {
+                  "id": "rifle",
+                  "label": "rifle",
+                  "kind": "rule",
+                  "tags": [
+                    "rifle"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/rifle"
+                },
+                {
+                  "id": "sniper_rifle",
+                  "label": "sniper_rifle",
+                  "kind": "rule",
+                  "tags": [
+                    "sniper_rifle"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/sniper_rifle"
+                },
+                {
+                  "id": "submachine_gun",
+                  "label": "submachine_gun",
+                  "kind": "rule",
+                  "tags": [
+                    "submachine_gun"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/submachine_gun"
+                },
+                {
+                  "id": "anti_material_rifle",
+                  "label": "anti-material_rifle",
+                  "kind": "rule",
+                  "tags": [
+                    "anti-material_rifle"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Firearms/anti-material_rifle"
+                }
+              ]
+            },
+            {
+              "id": "axe",
+              "label": "axe",
+              "kind": "rule",
+              "tags": [
+                "axe"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/axe"
+            },
+            {
+              "id": "baseball_bat",
+              "label": "baseball_bat",
+              "kind": "rule",
+              "tags": [
+                "baseball_bat"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/baseball_bat"
+            },
+            {
+              "id": "bow_weapon",
+              "label": "bow_(weapon)",
+              "kind": "rule",
+              "tags": [
+                "bow_(weapon)"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/bow_(weapon)"
+            },
+            {
+              "id": "swords",
+              "label": "Swords",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "claymore_sword",
+                  "label": "claymore_(sword)",
+                  "kind": "rule",
+                  "tags": [
+                    "claymore_(sword)"
+                  ],
+                  "sites": [
+                    "gelbooru",
+                    "e621"
+                  ],
+                  "destination": "Tags/Weapons/Swords/claymore_(sword)"
+                },
+                {
+                  "id": "short_sword",
+                  "label": "short_sword",
+                  "kind": "rule",
+                  "tags": [
+                    "short_sword"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Swords/short_sword"
+                },
+                {
+                  "id": "sword",
+                  "label": "sword",
+                  "kind": "rule",
+                  "tags": [
+                    "sword"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Swords/sword"
+                },
+                {
+                  "id": "pistol_sword",
+                  "label": "pistol_sword",
+                  "kind": "rule",
+                  "tags": [
+                    "pistol_sword"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Weapons/Swords/pistol_sword"
+                }
+              ]
+            },
+            {
+              "id": "club_weapon",
+              "label": "club_(weapon)",
+              "kind": "rule",
+              "tags": [
+                "club_(weapon)"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/club_(weapon)"
+            },
+            {
+              "id": "crossbow",
+              "label": "crossbow",
+              "kind": "rule",
+              "tags": [
+                "crossbow"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/crossbow"
+            },
+            {
+              "id": "dagger",
+              "label": "dagger",
+              "kind": "rule",
+              "tags": [
+                "dagger"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/dagger"
+            },
+            {
+              "id": "dual_wielding",
+              "label": "dual_wielding",
+              "kind": "rule",
+              "tags": [
+                "dual_wielding"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/dual_wielding"
+            },
+            {
+              "id": "holding_weapon",
+              "label": "holding_weapon",
+              "kind": "rule",
+              "tags": [
+                "holding_weapon"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/holding_weapon"
+            },
+            {
+              "id": "knife",
+              "label": "knife",
+              "kind": "rule",
+              "tags": [
+                "knife"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/knife"
+            },
+            {
+              "id": "kunai",
+              "label": "kunai",
+              "kind": "rule",
+              "tags": [
+                "kunai"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/kunai"
+            },
+            {
+              "id": "mace",
+              "label": "mace",
+              "kind": "rule",
+              "tags": [
+                "mace"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/mace"
+            },
+            {
+              "id": "polearm",
+              "label": "polearm",
+              "kind": "rule",
+              "tags": [
+                "polearm"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/polearm"
+            },
+            {
+              "id": "scythe",
+              "label": "scythe",
+              "kind": "rule",
+              "tags": [
+                "scythe"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/scythe"
+            },
+            {
+              "id": "shield",
+              "label": "shield",
+              "kind": "rule",
+              "tags": [
+                "shield"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/shield"
+            },
+            {
+              "id": "spear",
+              "label": "spear",
+              "kind": "rule",
+              "tags": [
+                "spear"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/spear"
+            },
+            {
+              "id": "staff",
+              "label": "staff",
+              "kind": "rule",
+              "tags": [
+                "staff"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/staff"
+            },
+            {
+              "id": "claw_weapon",
+              "label": "claw_(weapon)",
+              "kind": "rule",
+              "tags": [
+                "claw_(weapon)"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/claw_(weapon)"
+            },
+            {
+              "id": "hammer",
+              "label": "hammer",
+              "kind": "rule",
+              "tags": [
+                "hammer"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/hammer"
+            },
+            {
+              "id": "huge_weapon",
+              "label": "huge_weapon",
+              "kind": "rule",
+              "tags": [
+                "huge_weapon"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/huge_weapon"
+            },
+            {
+              "id": "shuriken",
+              "label": "shuriken",
+              "kind": "rule",
+              "tags": [
+                "shuriken"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/shuriken"
+            },
+            {
+              "id": "spiked_club",
+              "label": "spiked_club",
+              "kind": "rule",
+              "tags": [
+                "spiked_club"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/spiked_club"
+            },
+            {
+              "id": "tonfa",
+              "label": "tonfa",
+              "kind": "rule",
+              "tags": [
+                "tonfa"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Weapons/tonfa"
+            }
+          ]
+        },
+        {
+          "id": "animal_ears",
+          "label": "Animal Ears",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "animal_ears",
+              "label": "animal_ears",
+              "kind": "rule",
+              "tags": [
+                "animal_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/animal_ears"
+            },
+            {
+              "id": "aardwolf_ears",
+              "label": "aardwolf_ears",
+              "kind": "rule",
+              "tags": [
+                "aardwolf_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/aardwolf_ears"
+            },
+            {
+              "id": "bat_ears",
+              "label": "bat_ears",
+              "kind": "rule",
+              "tags": [
+                "bat_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/bat_ears"
+            },
+            {
+              "id": "bear_ears",
+              "label": "bear_ears",
+              "kind": "rule",
+              "tags": [
+                "bear_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/bear_ears"
+            },
+            {
+              "id": "bird_ears",
+              "label": "bird_ears",
+              "kind": "rule",
+              "tags": [
+                "bird_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/bird_ears"
+            },
+            {
+              "id": "bunny_ears",
+              "label": "bunny_ears",
+              "kind": "rule",
+              "tags": [
+                "bunny_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/bunny_ears"
+            },
+            {
+              "id": "cat_ears",
+              "label": "cat_ears",
+              "kind": "rule",
+              "tags": [
+                "cat_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/cat_ears"
+            },
+            {
+              "id": "cheetah_ears",
+              "label": "cheetah_ears",
+              "kind": "rule",
+              "tags": [
+                "cheetah_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/cheetah_ears"
+            },
+            {
+              "id": "cow_ears",
+              "label": "cow_ears",
+              "kind": "rule",
+              "tags": [
+                "cow_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/cow_ears"
+            },
+            {
+              "id": "coyote_ears",
+              "label": "coyote_ears",
+              "kind": "rule",
+              "tags": [
+                "coyote_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/coyote_ears"
+            },
+            {
+              "id": "deer_ears",
+              "label": "deer_ears",
+              "kind": "rule",
+              "tags": [
+                "deer_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/deer_ears"
+            },
+            {
+              "id": "dog_ears",
+              "label": "dog_ears",
+              "kind": "rule",
+              "tags": [
+                "dog_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/dog_ears"
+            },
+            {
+              "id": "donkey_ears",
+              "label": "donkey_ears",
+              "kind": "rule",
+              "tags": [
+                "donkey_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/donkey_ears"
+            },
+            {
+              "id": "dragon_ears",
+              "label": "dragon_ears",
+              "kind": "rule",
+              "tags": [
+                "dragon_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/dragon_ears"
+            },
+            {
+              "id": "elephant_ears",
+              "label": "elephant_ears",
+              "kind": "rule",
+              "tags": [
+                "elephant_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/elephant_ears"
+            },
+            {
+              "id": "fake_animal_ears",
+              "label": "fake_animal_ears",
+              "kind": "rule",
+              "tags": [
+                "fake_animal_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/fake_animal_ears"
+            },
+            {
+              "id": "fox_ears",
+              "label": "fox_ears",
+              "kind": "rule",
+              "tags": [
+                "fox_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/fox_ears"
+            },
+            {
+              "id": "gazelle_ears",
+              "label": "gazelle_ears",
+              "kind": "rule",
+              "tags": [
+                "gazelle_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/gazelle_ears"
+            },
+            {
+              "id": "goat_ears",
+              "label": "goat_ears",
+              "kind": "rule",
+              "tags": [
+                "goat_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/goat_ears"
+            },
+            {
+              "id": "horse_ears",
+              "label": "horse_ears",
+              "kind": "rule",
+              "tags": [
+                "horse_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/horse_ears"
+            },
+            {
+              "id": "jackal_ears",
+              "label": "jackal_ears",
+              "kind": "rule",
+              "tags": [
+                "jackal_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/jackal_ears"
+            },
+            {
+              "id": "jaguar_ears",
+              "label": "jaguar_ears",
+              "kind": "rule",
+              "tags": [
+                "jaguar_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/jaguar_ears"
+            },
+            {
+              "id": "leopard_ears",
+              "label": "leopard_ears",
+              "kind": "rule",
+              "tags": [
+                "leopard_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/leopard_ears"
+            },
+            {
+              "id": "lion_ears",
+              "label": "lion_ears",
+              "kind": "rule",
+              "tags": [
+                "lion_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/lion_ears"
+            },
+            {
+              "id": "mechanical_ears",
+              "label": "mechanical_ears",
+              "kind": "rule",
+              "tags": [
+                "mechanical_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/mechanical_ears"
+            },
+            {
+              "id": "monkey_ears",
+              "label": "monkey_ears",
+              "kind": "rule",
+              "tags": [
+                "monkey_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/monkey_ears"
+            },
+            {
+              "id": "moose_ears",
+              "label": "moose_ears",
+              "kind": "rule",
+              "tags": [
+                "moose_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/moose_ears"
+            },
+            {
+              "id": "mouse_ears",
+              "label": "mouse_ears",
+              "kind": "rule",
+              "tags": [
+                "mouse_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/mouse_ears"
+            },
+            {
+              "id": "owl_ears",
+              "label": "owl_ears",
+              "kind": "rule",
+              "tags": [
+                "owl_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/owl_ears"
+            },
+            {
+              "id": "panda_ears",
+              "label": "panda_ears",
+              "kind": "rule",
+              "tags": [
+                "panda_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/panda_ears"
+            },
+            {
+              "id": "rabbit_ears",
+              "label": "rabbit_ears",
+              "kind": "rule",
+              "tags": [
+                "rabbit_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/rabbit_ears"
+            },
+            {
+              "id": "raccoon_ears",
+              "label": "raccoon_ears",
+              "kind": "rule",
+              "tags": [
+                "raccoon_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/raccoon_ears"
+            },
+            {
+              "id": "red_panda_ears",
+              "label": "red_panda_ears",
+              "kind": "rule",
+              "tags": [
+                "red_panda_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/red_panda_ears"
+            },
+            {
+              "id": "rhinoceros_ears",
+              "label": "rhinoceros_ears",
+              "kind": "rule",
+              "tags": [
+                "rhinoceros_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/rhinoceros_ears"
+            },
+            {
+              "id": "robot_ears",
+              "label": "robot_ears",
+              "kind": "rule",
+              "tags": [
+                "robot_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/robot_ears"
+            },
+            {
+              "id": "sheep_ears",
+              "label": "sheep_ears",
+              "kind": "rule",
+              "tags": [
+                "sheep_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/sheep_ears"
+            },
+            {
+              "id": "squirrel_ears",
+              "label": "squirrel_ears",
+              "kind": "rule",
+              "tags": [
+                "squirrel_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/squirrel_ears"
+            },
+            {
+              "id": "tiger_ears",
+              "label": "tiger_ears",
+              "kind": "rule",
+              "tags": [
+                "tiger_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/tiger_ears"
+            },
+            {
+              "id": "weasel_ears",
+              "label": "weasel_ears",
+              "kind": "rule",
+              "tags": [
+                "weasel_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/weasel_ears"
+            },
+            {
+              "id": "wolf_ears",
+              "label": "wolf_ears",
+              "kind": "rule",
+              "tags": [
+                "wolf_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/wolf_ears"
+            },
+            {
+              "id": "alpaca_ears",
+              "label": "alpaca_ears",
+              "kind": "rule",
+              "tags": [
+                "alpaca_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/alpaca_ears"
+            },
+            {
+              "id": "fin_ears",
+              "label": "fin_ears",
+              "kind": "rule",
+              "tags": [
+                "fin_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/fin_ears"
+            },
+            {
+              "id": "hyena_ears",
+              "label": "hyena_ears",
+              "kind": "rule",
+              "tags": [
+                "hyena_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/hyena_ears"
+            },
+            {
+              "id": "snow_leopard_ears",
+              "label": "snow_leopard_ears",
+              "kind": "rule",
+              "tags": [
+                "snow_leopard_ears"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Animal Ears/snow_leopard_ears"
+            }
+          ]
+        },
+        {
+          "id": "general",
+          "label": "General",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "gynomorph",
+              "label": "gynomorph",
+              "kind": "rule",
+              "tags": [
+                "futanari",
+                "gynomorph"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/gynomorph"
+            },
+            {
+              "id": "bathing",
+              "label": "bathing",
+              "kind": "rule",
+              "tags": [
+                "bathing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/bathing"
+            },
+            {
+              "id": "camera",
+              "label": "camera",
+              "kind": "rule",
+              "tags": [
+                "camera"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/camera"
+            },
+            {
+              "id": "candy",
+              "label": "candy",
+              "kind": "rule",
+              "tags": [
+                "candy"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/candy"
+            },
+            {
+              "id": "computer",
+              "label": "computer",
+              "kind": "rule",
+              "tags": [
+                "computer"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/computer"
+            },
+            {
+              "id": "cuffs",
+              "label": "cuffs",
+              "kind": "rule",
+              "tags": [
+                "cuffs"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/cuffs"
+            },
+            {
+              "id": "delinquent",
+              "label": "delinquent",
+              "kind": "rule",
+              "tags": [
+                "delinquent"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/delinquent"
+            },
+            {
+              "id": "dogeza",
+              "label": "dogeza",
+              "kind": "rule",
+              "tags": [
+                "dogeza"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/dogeza"
+            },
+            {
+              "id": "dress_lift",
+              "label": "dress_lift",
+              "kind": "rule",
+              "tags": [
+                "dress_lift"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/dress_lift"
+            },
+            {
+              "id": "eyepatch",
+              "label": "eyepatch",
+              "kind": "rule",
+              "tags": [
+                "eyepatch"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/eyepatch"
+            },
+            {
+              "id": "fake_tail",
+              "label": "fake_tail",
+              "kind": "rule",
+              "tags": [
+                "fake_tail"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/fake_tail"
+            },
+            {
+              "id": "flat_chest",
+              "label": "flat_chest",
+              "kind": "rule",
+              "tags": [
+                "flat_chest"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/flat_chest"
+            },
+            {
+              "id": "freckles",
+              "label": "freckles",
+              "kind": "rule",
+              "tags": [
+                "freckles"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/freckles"
+            },
+            {
+              "id": "glasses",
+              "label": "glasses",
+              "kind": "rule",
+              "tags": [
+                "glasses"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/glasses"
+            },
+            {
+              "id": "headphones",
+              "label": "headphones",
+              "kind": "rule",
+              "tags": [
+                "headphones"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/headphones"
+            },
+            {
+              "id": "in_container",
+              "label": "in_container",
+              "kind": "rule",
+              "tags": [
+                "in_container"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/in_container"
+            },
+            {
+              "id": "instrument",
+              "label": "instrument",
+              "kind": "rule",
+              "tags": [
+                "instrument"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/instrument"
+            },
+            {
+              "id": "interracial",
+              "label": "interracial",
+              "kind": "rule",
+              "tags": [
+                "interracial"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/interracial"
+            },
+            {
+              "id": "interspecies",
+              "label": "interspecies",
+              "kind": "rule",
+              "tags": [
+                "interspecies"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/interspecies"
+            },
+            {
+              "id": "milf",
+              "label": "milf",
+              "kind": "rule",
+              "tags": [
+                "milf"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/milf"
+            },
+            {
+              "id": "muzzle",
+              "label": "muzzle",
+              "kind": "rule",
+              "tags": [
+                "muzzle"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/muzzle"
+            },
+            {
+              "id": "peril",
+              "label": "peril",
+              "kind": "rule",
+              "tags": [
+                "peril"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/peril"
+            },
+            {
+              "id": "punching",
+              "label": "punching",
+              "kind": "rule",
+              "tags": [
+                "punching"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/punching"
+            },
+            {
+              "id": "reverse_trap",
+              "label": "reverse_trap",
+              "kind": "rule",
+              "tags": [
+                "reverse_trap"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/reverse_trap"
+            },
+            {
+              "id": "scared",
+              "label": "scared",
+              "kind": "rule",
+              "tags": [
+                "scared"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/scared"
+            },
+            {
+              "id": "self_shot",
+              "label": "self_shot",
+              "kind": "rule",
+              "tags": [
+                "self_shot"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/self_shot"
+            },
+            {
+              "id": "showering",
+              "label": "showering",
+              "kind": "rule",
+              "tags": [
+                "showering"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/showering"
+            },
+            {
+              "id": "skateboard",
+              "label": "skateboard",
+              "kind": "rule",
+              "tags": [
+                "skateboard"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/skateboard"
+            },
+            {
+              "id": "smartphone",
+              "label": "smartphone",
+              "kind": "rule",
+              "tags": [
+                "smartphone"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/smartphone"
+            },
+            {
+              "id": "smoking",
+              "label": "smoking",
+              "kind": "rule",
+              "tags": [
+                "smoking"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/smoking"
+            },
+            {
+              "id": "teddy_bear",
+              "label": "teddy_bear",
+              "kind": "rule",
+              "tags": [
+                "teddy_bear"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/teddy_bear"
+            },
+            {
+              "id": "wheelchair",
+              "label": "wheelchair",
+              "kind": "rule",
+              "tags": [
+                "wheelchair"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/wheelchair"
+            },
+            {
+              "id": "huge_breasts",
+              "label": "huge_breasts",
+              "kind": "rule",
+              "tags": [
+                "huge_breasts"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/huge_breasts"
+            },
+            {
+              "id": "large_breasts",
+              "label": "large_breasts",
+              "kind": "rule",
+              "tags": [
+                "large_breasts"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/large_breasts"
+            },
+            {
+              "id": "abdominal_bulge",
+              "label": "abdominal_bulge",
+              "kind": "rule",
+              "tags": [
+                "abdominal_bulge"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/abdominal_bulge"
+            },
+            {
+              "id": "amputee",
+              "label": "amputee",
+              "kind": "rule",
+              "tags": [
+                "amputee"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/amputee"
+            },
+            {
+              "id": "andromorph",
+              "label": "andromorph",
+              "kind": "rule",
+              "tags": [
+                "andromorph"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/andromorph"
+            },
+            {
+              "id": "bestiality",
+              "label": "bestiality",
+              "kind": "rule",
+              "tags": [
+                "bestiality"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/bestiality"
+            },
+            {
+              "id": "birth",
+              "label": "birth",
+              "kind": "rule",
+              "tags": [
+                "birth"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/birth"
+            },
+            {
+              "id": "blindfold",
+              "label": "blindfold",
+              "kind": "rule",
+              "tags": [
+                "blindfold"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/blindfold"
+            },
+            {
+              "id": "captured",
+              "label": "captured",
+              "kind": "rule",
+              "tags": [
+                "captured"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/captured"
+            },
+            {
+              "id": "casual_nudity",
+              "label": "casual_nudity",
+              "kind": "rule",
+              "tags": [
+                "casual_nudity"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/casual_nudity"
+            },
+            {
+              "id": "cyberpunk",
+              "label": "cyberpunk",
+              "kind": "rule",
+              "tags": [
+                "cyberpunk"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/cyberpunk"
+            },
+            {
+              "id": "embarrassed",
+              "label": "embarrassed",
+              "kind": "rule",
+              "tags": [
+                "embarrassed"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/embarrassed"
+            },
+            {
+              "id": "female_penetrating_male",
+              "label": "female_penetrating_male",
+              "kind": "rule",
+              "tags": [
+                "female_penetrating_male"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/female_penetrating_male"
+            },
+            {
+              "id": "feral_on_female",
+              "label": "feral_on_female",
+              "kind": "rule",
+              "tags": [
+                "feral_on_female"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/feral_on_female"
+            },
+            {
+              "id": "girly",
+              "label": "girly",
+              "kind": "rule",
+              "tags": [
+                "girly"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/girly"
+            },
+            {
+              "id": "magical_girl",
+              "label": "magical_girl",
+              "kind": "rule",
+              "tags": [
+                "magical_girl"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/magical_girl"
+            },
+            {
+              "id": "muscular_female",
+              "label": "muscular_female",
+              "kind": "rule",
+              "tags": [
+                "muscular_female"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/muscular_female"
+            },
+            {
+              "id": "predator_prey",
+              "label": "predator_prey",
+              "kind": "rule",
+              "tags": [
+                "predator_prey"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/predator_prey"
+            },
+            {
+              "id": "pregnant",
+              "label": "pregnant",
+              "kind": "rule",
+              "tags": [
+                "pregnant"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/pregnant"
+            },
+            {
+              "id": "smaller_female",
+              "label": "smaller_female",
+              "kind": "rule",
+              "tags": [
+                "smaller_female"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/smaller_female"
+            },
+            {
+              "id": "tomboy",
+              "label": "tomboy",
+              "kind": "rule",
+              "tags": [
+                "tomboy"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/tomboy"
+            },
+            {
+              "id": "undressing",
+              "label": "undressing",
+              "kind": "rule",
+              "tags": [
+                "undressing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/undressing"
+            },
+            {
+              "id": "crossdressing",
+              "label": "crossdressing",
+              "kind": "rule",
+              "tags": [
+                "crossdressing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/crossdressing"
+            },
+            {
+              "id": "trap",
+              "label": "trap",
+              "kind": "rule",
+              "tags": [
+                "trap"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/trap"
+            },
+            {
+              "id": "androgynous",
+              "label": "androgynous",
+              "kind": "rule",
+              "tags": [
+                "androgynous"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/androgynous"
+            }
+          ]
+        },
+        {
+          "id": "piercings",
+          "label": "Piercings",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "piercing",
+              "label": "piercing",
+              "kind": "rule",
+              "tags": [
+                "piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/piercing"
+            },
+            {
+              "id": "ear_piercing",
+              "label": "ear_piercing",
+              "kind": "rule",
+              "tags": [
+                "ear_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/ear_piercing"
+            },
+            {
+              "id": "nipple_piercing",
+              "label": "nipple_piercing",
+              "kind": "rule",
+              "tags": [
+                "nipple_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/nipple_piercing"
+            },
+            {
+              "id": "navel_piercing",
+              "label": "navel_piercing",
+              "kind": "rule",
+              "tags": [
+                "navel_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/navel_piercing"
+            },
+            {
+              "id": "face_piercing",
+              "label": "face_piercing",
+              "kind": "rule",
+              "tags": [
+                "face_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/face_piercing"
+            },
+            {
+              "id": "bellybutton_piercing",
+              "label": "bellybutton_piercing",
+              "kind": "rule",
+              "tags": [
+                "bellybutton_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/bellybutton_piercing"
+            },
+            {
+              "id": "ring_piercing",
+              "label": "ring_piercing",
+              "kind": "rule",
+              "tags": [
+                "ring_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/ring_piercing"
+            },
+            {
+              "id": "animal_ear_piercing",
+              "label": "animal_ear_piercing",
+              "kind": "rule",
+              "tags": [
+                "animal_ear_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/animal_ear_piercing"
+            },
+            {
+              "id": "tongue_piercing",
+              "label": "tongue_piercing",
+              "kind": "rule",
+              "tags": [
+                "tongue_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/tongue_piercing"
+            },
+            {
+              "id": "nose_piercing",
+              "label": "nose_piercing",
+              "kind": "rule",
+              "tags": [
+                "nose_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/nose_piercing"
+            },
+            {
+              "id": "barbell_piercing",
+              "label": "barbell_piercing",
+              "kind": "rule",
+              "tags": [
+                "barbell_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/barbell_piercing"
+            },
+            {
+              "id": "pussy_piercing",
+              "label": "pussy_piercing",
+              "kind": "rule",
+              "tags": [
+                "pussy_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/pussy_piercing"
+            },
+            {
+              "id": "lip_piercing",
+              "label": "lip_piercing",
+              "kind": "rule",
+              "tags": [
+                "lip_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/lip_piercing"
+            },
+            {
+              "id": "eyebrow_piercing",
+              "label": "eyebrow_piercing",
+              "kind": "rule",
+              "tags": [
+                "eyebrow_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/eyebrow_piercing"
+            },
+            {
+              "id": "clitoris_piercing",
+              "label": "clitoris_piercing",
+              "kind": "rule",
+              "tags": [
+                "clitoris_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/clitoris_piercing"
+            },
+            {
+              "id": "multiple_piercings",
+              "label": "multiple_piercings",
+              "kind": "rule",
+              "tags": [
+                "multiple_piercings"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/multiple_piercings"
+            },
+            {
+              "id": "industrial_piercing",
+              "label": "industrial_piercing",
+              "kind": "rule",
+              "tags": [
+                "industrial_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/industrial_piercing"
+            },
+            {
+              "id": "linked_piercing",
+              "label": "linked_piercing",
+              "kind": "rule",
+              "tags": [
+                "linked_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/linked_piercing"
+            },
+            {
+              "id": "tail_piercing",
+              "label": "tail_piercing",
+              "kind": "rule",
+              "tags": [
+                "tail_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/tail_piercing"
+            },
+            {
+              "id": "labret_piercing",
+              "label": "labret_piercing",
+              "kind": "rule",
+              "tags": [
+                "labret_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/labret_piercing"
+            },
+            {
+              "id": "mouth_piercing",
+              "label": "mouth_piercing",
+              "kind": "rule",
+              "tags": [
+                "mouth_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/mouth_piercing"
+            },
+            {
+              "id": "spiked_ear_piercing",
+              "label": "spiked_ear_piercing",
+              "kind": "rule",
+              "tags": [
+                "spiked_ear_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/spiked_ear_piercing"
+            },
+            {
+              "id": "chin_piercing",
+              "label": "chin_piercing",
+              "kind": "rule",
+              "tags": [
+                "chin_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/chin_piercing"
+            },
+            {
+              "id": "labia_piercing",
+              "label": "labia_piercing",
+              "kind": "rule",
+              "tags": [
+                "labia_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/labia_piercing"
+            },
+            {
+              "id": "penis_piercing",
+              "label": "penis_piercing",
+              "kind": "rule",
+              "tags": [
+                "penis_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/penis_piercing"
+            },
+            {
+              "id": "wing_piercing",
+              "label": "wing_piercing",
+              "kind": "rule",
+              "tags": [
+                "wing_piercing"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Piercings/wing_piercing"
+            }
+          ]
+        },
+        {
+          "id": "clothing_styles",
+          "label": "Styles vestimentaires",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "animal_costume",
+              "label": "animal_costume",
+              "kind": "rule",
+              "tags": [
+                "animal_costume"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/animal_costume"
+            },
+            {
+              "id": "animal_print",
+              "label": "animal_print",
+              "kind": "rule",
+              "tags": [
+                "animal_print"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/animal_print"
+            },
+            {
+              "id": "arabian_clothes",
+              "label": "arabian_clothes",
+              "kind": "rule",
+              "tags": [
+                "arabian_clothes"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/arabian_clothes"
+            },
+            {
+              "id": "armlet",
+              "label": "armlet",
+              "kind": "rule",
+              "tags": [
+                "armlet"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/armlet"
+            },
+            {
+              "id": "baseball_cap",
+              "label": "baseball_cap",
+              "kind": "rule",
+              "tags": [
+                "baseball_cap"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/baseball_cap"
+            },
+            {
+              "id": "biker_clothes",
+              "label": "biker_clothes",
+              "kind": "rule",
+              "tags": [
+                "biker_clothes"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/biker_clothes"
+            },
+            {
+              "id": "bodysuit",
+              "label": "bodysuit",
+              "kind": "rule",
+              "tags": [
+                "bodysuit"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/bodysuit"
+            },
+            {
+              "id": "bustier",
+              "label": "bustier",
+              "kind": "rule",
+              "tags": [
+                "bustier"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/bustier"
+            },
+            {
+              "id": "cat_lingerie",
+              "label": "cat_lingerie",
+              "kind": "rule",
+              "tags": [
+                "cat_lingerie"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/cat_lingerie"
+            },
+            {
+              "id": "choker",
+              "label": "choker",
+              "kind": "rule",
+              "tags": [
+                "choker"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/choker"
+            },
+            {
+              "id": "bell_collar",
+              "label": "bell_collar",
+              "kind": "rule",
+              "tags": [
+                "bell_collar"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/bell_collar"
+            },
+            {
+              "id": "spiked_collar",
+              "label": "spiked_collar",
+              "kind": "rule",
+              "tags": [
+                "spiked_collar"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/spiked_collar"
+            },
+            {
+              "id": "collar",
+              "label": "collar",
+              "kind": "rule",
+              "tags": [
+                "collar"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/collar"
+            },
+            {
+              "id": "crotchless",
+              "label": "crotchless",
+              "kind": "rule",
+              "tags": [
+                "crotchless"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/crotchless"
+            },
+            {
+              "id": "fishnet_legwear",
+              "label": "fishnet_legwear",
+              "kind": "rule",
+              "tags": [
+                "fishnet_legwear"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/fishnet_legwear"
+            },
+            {
+              "id": "fishnet_pantyhose",
+              "label": "fishnet_pantyhose",
+              "kind": "rule",
+              "tags": [
+                "fishnet_pantyhose"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/fishnet_pantyhose"
+            },
+            {
+              "id": "forehead_protector",
+              "label": "forehead_protector",
+              "kind": "rule",
+              "tags": [
+                "forehead_protector"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/forehead_protector"
+            },
+            {
+              "id": "frilled_babydoll",
+              "label": "frilled_babydoll",
+              "kind": "rule",
+              "tags": [
+                "frilled_babydoll"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/frilled_babydoll"
+            },
+            {
+              "id": "swimsuits",
+              "label": "Swimsuits",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "frilled_bikini",
+                  "label": "frilled_bikini",
+                  "kind": "rule",
+                  "tags": [
+                    "frilled_bikini"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Swimsuits/frilled_bikini"
+                },
+                {
+                  "id": "wetsuit",
+                  "label": "wetsuit",
+                  "kind": "rule",
+                  "tags": [
+                    "wetsuit"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Swimsuits/wetsuit"
+                },
+                {
+                  "id": "swimsuit",
+                  "label": "swimsuit",
+                  "kind": "rule",
+                  "tags": [
+                    "swimsuit"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Swimsuits/swimsuit"
+                },
+                {
+                  "id": "bikini",
+                  "label": "bikini",
+                  "kind": "rule",
+                  "tags": [
+                    "bikini"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Swimsuits/bikini"
+                },
+                {
+                  "id": "competition_swimsuit",
+                  "label": "competition_swimsuit",
+                  "kind": "rule",
+                  "tags": [
+                    "competition_swimsuit"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Swimsuits/competition_swimsuit"
+                },
+                {
+                  "id": "one_piece_swimsuit",
+                  "label": "one-piece_swimsuit",
+                  "kind": "rule",
+                  "tags": [
+                    "one-piece_swimsuit"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Swimsuits/one-piece_swimsuit"
+                },
+                {
+                  "id": "school_swimsuit",
+                  "label": "school_swimsuit",
+                  "kind": "rule",
+                  "tags": [
+                    "school_swimsuit"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Swimsuits/school_swimsuit"
+                }
+              ]
+            },
+            {
+              "id": "frilled_dress",
+              "label": "frilled_dress",
+              "kind": "rule",
+              "tags": [
+                "frilled_dress"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/frilled_dress"
+            },
+            {
+              "id": "panties",
+              "label": "Panties",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "frilled_panties",
+                  "label": "frilled_panties",
+                  "kind": "rule",
+                  "tags": [
+                    "frilled_panties"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/frilled_panties"
+                },
+                {
+                  "id": "bear_panties",
+                  "label": "bear_panties",
+                  "kind": "rule",
+                  "tags": [
+                    "bear_panties"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/bear_panties"
+                },
+                {
+                  "id": "bow_panties",
+                  "label": "bow_panties",
+                  "kind": "rule",
+                  "tags": [
+                    "bow_panties"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/bow_panties"
+                },
+                {
+                  "id": "boxers",
+                  "label": "boxers",
+                  "kind": "rule",
+                  "tags": [
+                    "boxers"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/boxers"
+                },
+                {
+                  "id": "highleg_panties",
+                  "label": "highleg_panties",
+                  "kind": "rule",
+                  "tags": [
+                    "highleg_panties"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/highleg_panties"
+                },
+                {
+                  "id": "lace_trimmed_panties",
+                  "label": "lace-trimmed_panties",
+                  "kind": "rule",
+                  "tags": [
+                    "lace-trimmed_panties"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/lace-trimmed_panties"
+                },
+                {
+                  "id": "lowleg_panties",
+                  "label": "lowleg_panties",
+                  "kind": "rule",
+                  "tags": [
+                    "lowleg_panties"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/lowleg_panties"
+                },
+                {
+                  "id": "side_tie_panties",
+                  "label": "side-tie_panties",
+                  "kind": "rule",
+                  "tags": [
+                    "side-tie_panties"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/side-tie_panties"
+                },
+                {
+                  "id": "pearl_thong",
+                  "label": "pearl_thong",
+                  "kind": "rule",
+                  "tags": [
+                    "pearl_thong"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/pearl_thong"
+                },
+                {
+                  "id": "panties",
+                  "label": "panties",
+                  "kind": "rule",
+                  "tags": [
+                    "panties"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/panties"
+                },
+                {
+                  "id": "cat_panties",
+                  "label": "cat_panties",
+                  "kind": "rule",
+                  "tags": [
+                    "cat_panties"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Panties/cat_panties"
+                }
+              ]
+            },
+            {
+              "id": "skirts",
+              "label": "Skirts",
+              "kind": "branch",
+              "children": [
+                {
+                  "id": "frilled_skirt",
+                  "label": "frilled_skirt",
+                  "kind": "rule",
+                  "tags": [
+                    "frilled_skirt"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Skirts/frilled_skirt"
+                },
+                {
+                  "id": "microskirt",
+                  "label": "microskirt",
+                  "kind": "rule",
+                  "tags": [
+                    "microskirt"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Skirts/microskirt"
+                },
+                {
+                  "id": "miniskirt",
+                  "label": "miniskirt",
+                  "kind": "rule",
+                  "tags": [
+                    "miniskirt"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Skirts/miniskirt"
+                },
+                {
+                  "id": "pencil_skirt",
+                  "label": "pencil_skirt",
+                  "kind": "rule",
+                  "tags": [
+                    "pencil_skirt"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Skirts/pencil_skirt"
+                },
+                {
+                  "id": "plaid_skirt",
+                  "label": "plaid_skirt",
+                  "kind": "rule",
+                  "tags": [
+                    "plaid_skirt"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Skirts/plaid_skirt"
+                },
+                {
+                  "id": "suspender_skirt",
+                  "label": "suspender_skirt",
+                  "kind": "rule",
+                  "tags": [
+                    "suspender_skirt"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Skirts/suspender_skirt"
+                },
+                {
+                  "id": "skirt",
+                  "label": "skirt",
+                  "kind": "rule",
+                  "tags": [
+                    "skirt"
+                  ],
+                  "sites": [
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Skirts/skirt"
+                }
+              ]
+            },
+            {
+              "id": "goggles_on_head",
+              "label": "goggles_on_head",
+              "kind": "rule",
+              "tags": [
+                "goggles_on_head"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/goggles_on_head"
+            },
+            {
+              "id": "high_heels",
+              "label": "high_heels",
+              "kind": "rule",
+              "tags": [
+                "high_heels"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/high_heels"
+            },
+            {
+              "id": "hooded_jacket",
+              "label": "hooded_jacket",
+              "kind": "rule",
+              "tags": [
+                "hooded_jacket"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/hooded_jacket"
+            },
+            {
+              "id": "iron_cross",
+              "label": "iron_cross",
+              "kind": "rule",
+              "tags": [
+                "iron_cross"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/iron_cross"
+            },
+            {
+              "id": "jewelry",
+              "label": "jewelry",
+              "kind": "rule",
+              "tags": [
+                "jewelry"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/jewelry"
+            },
+            {
+              "id": "labcoat",
+              "label": "labcoat",
+              "kind": "rule",
+              "tags": [
+                "labcoat"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/labcoat"
+            },
+            {
+              "id": "latex_suit",
+              "label": "latex_suit",
+              "kind": "rule",
+              "tags": [
+                "latex_suit"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/latex_suit"
+            },
+            {
+              "id": "living_clothing",
+              "label": "living_clothing",
+              "kind": "rule",
+              "children": [
+                {
+                  "id": "living_clothes",
+                  "label": "living_clothes",
+                  "kind": "rule",
+                  "tags": [
+                    "living_clothes"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/living_clothing/living_clothes"
+                }
+              ],
+              "tags": [
+                "living_clothing"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/Styles vestimentaires/living_clothing"
+            },
+            {
+              "id": "mask",
+              "label": "mask",
+              "kind": "rule",
+              "tags": [
+                "mask"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/mask"
+            },
+            {
+              "id": "microdress",
+              "label": "microdress",
+              "kind": "rule",
+              "tags": [
+                "microdress"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/microdress"
+            },
+            {
+              "id": "nightgown",
+              "label": "nightgown",
+              "kind": "rule",
+              "tags": [
+                "nightgown"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/nightgown"
+            },
+            {
+              "id": "no_panties",
+              "label": "no_panties",
+              "kind": "rule",
+              "tags": [
+                "no_panties"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/no_panties"
+            },
+            {
+              "id": "pajamas",
+              "label": "pajamas",
+              "kind": "rule",
+              "tags": [
+                "pajamas"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/pajamas"
+            },
+            {
+              "id": "pelvic_curtain",
+              "label": "pelvic_curtain",
+              "kind": "rule",
+              "tags": [
+                "pelvic_curtain"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/pelvic_curtain"
+            },
+            {
+              "id": "track_jacket",
+              "label": "track_jacket",
+              "kind": "rule",
+              "tags": [
+                "track_jacket"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/track_jacket"
+            },
+            {
+              "id": "school_uniform",
+              "label": "school_uniform",
+              "kind": "rule",
+              "tags": [
+                "school_uniform"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/school_uniform"
+            },
+            {
+              "id": "shorts",
+              "label": "Shorts",
+              "kind": "rule",
+              "children": [
+                {
+                  "id": "bike_shorts",
+                  "label": "bike_shorts",
+                  "kind": "rule",
+                  "tags": [
+                    "bike_shorts"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Shorts/bike_shorts"
+                },
+                {
+                  "id": "gym_shorts",
+                  "label": "gym_shorts",
+                  "kind": "rule",
+                  "tags": [
+                    "gym_shorts"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Shorts/gym_shorts"
+                },
+                {
+                  "id": "micro_shorts",
+                  "label": "micro_shorts",
+                  "kind": "rule",
+                  "tags": [
+                    "micro_shorts"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Shorts/micro_shorts"
+                },
+                {
+                  "id": "short_shorts",
+                  "label": "short_shorts",
+                  "kind": "rule",
+                  "tags": [
+                    "short_shorts"
+                  ],
+                  "sites": [
+                    "e621",
+                    "gelbooru"
+                  ],
+                  "destination": "Tags/Styles vestimentaires/Shorts/short_shorts"
+                }
+              ],
+              "tags": [
+                "shorts"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/shorts"
+            },
+            {
+              "id": "skin_tight",
+              "label": "skin_tight",
+              "kind": "rule",
+              "tags": [
+                "skin_tight"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/skin_tight"
+            },
+            {
+              "id": "spacesuit",
+              "label": "spacesuit",
+              "kind": "rule",
+              "tags": [
+                "spacesuit"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/spacesuit"
+            },
+            {
+              "id": "sportswear",
+              "label": "sportswear",
+              "kind": "rule",
+              "tags": [
+                "sportswear"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/sportswear"
+            },
+            {
+              "id": "sundress",
+              "label": "sundress",
+              "kind": "rule",
+              "tags": [
+                "sundress"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/sundress"
+            },
+            {
+              "id": "suspenders",
+              "label": "suspenders",
+              "kind": "rule",
+              "tags": [
+                "suspenders"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/suspenders"
+            },
+            {
+              "id": "wardrobe_malfunction",
+              "label": "wardrobe_malfunction",
+              "kind": "rule",
+              "tags": [
+                "wardrobe_malfunction"
+              ],
+              "sites": [
+                "e621",
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/wardrobe_malfunction"
+            },
+            {
+              "id": "ineffective_clothing",
+              "label": "ineffective_clothing",
+              "kind": "rule",
+              "tags": [
+                "ineffective_clothing"
+              ],
+              "sites": [
+                "e621"
+              ],
+              "destination": "Tags/Styles vestimentaires/ineffective_clothing"
+            },
+            {
+              "id": "baseball_uniform",
+              "label": "baseball_uniform",
+              "kind": "rule",
+              "tags": [
+                "baseball_uniform"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/baseball_uniform"
+            },
+            {
+              "id": "cheerleader",
+              "label": "cheerleader",
+              "kind": "rule",
+              "tags": [
+                "cheerleader"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/cheerleader"
+            },
+            {
+              "id": "cuffs_to_collar",
+              "label": "cuffs-to-collar",
+              "kind": "rule",
+              "tags": [
+                "cuffs-to-collar"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/cuffs-to-collar"
+            },
+            {
+              "id": "crop_top_overhang",
+              "label": "crop_top_overhang",
+              "kind": "rule",
+              "tags": [
+                "crop_top_overhang"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/crop_top_overhang"
+            },
+            {
+              "id": "egyptian_clothes",
+              "label": "egyptian_clothes",
+              "kind": "rule",
+              "tags": [
+                "egyptian_clothes"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/egyptian_clothes"
+            },
+            {
+              "id": "gas_mask",
+              "label": "gas_mask",
+              "kind": "rule",
+              "tags": [
+                "gas_mask"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/gas_mask"
+            },
+            {
+              "id": "leg_garter",
+              "label": "leg_garter",
+              "kind": "rule",
+              "tags": [
+                "leg_garter"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/leg_garter"
+            },
+            {
+              "id": "lolita_fashion",
+              "label": "lolita_fashion",
+              "kind": "rule",
+              "tags": [
+                "lolita_fashion"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/lolita_fashion"
+            },
+            {
+              "id": "gothic_lolita",
+              "label": "gothic_lolita",
+              "kind": "rule",
+              "tags": [
+                "gothic_lolita"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/gothic_lolita"
+            },
+            {
+              "id": "sweet_lolita",
+              "label": "sweet_lolita",
+              "kind": "rule",
+              "tags": [
+                "sweet_lolita"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/sweet_lolita"
+            },
+            {
+              "id": "military_uniform",
+              "label": "military_uniform",
+              "kind": "rule",
+              "tags": [
+                "military_uniform"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/military_uniform"
+            },
+            {
+              "id": "pants",
+              "label": "pants",
+              "kind": "rule",
+              "tags": [
+                "pants"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/pants"
+            },
+            {
+              "id": "jeans",
+              "label": "jeans",
+              "kind": "rule",
+              "tags": [
+                "jeans"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/jeans"
+            },
+            {
+              "id": "police_uniform",
+              "label": "police_uniform",
+              "kind": "rule",
+              "tags": [
+                "police_uniform"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/Styles vestimentaires/police_uniform"
+            }
+          ]
+        },
+        {
+          "id": "hairstyles",
+          "label": "HairStyles",
+          "kind": "branch",
+          "children": [
+            {
+              "id": "short_hair",
+              "label": "short_hair",
+              "kind": "rule",
+              "tags": [
+                "short_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/short_hair"
+            },
+            {
+              "id": "floating_hair",
+              "label": "floating_hair",
+              "kind": "rule",
+              "tags": [
+                "floating_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/floating_hair"
+            },
+            {
+              "id": "hair_bun",
+              "label": "hair_bun",
+              "kind": "rule",
+              "tags": [
+                "hair_bun"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_bun"
+            },
+            {
+              "id": "wavy_hair",
+              "label": "wavy_hair",
+              "kind": "rule",
+              "tags": [
+                "wavy_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/wavy_hair"
+            },
+            {
+              "id": "drill_hair",
+              "label": "drill_hair",
+              "kind": "rule",
+              "tags": [
+                "drill_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/drill_hair"
+            },
+            {
+              "id": "hair_blowing",
+              "label": "hair_blowing",
+              "kind": "rule",
+              "tags": [
+                "hair_blowing"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_blowing"
+            },
+            {
+              "id": "hair_intakes",
+              "label": "hair_intakes",
+              "kind": "rule",
+              "tags": [
+                "hair_intakes"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_intakes"
+            },
+            {
+              "id": "short_hair_with_long_locks",
+              "label": "short_hair_with_long_locks",
+              "kind": "rule",
+              "tags": [
+                "short_hair_with_long_locks"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/short_hair_with_long_locks"
+            },
+            {
+              "id": "messy_hair",
+              "label": "messy_hair",
+              "kind": "rule",
+              "tags": [
+                "messy_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/messy_hair"
+            },
+            {
+              "id": "very_short_hair",
+              "label": "very_short_hair",
+              "kind": "rule",
+              "tags": [
+                "very_short_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/very_short_hair"
+            },
+            {
+              "id": "hair_over_shoulder",
+              "label": "hair_over_shoulder",
+              "kind": "rule",
+              "tags": [
+                "hair_over_shoulder"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_over_shoulder"
+            },
+            {
+              "id": "absurdly_long_hair",
+              "label": "absurdly_long_hair",
+              "kind": "rule",
+              "tags": [
+                "absurdly_long_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/absurdly_long_hair"
+            },
+            {
+              "id": "straight_hair",
+              "label": "straight_hair",
+              "kind": "rule",
+              "tags": [
+                "straight_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/straight_hair"
+            },
+            {
+              "id": "hair_over_face",
+              "label": "hair_over_face",
+              "kind": "rule",
+              "tags": [
+                "hair_over_face"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_over_face"
+            },
+            {
+              "id": "tied_hair",
+              "label": "tied_hair",
+              "kind": "rule",
+              "tags": [
+                "tied_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/tied_hair"
+            },
+            {
+              "id": "hair_strand",
+              "label": "hair_strand",
+              "kind": "rule",
+              "tags": [
+                "hair_strand"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_strand"
+            },
+            {
+              "id": "low_tied_long_hair",
+              "label": "low-tied_long_hair",
+              "kind": "rule",
+              "tags": [
+                "low-tied_long_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/low-tied_long_hair"
+            },
+            {
+              "id": "curly_hair",
+              "label": "curly_hair",
+              "kind": "rule",
+              "tags": [
+                "curly_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/curly_hair"
+            },
+            {
+              "id": "hairband",
+              "label": "hairband",
+              "kind": "rule",
+              "tags": [
+                "hairband"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hairband"
+            },
+            {
+              "id": "hair_ornament",
+              "label": "hair_ornament",
+              "kind": "rule",
+              "tags": [
+                "hair_ornament"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_ornament"
+            },
+            {
+              "id": "hairpin",
+              "label": "hairpin",
+              "kind": "rule",
+              "tags": [
+                "hairpin"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hairpin"
+            },
+            {
+              "id": "hair_rings",
+              "label": "hair_rings",
+              "kind": "rule",
+              "tags": [
+                "hair_rings"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_rings"
+            },
+            {
+              "id": "hair_scrunchie",
+              "label": "hair_scrunchie",
+              "kind": "rule",
+              "tags": [
+                "hair_scrunchie"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_scrunchie"
+            },
+            {
+              "id": "wet_hair",
+              "label": "wet_hair",
+              "kind": "rule",
+              "tags": [
+                "wet_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/wet_hair"
+            },
+            {
+              "id": "shiny_hair",
+              "label": "shiny_hair",
+              "kind": "rule",
+              "tags": [
+                "shiny_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/shiny_hair"
+            },
+            {
+              "id": "streaked_hair",
+              "label": "streaked_hair",
+              "kind": "rule",
+              "tags": [
+                "streaked_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/streaked_hair"
+            },
+            {
+              "id": "two_tone_hair",
+              "label": "two-tone_hair",
+              "kind": "rule",
+              "tags": [
+                "two-tone_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/two-tone_hair"
+            },
+            {
+              "id": "adjusting_hair",
+              "label": "adjusting_hair",
+              "kind": "rule",
+              "tags": [
+                "adjusting_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/adjusting_hair"
+            },
+            {
+              "id": "drying_hair",
+              "label": "drying_hair",
+              "kind": "rule",
+              "tags": [
+                "drying_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/drying_hair"
+            },
+            {
+              "id": "hair_bobbles",
+              "label": "hair_bobbles",
+              "kind": "rule",
+              "tags": [
+                "hair_bobbles"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_bobbles"
+            },
+            {
+              "id": "hair_stick",
+              "label": "hair_stick",
+              "kind": "rule",
+              "tags": [
+                "hair_stick"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_stick"
+            },
+            {
+              "id": "hair_tie",
+              "label": "hair_tie",
+              "kind": "rule",
+              "tags": [
+                "hair_tie"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_tie"
+            },
+            {
+              "id": "hair_tubes",
+              "label": "hair_tubes",
+              "kind": "rule",
+              "tags": [
+                "hair_tubes"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/hair_tubes"
+            },
+            {
+              "id": "playing_with_own_hair",
+              "label": "playing_with_own_hair",
+              "kind": "rule",
+              "tags": [
+                "playing_with_own_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/playing_with_own_hair"
+            },
+            {
+              "id": "tying_hair",
+              "label": "tying_hair",
+              "kind": "rule",
+              "tags": [
+                "tying_hair"
+              ],
+              "sites": [
+                "gelbooru"
+              ],
+              "destination": "Tags/HairStyles/tying_hair"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "species",
+      "label": "Species",
+      "kind": "dynamic",
+      "source": "species",
+      "destination": "Species/{value}",
+      "active": true
+    },
+    {
+      "id": "copyright",
+      "label": "Copyright",
+      "kind": "dynamic",
+      "source": "copyrights",
+      "destination": "Copyright",
+      "special": "copyright_character",
+      "active": true
+    },
+    {
+      "id": "artist",
+      "label": "Artist",
+      "kind": "dynamic",
+      "source": "artists",
+      "destination": "Artist/{value}",
+      "active": true
+    }
+  ],
+  "historical_candidates_validated": true,
+  "generation_policy": "single positive monitors plus explicitly curated historical leaves"
+}

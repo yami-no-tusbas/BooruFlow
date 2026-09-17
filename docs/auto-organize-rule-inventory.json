@@ -1,0 +1,85 @@
+{
+  "before": {
+    "branches": {
+      "Relations": 5,
+      "Sexual Themes": 8,
+      "Races": 23,
+      "Professions": 3,
+      "Weapons": 11,
+      "Animal Ears": 0,
+      "General": 0,
+      "Piercings": 0,
+      "Styles vestimentaires": 0,
+      "HairStyles": 0
+    },
+    "tags_total": 50,
+    "gelbooru": 50,
+    "e621": 50,
+    "shared": 50
+  },
+  "historical_monitor_leaves": {
+    "Relations": 12,
+    "Sexual Themes": 100,
+    "Races": 22,
+    "Professions": 48,
+    "Weapons": 28,
+    "Animal Ears": 40,
+    "General": 57,
+    "Piercings": 26,
+    "Styles vestimentaires": 65,
+    "HairStyles": 0
+  },
+  "after": {
+    "branches": {
+      "Relations": 12,
+      "Sexual Themes": 103,
+      "Races": 26,
+      "Professions": 50,
+      "Weapons": 36,
+      "Animal Ears": 44,
+      "General": 57,
+      "Piercings": 26,
+      "Styles vestimentaires": 87,
+      "HairStyles": 35
+    },
+    "tags_total": 476,
+    "gelbooru": 456,
+    "e621": 315,
+    "shared": 295
+  },
+  "skipped_historical_candidates": [
+    {
+      "monitor": 289,
+      "reason": "compound_query",
+      "tags": [],
+      "destination": "Tags (%websitename%)/%rating%/_<_\"adolescent\" ><_\"child\" ><_\"cub\" ><_\"loli\" ><_\"shota\" ><_\"young\">/n_<\"solo\" ><\"duo\" ><\"trio\" ><\"group\" ><\"large_group\" ><\"1boy\" ><\"2boys\" ><\"3boys\" ><\"4boys\" ><\"5boys\" ><\"6+boys\" ><\"1girl\" ><\"2girls\" ><\"3girls\" ><\"4girls\" ><\"5girls\" ><\"6+girls\" ><\"absolutely_everyone\">/%search%"
+    },
+    {
+      "monitor": 298,
+      "reason": "compound_query",
+      "tags": [
+        "feral",
+        "human_penetrating"
+      ],
+      "destination": "Tags (%websitename%)/%rating%/_<_\"adolescent\" ><_\"child\" ><_\"cub\" ><_\"loli\" ><_\"shota\" ><_\"young\">/n_<\"solo\" ><\"duo\" ><\"trio\" ><\"group\" ><\"large_group\" ><\"1boy\" ><\"2boys\" ><\"3boys\" ><\"4boys\" ><\"5boys\" ><\"6+boys\" ><\"1girl\" ><\"2girls\" ><\"3girls\" ><\"4girls\" ><\"5girls\" ><\"6+girls\" ><\"absolutely_everyone\">/%search%"
+    },
+    {
+      "monitor": 299,
+      "reason": "compound_query",
+      "tags": [
+        "feral",
+        "humiliation"
+      ],
+      "destination": "Tags (%websitename%)/%rating%/_<_\"adolescent\" ><_\"child\" ><_\"cub\" ><_\"loli\" ><_\"shota\" ><_\"young\">/n_<\"solo\" ><\"duo\" ><\"trio\" ><\"group\" ><\"large_group\" ><\"1boy\" ><\"2boys\" ><\"3boys\" ><\"4boys\" ><\"5boys\" ><\"6+boys\" ><\"1girl\" ><\"2girls\" ><\"3girls\" ><\"4girls\" ><\"5girls\" ><\"6+girls\" ><\"absolutely_everyone\">/%search%"
+    },
+    {
+      "monitor": 300,
+      "reason": "compound_query",
+      "tags": [
+        "feral",
+        "rape"
+      ],
+      "destination": "Tags (%websitename%)/%rating%/_<_\"adolescent\" ><_\"child\" ><_\"cub\" ><_\"loli\" ><_\"shota\" ><_\"young\">/n_<\"solo\" ><\"duo\" ><\"trio\" ><\"group\" ><\"large_group\" ><\"1boy\" ><\"2boys\" ><\"3boys\" ><\"4boys\" ><\"5boys\" ><\"6+boys\" ><\"1girl\" ><\"2girls\" ><\"3girls\" ><\"4girls\" ><\"5girls\" ><\"6+girls\" ><\"absolutely_everyone\">/%search%"
+    }
+  ]
+}

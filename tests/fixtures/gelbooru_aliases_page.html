@@ -1,0 +1,23 @@
+<!doctype html>
+<html><body>
+<table>
+  <tr><th>Tag</th><th>Alias to</th></tr>
+  <tr>
+    <td><a href="index.php?page=post&amp;s=list&amp;tags=china_dress">visible text ignored</a></td>
+    <td><a href="index.php?page=post&amp;s=list&amp;tags=qipao">different label</a></td>
+  </tr>
+  <tr class="pending-tag">
+    <td><a href="index.php?page=post&amp;s=list&amp;tags=rose_weasley">rose</a></td>
+    <td><a href="index.php?page=post&amp;s=list&amp;tags=rose_granger-weasley">target</a></td>
+  </tr>
+  <tr>
+    <td><a href="index.php?page=post&amp;s=list&amp;tags=foo_%28bar%29">encoded</a></td>
+    <td><a href="index.php?page=post&amp;s=list&amp;tags=foo-bar">hyphen</a></td>
+  </tr>
+</table>
+<nav>
+  <a href="?page=alias&amp;s=list&amp;pid=50">2</a>
+  <a href="?page=alias&amp;s=list&amp;pid=100">3</a>
+  <a href="?page=alias&amp;s=list&amp;pid=23200">»</a>
+</nav>
+</body></html>

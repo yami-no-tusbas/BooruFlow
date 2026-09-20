@@ -14,6 +14,8 @@ class BooruSiteDefinition:
     account_url: str
     database_setting_key: str
     categories: dict[int, str]
+    supports_aliases: bool = False
+    deprecated_category: int | None = None
 
     def post_url(self, post_id: str | int) -> str:
         if self.site_id == "gelbooru":
@@ -32,12 +34,14 @@ SITES = {
         "gelbooru", "Gelbooru", "https://gelbooru.com",
         "https://gelbooru.com/index.php?page=account&s=home",
         "gelbooru_tag_database",
-        {0: "general", 1: "artist", 3: "copyright", 4: "character", 5: "meta", 6: "deprecated"},
+        {0: "general", 1: "artist", 2: "invalid / unknown", 3: "copyright", 4: "character", 5: "meta", 6: "deprecated"},
+        supports_aliases=True,
+        deprecated_category=6,
     ),
     "e621": BooruSiteDefinition(
         "e621", "e621", "https://e621.net", "https://e621.net/users/home",
         "e621_database",
-        {0: "general", 1: "artist", 2: "contributor", 3: "copyright", 4: "character", 5: "species", 7: "meta", 8: "lore"},
+        {0: "general", 1: "artist", 2: "contributor", 3: "copyright", 4: "character", 5: "species", 6: "invalid", 7: "meta", 8: "lore"},
     ),
 }
 

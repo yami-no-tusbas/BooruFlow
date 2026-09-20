@@ -43,10 +43,12 @@ from booruflow.infrastructure.gelbooru_edit_prototype import (
     build_apply_real_form_deltas_script,
 )
 from booruflow.infrastructure.gelbooru_edit_transport import (
+    GelbooruLockedImageError,
     GelbooruPublishDeferredError,
     GelbooruSessionExpiredError,
     GelbooruSessionUnknownError,
     GelbooruTransportError,
+    GelbooruUnexpectedRedirectError,
 )
 from booruflow.infrastructure.gelbooru_http_diagnostic import (
     GelbooruEditRequestInterceptor,
@@ -97,9 +99,18 @@ SESSION_DIAGNOSTIC_SCRIPT = """(() => {
     }
 })()"""
 
-EDIT_FORM_DIAGNOSTIC_SCRIPT = """(() => {
+EDIT_FORM_DIAGNOSTIC_SCRIPT = r"""(() => {
     try {
         const editForm = document.getElementById('edit_form');
+        const expectedId = new URL(location.href).searchParams.get('id');
+        const lockedImage = Array.from(document.querySelectorAll('a')).some(anchor => {
+            const label = String(anchor.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase();
+            try {
+                const target = new URL(anchor.getAttribute('href') || '', location.href);
+                return label === 'unlock image' && target.pathname.endsWith('/public/lock.php')
+                    && target.searchParams.get('id') === String(expectedId);
+            } catch (_error) { return false; }
+        });
         const forms = Array.from(document.forms).map((form, index) => {
             const isEditForm = form === editForm;
             const tags = isEditForm
@@ -133,6 +144,7 @@ EDIT_FORM_DIAGNOSTIC_SCRIPT = """(() => {
                 'input[name="login"], input[type="password"], form[action*="login"]'
             )),
             globalTagsFields: document.querySelectorAll('[name="tags"]').length,
+            lockedImage,
             forms
         });
     } catch (error) {
@@ -338,6 +350,7 @@ class EditFormDiagnostic:
     rating_field: bool
     source_field: bool
     title_field: bool
+    locked_image: bool
     forms: tuple[EditFormSummary, ...]
     probe_error: str = ""
 
@@ -364,6 +377,8 @@ class EditFormDiagnostic:
             return "javascript_error"
         if self.login_form:
             return "login"
+        if self.locked_image:
+            return "locked_image"
         if not self.page_expected or not self.body_present:
             return "page_not_loaded"
         if not self.forms:
@@ -398,6 +413,7 @@ class EditFormDiagnostic:
             f"rating_field={str(bool(selected and selected.rating_field)).lower()} "
             f"source_field={str(bool(selected and selected.source_field)).lower()} "
             f"title_field={str(bool(selected and selected.title_field)).lower()} "
+            f"locked_image={str(self.locked_image).lower()} "
             f"post_id_field={str(bool(selected and selected.post_id_field)).lower()} "
             f"edit_action={str(bool(selected and selected.edit_action)).lower()} "
             f"submit_control={str(bool(selected and selected.submit_control)).lower()} "
@@ -815,6 +831,7 @@ def parse_edit_form_diagnostic(values: object, expected_post_id: str) -> EditFor
         rating_field=any(form.rating_field for form in forms if form.is_edit_form),
         source_field=any(form.source_field for form in forms if form.is_edit_form),
         title_field=any(form.title_field for form in forms if form.is_edit_form),
+        locked_image=data.get("lockedImage") is True,
         forms=tuple(forms),
         probe_error=str(data.get("probeError", ""))[:80],
     )
@@ -1521,6 +1538,16 @@ class EmbeddedGelbooruBridge(QObject):
         if request is None or request.request_id != request_id or self._phase != "edit-wait":
             return
         values = self._decoded_mapping(result)
+        if values.get("lockedImage") is True:
+            post_id = str(request.payload["post_id"])
+            self.log(
+                f"Gelbooru publish skipped post_id={post_id} "
+                "reason=locked_image retryable=false"
+            )
+            self._finish(error=GelbooruLockedImageError(
+                f"Gelbooru image #{post_id} is locked"
+            ))
+            return
         ready = all(values.get(key) is True for key in (
             "editFormVisible", "tagsFieldPresent", "savePresent", "postIdMatches",
         ))
@@ -1595,6 +1622,10 @@ class EmbeddedGelbooruBridge(QObject):
         if diagnostic.status == "login":
             self._finish(error=GelbooruSessionExpiredError(
                 "Session Gelbooru expirée : formulaire de connexion détecté."
+            ))
+        elif diagnostic.status == "locked_image":
+            self._finish(error=GelbooruLockedImageError(
+                f"Gelbooru image #{post_id} is locked"
             ))
         elif diagnostic.status == "page_not_loaded":
             self._finish(error=GelbooruTransportError(
@@ -1799,8 +1830,8 @@ class EmbeddedGelbooruBridge(QObject):
         final_url = self._page_url(requested=False)
         query = parse_qs(urlparse(final_url).query)
         if query.get("page") == ["post"] and query.get("s") == ["list"]:
-            self._finish(error=GelbooruTransportError(
-                "Gelbooru a redirigé Save vers la liste globale au lieu du post attendu."
+            self._finish(error=GelbooruUnexpectedRedirectError(
+                "Gelbooru redirected Save to the global post list"
             ))
             return
         self.page.runJavaScript(

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import Signal
+from PySide6.QtCore import QUrl, Signal
+from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -17,15 +18,20 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QPushButton,
+    QSizePolicy,
     QSpinBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
+from booruflow.application.analysis_installation import analysis_installation_status
 from booruflow.application.database_paths import gelbooru_tag_database
+from booruflow.application.model_inventory import format_size
+from booruflow.infrastructure.grabber import grabber_availability
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.settings import migrate_blacklist_setting
+from booruflow.presentation.pyside6.status_bar import PageStatus
 
 
 class PathRow(QWidget):
@@ -47,6 +53,8 @@ class PathRow(QWidget):
         self.edit = QLineEdit()
         self.button = QPushButton()
         self.action = QPushButton()
+        self.button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        self.action.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.action.hide()
         self.button.clicked.connect(self.browse)
         self.action.clicked.connect(self.action_requested.emit)
@@ -91,16 +99,25 @@ class OptionsPage(QWidget):
     embedded_session_reset_requested = Signal()
     publication_backend_changed = Signal(str)
     credentials_test_requested = Signal(str, dict)
+    gpu_runtime_install_requested = Signal()
+    wd14_install_requested = Signal()
+    storage_refresh_requested = Signal()
+    hydra_install_requested = Signal()
+    hydra_migrate_requested = Signal()
+    hydra_remove_requested = Signal()
 
     def __init__(
         self,
         catalog: LanguageCatalog,
         settings: dict[str, object] | None = None,
         credentials: dict[str, object] | None = None,
+        project_root: Path | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self.catalog = catalog
+        self.project_root = project_root or Path.cwd()
+        self.page_status = PageStatus("options", self)
         self._settings = dict(settings or {})
         self._credentials = {
             "gelbooru": self._site_credentials(credentials, "gelbooru"),
@@ -160,10 +177,15 @@ class OptionsPage(QWidget):
         path_grid = QGridLayout(self.paths_group)
         path_grid.setColumnMinimumWidth(0, 190)
         path_grid.setColumnStretch(1, 1)
+        self.databases_group = QGroupBox()
+        database_grid = QGridLayout(self.databases_group)
+        database_grid.setColumnMinimumWidth(0, 190)
+        database_grid.setColumnStretch(1, 1)
         self.gelbooru_database_label = QLabel()
         self.e621_database_label = QLabel()
         self.blacklist_file_label = QLabel()
         self.output_root_label = QLabel()
+        self.grabber_executable_label = QLabel()
         self.gelbooru_database = PathRow(catalog)
         self.e621_database = PathRow(catalog)
         self.blacklist_file = PathRow(
@@ -172,9 +194,18 @@ class OptionsPage(QWidget):
             file_filter_key="options.text_filter",
         )
         self.output_root = PathRow(catalog, directory=True)
+        self.grabber_executable = PathRow(
+            catalog,
+            dialog_title_key="options.choose_grabber",
+            file_filter_key="options.executable_filter",
+        )
+        self.grabber_status = QLabel()
+        self.grabber_status.setWordWrap(True)
+        self.grabber_executable.edit.textChanged.connect(self._update_grabber_status)
         self.database_site_label = QLabel()
         self.database_path_label = QLabel()
         self.database_site = QComboBox()
+        self.database_site.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.database_site.addItem("Gelbooru", "gelbooru")
         self.database_site.addItem("e621", "e621")
         self.database_path = PathRow(catalog)
@@ -188,10 +219,13 @@ class OptionsPage(QWidget):
         self.e621_database.action.show()
         self.gelbooru_database.action_requested.connect(lambda: self._database_action("gelbooru"))
         self.e621_database.action_requested.connect(lambda: self._database_action("e621"))
-        path_grid.addWidget(self.database_site_label, 0, 0)
-        path_grid.addWidget(self.database_site, 0, 1)
-        path_grid.addWidget(self.database_path_label, 1, 0)
-        path_grid.addWidget(self.database_path, 1, 1)
+        database_grid.addWidget(self.database_site_label, 0, 0)
+        database_grid.addWidget(self.database_site, 0, 1)
+        database_grid.addWidget(self.database_path_label, 1, 0)
+        database_grid.addWidget(self.database_path, 1, 1)
+        path_grid.addWidget(self.grabber_executable_label, 0, 0)
+        path_grid.addWidget(self.grabber_executable, 0, 1)
+        path_grid.addWidget(self.grabber_status, 1, 1)
         path_grid.addWidget(self.output_root_label, 2, 0)
         path_grid.addWidget(self.output_root, 2, 1)
         self.gelbooru_database.hide(); self.e621_database.hide(); self.blacklist_file.hide()
@@ -209,14 +243,18 @@ class OptionsPage(QWidget):
         alias_layout.addStretch(1)
         self.alias_status = QLabel()
         self.alias_status.setWordWrap(True)
-        self.alias_label.hide(); self.alias_actions.hide(); self.alias_status.hide()
         self.alias_update.clicked.connect(lambda: self._alias_action("incremental"))
         self.alias_pending.clicked.connect(lambda: self._alias_action("pending"))
         self.alias_reconcile.clicked.connect(lambda: self._alias_action("full"))
+        database_grid.addWidget(self.alias_label, 2, 0)
+        database_grid.addWidget(self.alias_actions, 2, 1)
+        database_grid.addWidget(self.alias_status, 3, 1)
         layout.addWidget(self.paths_group)
+        layout.addWidget(self.databases_group)
         self.browser_group = QGroupBox()
         browser_form = QFormLayout(self.browser_group)
         self.browser_mode = QComboBox()
+        self.browser_mode.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.browser_mode.addItem("", "system")
         self.browser_mode.addItem("", "dedicated")
         self.browser_mode.addItem("", "custom")
@@ -226,13 +264,18 @@ class OptionsPage(QWidget):
         self.clear_browser_profile = QCheckBox()
         self.reset_browser_profile = QPushButton()
         self.test_browser = QPushButton()
+        self.browser_actions = QWidget()
+        browser_actions_layout = QHBoxLayout(self.browser_actions)
+        browser_actions_layout.setContentsMargins(0, 0, 0, 0)
+        browser_actions_layout.addWidget(self.reset_browser_profile)
+        browser_actions_layout.addWidget(self.test_browser)
+        browser_actions_layout.addStretch(1)
         self.browser_explanation = QLabel()
         self.browser_explanation.setWordWrap(True)
         self.browser_mode_label = QLabel(); browser_form.addRow(self.browser_mode_label, self.browser_mode)
         browser_form.addRow(self.browser_command_label, self.browser_command)
         browser_form.addRow("", self.clear_browser_profile)
-        browser_form.addRow("", self.reset_browser_profile)
-        browser_form.addRow("", self.test_browser)
+        browser_form.addRow("", self.browser_actions)
         browser_form.addRow("", self.browser_explanation)
         layout.addWidget(self.browser_group)
         self.browser_mode.currentIndexChanged.connect(self._update_browser_fields)
@@ -242,6 +285,7 @@ class OptionsPage(QWidget):
         self.publisher_group = QGroupBox()
         publisher_form = QFormLayout(self.publisher_group)
         self.publish_backend = QComboBox()
+        self.publish_backend.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed)
         self.publish_backend.addItem("", "embedded")
         self.publish_backend.addItem("", "cdp")
         self.publish_backend.addItem("", "disabled")
@@ -251,11 +295,16 @@ class OptionsPage(QWidget):
         self.embedded_session_status = QLabel()
         self.publisher_explanation = QLabel()
         self.publisher_explanation.setWordWrap(True)
+        self.publisher_actions = QWidget()
+        publisher_actions_layout = QHBoxLayout(self.publisher_actions)
+        publisher_actions_layout.setContentsMargins(0, 0, 0, 0)
+        publisher_actions_layout.addWidget(self.open_embedded_session)
+        publisher_actions_layout.addWidget(self.test_embedded_session)
+        publisher_actions_layout.addWidget(self.reset_embedded_session)
+        publisher_actions_layout.addStretch(1)
         self.publish_backend_label = QLabel(); publisher_form.addRow(self.publish_backend_label, self.publish_backend)
         self.publish_backend.hide(); self.publish_backend_label.hide()
-        publisher_form.addRow("", self.open_embedded_session)
-        publisher_form.addRow("", self.test_embedded_session)
-        publisher_form.addRow("", self.reset_embedded_session)
+        publisher_form.addRow("", self.publisher_actions)
         publisher_form.addRow("", self.embedded_session_status)
         publisher_form.addRow("", self.publisher_explanation)
         layout.addWidget(self.publisher_group)
@@ -264,7 +313,26 @@ class OptionsPage(QWidget):
         self.reset_embedded_session.clicked.connect(self.embedded_session_reset_requested.emit)
         self.publish_backend.currentIndexChanged.connect(self._publish_backend_selected)
         self.image_analysis_group = QGroupBox()
-        image_analysis_form = QFormLayout(self.image_analysis_group)
+        image_analysis_form = QGridLayout(self.image_analysis_group)
+        image_analysis_form.setColumnMinimumWidth(0, 190)
+        image_analysis_form.setColumnStretch(1, 1)
+        self.gpu_runtime_label = QLabel()
+        self.gpu_runtime_status = QLabel()
+        self.wd14_model_label = QLabel()
+        self.wd14_model_status = QLabel()
+        self.gpu_runtime_install = QPushButton()
+        self.wd14_install = QPushButton()
+        install_actions = QHBoxLayout()
+        install_actions.addWidget(self.gpu_runtime_install)
+        install_actions.addWidget(self.wd14_install)
+        install_actions.addStretch(1)
+        image_analysis_form.addWidget(self.gpu_runtime_label, 0, 0)
+        image_analysis_form.addWidget(self.gpu_runtime_status, 0, 1)
+        image_analysis_form.addWidget(self.wd14_model_label, 1, 0)
+        image_analysis_form.addWidget(self.wd14_model_status, 1, 1)
+        image_analysis_form.addLayout(install_actions, 2, 0, 1, 2)
+        self.gpu_runtime_install.clicked.connect(self.gpu_runtime_install_requested.emit)
+        self.wd14_install.clicked.connect(self.wd14_install_requested.emit)
         self.download_prefetch_label = QLabel(); self.download_prefetch = QSpinBox()
         self.download_prefetch.setRange(1, 100)
         self.analysis_prefetch_label = QLabel(); self.analysis_prefetch = QSpinBox()
@@ -273,22 +341,84 @@ class OptionsPage(QWidget):
         self.wd14_threshold_label = QLabel()
         self.wd14_threshold = QDoubleSpinBox(); self.wd14_threshold.setRange(0, 100)
         self.wd14_threshold.setDecimals(0); self.wd14_threshold.setSingleStep(5); self.wd14_threshold.setSuffix(" %")
-        image_analysis_form.addRow("", self.wd14_enabled)
-        image_analysis_form.addRow(self.wd14_threshold_label, self.wd14_threshold)
+        image_analysis_form.addWidget(self.wd14_enabled, 3, 0, 1, 2)
+        image_analysis_form.addWidget(self.wd14_threshold_label, 4, 0)
+        image_analysis_form.addWidget(self.wd14_threshold, 4, 1)
         self.image_advanced = QGroupBox(); self.image_advanced.setCheckable(True); self.image_advanced.setChecked(False)
-        advanced_form = QFormLayout(self.image_advanced)
-        advanced_form.addRow(self.download_prefetch_label, self.download_prefetch)
-        advanced_form.addRow(self.analysis_prefetch_label, self.analysis_prefetch)
+        advanced_form = QGridLayout(self.image_advanced)
+        advanced_form.setColumnMinimumWidth(0, 190)
+        advanced_form.setColumnStretch(1, 1)
+        advanced_form.addWidget(self.download_prefetch_label, 0, 0)
+        advanced_form.addWidget(self.download_prefetch, 0, 1)
+        advanced_form.addWidget(self.analysis_prefetch_label, 1, 0)
+        advanced_form.addWidget(self.analysis_prefetch, 1, 1)
         self.store_threshold_label = QLabel(); self.store_threshold = QDoubleSpinBox(); self.store_threshold.setRange(0, 100); self.store_threshold.setSuffix(" %")
         self.heartbeat_label = QLabel(); self.heartbeat = QSpinBox(); self.heartbeat.setRange(1, 60)
         self.stale_timeout_label = QLabel(); self.stale_timeout = QSpinBox(); self.stale_timeout.setRange(2, 300)
         self.recycle_count_label = QLabel(); self.recycle_count = QSpinBox(); self.recycle_count.setRange(0, 100000)
-        advanced_form.addRow(self.store_threshold_label, self.store_threshold)
-        advanced_form.addRow(self.heartbeat_label, self.heartbeat)
-        advanced_form.addRow(self.stale_timeout_label, self.stale_timeout)
-        advanced_form.addRow(self.recycle_count_label, self.recycle_count)
-        image_analysis_form.addRow(self.image_advanced)
+        advanced_form.addWidget(self.store_threshold_label, 2, 0)
+        advanced_form.addWidget(self.store_threshold, 2, 1)
+        advanced_form.addWidget(self.heartbeat_label, 3, 0)
+        advanced_form.addWidget(self.heartbeat, 3, 1)
+        advanced_form.addWidget(self.stale_timeout_label, 4, 0)
+        advanced_form.addWidget(self.stale_timeout, 4, 1)
+        advanced_form.addWidget(self.recycle_count_label, 5, 0)
+        advanced_form.addWidget(self.recycle_count, 5, 1)
+        image_analysis_form.addWidget(self.image_advanced, 5, 0, 1, 2)
+        self._advanced_widgets = [
+            self.download_prefetch_label, self.download_prefetch,
+            self.analysis_prefetch_label, self.analysis_prefetch,
+            self.store_threshold_label, self.store_threshold,
+            self.heartbeat_label, self.heartbeat,
+            self.stale_timeout_label, self.stale_timeout,
+            self.recycle_count_label, self.recycle_count,
+        ]
+        self.image_advanced.toggled.connect(self._toggle_advanced_settings)
+        self._toggle_advanced_settings(False)
         layout.addWidget(self.image_analysis_group)
+        self.storage_group = QGroupBox()
+        storage_form = QFormLayout(self.storage_group)
+        self.model_storage_label = QLabel()
+        self.model_storage = QLabel()
+        self.hydra_status_label = QLabel()
+        self.hydra_status_label.setWordWrap(True)
+        storage_form.addRow(self.model_storage_label, self.model_storage)
+        storage_form.addRow("", self.hydra_status_label)
+        storage_actions = QHBoxLayout()
+        self.refresh_storage = QPushButton()
+        self.open_models = QPushButton()
+        self.hydra_install = QPushButton()
+        self.hydra_migrate = QPushButton()
+        self.hydra_remove = QPushButton()
+        for action_button in (
+            self.reset_browser_profile,
+            self.test_browser,
+            self.open_embedded_session,
+            self.test_embedded_session,
+            self.reset_embedded_session,
+            self.alias_update,
+            self.alias_pending,
+            self.alias_reconcile,
+            self.refresh_storage,
+            self.open_models,
+            self.hydra_install,
+            self.hydra_migrate,
+            self.hydra_remove,
+        ):
+            action_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
+        storage_actions.addWidget(self.refresh_storage)
+        storage_actions.addWidget(self.open_models)
+        storage_actions.addWidget(self.hydra_install)
+        storage_actions.addWidget(self.hydra_migrate)
+        storage_actions.addWidget(self.hydra_remove)
+        storage_actions.addStretch(1)
+        storage_form.addRow("", storage_actions)
+        layout.addWidget(self.storage_group)
+        self.refresh_storage.clicked.connect(self.storage_refresh_requested.emit)
+        self.open_models.clicked.connect(self._open_models)
+        self.hydra_install.clicked.connect(self.hydra_install_requested.emit)
+        self.hydra_migrate.clicked.connect(self.hydra_migrate_requested.emit)
+        self.hydra_remove.clicked.connect(self.hydra_remove_requested.emit)
         self.note = QLabel()
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
@@ -307,6 +437,8 @@ class OptionsPage(QWidget):
         self._display_credentials("gelbooru")
         self.language.currentIndexChanged.connect(self._language_selected)
         self.retranslate()
+        self.refresh_analysis_status()
+        self._update_grabber_status()
 
     @staticmethod
     def _site_credentials(values: dict[str, object] | None, site: str) -> dict[str, str]:
@@ -324,6 +456,7 @@ class OptionsPage(QWidget):
         self.e621_database.edit.setText(str(settings.get("e621_database", "")))
         self.blacklist_file.edit.setText(str(settings.get("blacklist_file", "")))
         self.output_root.edit.setText(str(settings.get("output_root", "")))
+        self.grabber_executable.edit.setText(str(settings.get("grabber_executable", "")))
         self.download_prefetch.setValue(int(settings.get("image_analysis_download_prefetch", 10)))
         self.analysis_prefetch.setValue(int(settings.get("image_analysis_analysis_prefetch", 2)))
         self.wd14_enabled.setChecked(bool(settings.get("image_analysis_wd14_enabled", True)))
@@ -351,6 +484,97 @@ class OptionsPage(QWidget):
         self._update_publish_fields()
         self._database_site_changed()
 
+    def _update_grabber_status(self, *_args) -> None:
+        value = self.grabber_executable.edit.text().strip()
+        availability = grabber_availability(value)
+        if availability.available:
+            key = "options.grabber_available"
+        elif not value:
+            key = "options.grabber_not_configured"
+        else:
+            key = "options.grabber_not_found"
+        self.grabber_status.setText(self.catalog.text(key))
+
+    def _toggle_advanced_settings(self, visible: bool) -> None:
+        for widget in self._advanced_widgets:
+            widget.setVisible(visible)
+
+    def refresh_analysis_status(self) -> None:
+        status = analysis_installation_status(self.project_root, self._settings)
+        installed = self.catalog.text("options.installed")
+        missing = self.catalog.text("options.not_installed")
+        self.gpu_runtime_status.setText(
+            installed if status.gpu_runtime_installed else missing
+        )
+        self.wd14_model_status.setText(installed if status.wd14_installed else missing)
+        self.wd14_install.setText(
+            self.catalog.text(
+                "options.wd14_reinstall" if status.wd14_installed else "options.wd14_install"
+            )
+        )
+
+    def set_analysis_install_running(self, running: bool, operation: str = "") -> None:
+        self.gpu_runtime_install.setEnabled(not running)
+        self.wd14_install.setEnabled(not running)
+        if running:
+            key = (
+                "options.installing_gpu_runtime"
+                if operation == "runtime"
+                else "options.installing_wd14"
+            )
+            self.page_status.set_state(
+                "installing_gpu_runtime" if operation == "runtime" else "installing_wd14"
+            )
+            self.page_status.set_busy(accessible_text=self.catalog.text(key))
+        else:
+            self.page_status.clear_progress()
+            self.page_status.set_state("ready")
+
+    def set_storage_running(self, running: bool) -> None:
+        self.refresh_storage.setEnabled(not running)
+        if running:
+            self.page_status.set_state("calculating_disk_usage")
+            self.page_status.set_busy(
+                accessible_text=self.catalog.text("options.calculating_disk_usage")
+            )
+        else:
+            self.page_status.clear_progress()
+            self.page_status.set_state("ready")
+
+    def show_storage(self, totals: dict[str, int], hydra: dict[str, object]) -> None:
+        self.model_storage.setText(
+            self.catalog.text(
+                "options.storage_models_summary",
+                total=format_size(totals["total"]),
+                wd14=format_size(totals["wd14"]),
+                e621=format_size(totals["e621"]),
+                other=format_size(totals["other"]),
+            )
+        )
+        state = str(hydra["state"])
+        self.hydra_status_label.setText(
+            self.catalog.text(f"cleanup.hydra_{state}", size=format_size(int(hydra["size"])))
+        )
+        self.hydra_install.setEnabled(state != "installed")
+        self.hydra_migrate.setVisible(bool(hydra.get("legacy")) and state != "installed")
+        self.hydra_remove.setEnabled(state == "installed")
+
+    def set_model_operation_running(self, running: bool, message: str = "") -> None:
+        for widget in (
+            self.hydra_install,
+            self.hydra_migrate,
+            self.hydra_remove,
+            self.refresh_storage,
+        ):
+            widget.setEnabled(not running)
+        if message:
+            self.hydra_status_label.setText(message)
+
+    def _open_models(self) -> None:
+        QDesktopServices.openUrl(
+            QUrl.fromLocalFile(str(self.project_root / "var" / "models"))
+        )
+
     @staticmethod
     def _percent_from_setting(value: object, default: float) -> float:
         """Present normal fractions and safely recover refactor-era percent values."""
@@ -365,6 +589,15 @@ class OptionsPage(QWidget):
     def _database_site_changed(self) -> None:
         row = self.gelbooru_database if self.database_site.currentData() == "gelbooru" else self.e621_database
         self.database_path.edit.blockSignals(True); self.database_path.edit.setText(row.edit.text()); self.database_path.edit.blockSignals(False)
+        self.database_path.action.setText(
+            self.catalog.text("options.stop_database")
+            if self._database_running_site == str(self.database_site.currentData())
+            else self.catalog.text("options.update_database")
+        )
+        self.database_path.action.setEnabled(
+            not self._database_running_site
+            or self._database_running_site == str(self.database_site.currentData())
+        )
 
     def _database_path_edited(self, value: str) -> None:
         row = self.gelbooru_database if self.database_site.currentData() == "gelbooru" else self.e621_database
@@ -474,6 +707,7 @@ class OptionsPage(QWidget):
             "e621_database": self.e621_database.edit.text().strip(),
             "blacklist_file": self.blacklist_file.edit.text().strip(),
             "output_root": self.output_root.edit.text().strip(),
+            "grabber_executable": self.grabber_executable.edit.text().strip(),
             "image_analysis_download_prefetch": self.download_prefetch.value(),
             "image_analysis_analysis_prefetch": self.analysis_prefetch.value(),
             "image_analysis_worker_heartbeat_interval": self.heartbeat.value(),
@@ -502,8 +736,13 @@ class OptionsPage(QWidget):
         self.test_credentials.setText(text("options.test_credentials"))
         self._update_credential_status()
         self.paths_group.setTitle(text("options.paths"))
+        self.databases_group.setTitle(text("options.databases"))
         self.database_site_label.setText(text("options.site")); self.database_path_label.setText(text("options.database_path"))
+        self.grabber_executable_label.setText(text("options.grabber_executable"))
         self.image_analysis_group.setTitle(text("options.image_analysis"))
+        self.gpu_runtime_label.setText(text("options.gpu_runtime"))
+        self.wd14_model_label.setText(text("options.wd14_model"))
+        self.gpu_runtime_install.setText(text("options.install_gpu_runtime"))
         self.wd14_enabled.setText(text("options.wd14_enabled")); self.wd14_threshold_label.setText(text("options.wd14_display_threshold"))
         self.image_advanced.setTitle(text("options.advanced")); self.store_threshold_label.setText(text("options.wd14_store_threshold"))
         self.heartbeat_label.setText(text("options.worker_heartbeat")); self.stale_timeout_label.setText(text("options.worker_stale")); self.recycle_count_label.setText(text("options.worker_recycle"))
@@ -525,7 +764,13 @@ class OptionsPage(QWidget):
         self.e621_database.retranslate()
         self.blacklist_file.retranslate()
         self.output_root.retranslate()
+        self.grabber_executable.retranslate()
         self.database_path.retranslate()
+        self.database_path.action.setText(
+            self.catalog.text("options.stop_database")
+            if self._database_running_site == str(self.database_site.currentData())
+            else self.catalog.text("options.update_database")
+        )
         for site, row in (("gelbooru", self.gelbooru_database), ("e621", self.e621_database)):
             row.action.setText(text("options.stop_database") if self._database_running_site == site else text("options.update_database"))
         self.note.setText(text("options.note"))
@@ -537,7 +782,17 @@ class OptionsPage(QWidget):
         self.alias_label.setText(text("options.alias_label"))
         self.alias_pending.setText(text("options.alias_pending"))
         self.alias_reconcile.setText(text("options.alias_reconcile"))
+        self.alias_update.setToolTip(text("options.alias_update_tip"))
+        self.alias_pending.setToolTip(text("options.alias_pending_tip"))
+        self.alias_reconcile.setToolTip(text("options.alias_reconcile_tip"))
         self.save_button.setText(text("options.save"))
+        self.storage_group.setTitle(text("options.storage_cleanup"))
+        self.model_storage_label.setText(text("options.disk_usage"))
+        self.refresh_storage.setText(text("options.storage_refresh"))
+        self.open_models.setText(text("options.storage_open_models"))
+        self.hydra_install.setText(text("cleanup.hydra_install"))
+        self.hydra_migrate.setText(text("cleanup.hydra_migrate"))
+        self.hydra_remove.setText(text("cleanup.hydra_remove"))
         self.browser_group.setTitle(text("options.browser")); self.browser_mode_label.setText(text("options.browser_open_external")); self.browser_command_label.setText(text("options.browser_command")); self.clear_browser_profile.setText(text("options.browser_clear_profile")); self.reset_browser_profile.setText(text("options.browser_reset")); self.test_browser.setText(text("options.browser_test")); self.browser_explanation.setText(text("options.browser_explanation"))
         self.publisher_group.setTitle(text("options.publisher")); self.open_embedded_session.setText(text("options.publisher_login")); self.test_embedded_session.setText(text("options.publisher_check")); self.reset_embedded_session.setText(text("options.publisher_reset"))
         status_kind, status_value = self._publisher_status
@@ -548,6 +803,8 @@ class OptionsPage(QWidget):
         )
         for index, key in enumerate(("system", "dedicated", "custom")): self.browser_mode.setItemText(index, text(f"options.browser_mode_{key}"))
         self._update_publish_fields()
+        self._update_grabber_status()
+        self.refresh_analysis_status()
 
     def set_database_running(self, running: bool, site: str = "") -> None:
         self._database_running_site = site if running else ""

@@ -6,6 +6,7 @@ import importlib.util
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from time import perf_counter
 
 from PySide6.QtCore import QObject, Qt, QThread, QUrl, Signal
 from PySide6.QtGui import QDesktopServices, QIcon
@@ -407,7 +408,54 @@ class QueryRankWorker(QThread):
             self.failed.emit(str(exc))
 
 
+class SimilarCatalogWorker(QThread):
+    """Read the first-access catalogue without blocking the GUI thread."""
+
+    completed = Signal(dict)
+    failed = Signal(str)
+
+    def __init__(self, database: Path) -> None:
+        super().__init__()
+        self.database = database
+
+    def run(self) -> None:
+        timings: dict[str, float] = {}
+        total_started = perf_counter()
+        try:
+            started = perf_counter()
+            repository = ImageAnalysisRepository(self.database)
+            timings["database_open_ms"] = (perf_counter() - started) * 1000
+            try:
+                started = perf_counter()
+                resumable = repository.resumable_library_jobs()
+                timings["resumable_jobs_ms"] = (perf_counter() - started) * 1000
+                service = ArtistProfileService(repository)
+                started = perf_counter()
+                artists = service.list_artist_options()
+                timings["artist_queries_ms"] = (perf_counter() - started) * 1000
+                started = perf_counter()
+                status = service.corpus_status()
+                timings["profiles_embeddings_statistics_ms"] = (
+                    perf_counter() - started
+                ) * 1000
+            finally:
+                repository.close()
+            timings["worker_total_ms"] = (perf_counter() - total_started) * 1000
+            self.completed.emit(
+                {
+                    "resumable": resumable,
+                    "artists": artists,
+                    "status": status,
+                    "timings": timings,
+                }
+            )
+        except Exception as exc:  # noqa: BLE001 - worker thread boundary
+            self.failed.emit(str(exc))
+
+
 class SimilarArtistsController(QObject):
+    MAINTENANCE_KEY = "similar_artists_historical_backfill_v1"
+
     def __init__(
         self,
         root: Path,
@@ -426,18 +474,10 @@ class SimilarArtistsController(QObject):
         self.task_manager = task_manager
         self.browser_launcher = browser_launcher
         self.service = ArtistProfileService(image_analysis.repository, logger=self._log)
-        repair = image_analysis.repository.repair_structured_artist_associations()
         tag_database = gelbooru_tag_database(image_analysis.settings)
-        category_repair = (
-            image_analysis.repository.repair_gelbooru_tag_categories(
-                LocalTagCategoryLookup(tag_database)
-            )
-            if tag_database and tag_database.is_file()
-            else 0
-        )
-        repair_profiles = (
-            self.service.build_all() if sum(repair.values()) + category_repair else None
-        )
+        self._startup_maintenance_complete = False
+        self._startup_tag_database = tag_database
+        self._activated = False
         self.worker = None
         self.rank_worker = None
         self.current_artist = None
@@ -468,6 +508,10 @@ class SimilarArtistsController(QObject):
         self.single_confirmed = False
         self.scan_worker = None
         self.prepare_worker = None
+        self.catalog_worker: SimilarCatalogWorker | None = None
+        self._catalog_completed = None
+        self._catalog_failed = None
+
         self.remote_worker = None
         self.duplicate_count = 0
         self.invalid_count = 0
@@ -497,19 +541,7 @@ class SimilarArtistsController(QObject):
         page.remote_purge_requested.connect(self.purge_remote_profiles)
         page.remote_cancel_requested.connect(self.cancel_remote_discovery)
         page.local_duplicates_requested.connect(self.show_local_duplicates)
-        page.language_refreshed.connect(self.refresh_catalog)
-        if sum(repair.values()) + category_repair:
-            self._log(
-                f"Structured metadata artist repair: {repair}; Gelbooru catalogue: {category_repair}; profiles={repair_profiles}"
-            )
-        resumable = image_analysis.repository.resumable_library_jobs()
-        if resumable:
-            self.resume_library_job = resumable[-1]["id"]
-            page.library_resume.show()
-            page.library_status.setText(
-                self._text("similar.resumable_index", count=resumable[-1]["scanned"])
-            )
-            page.library_status.show()
+        page.language_refreshed.connect(self._refresh_catalog_if_active)
         if self.remote_pixels.cleared_stale_files:
             self._log(
                 f"[RemotePixels] Crash cleanup: {self.remote_pixels.cleared_stale_files} files"
@@ -522,7 +554,135 @@ class SimilarArtistsController(QObject):
         )
         if importlib.util.find_spec("open_clip") is None:
             page.set_backend_available("openclip", False, self._text("similar.openclip_missing"))
+
+    def activate(self) -> None:
+        """Load database-backed page state only when Similar Artists is first shown."""
+        if self._activated:
+            return
+        self._activated = True
+        resumable = self.image_analysis.repository.resumable_library_jobs()
+        if resumable:
+            self.resume_library_job = resumable[-1]["id"]
+            self.page.library_resume.show()
+            self.page.library_status.setText(
+                self._text("similar.resumable_index", count=resumable[-1]["scanned"])
+            )
+            self.page.library_status.show()
         self.refresh_catalog()
+
+    def activate_async(self, completed, failed) -> None:
+        """Load initial SQL-backed state while the loading overlay remains animated."""
+        if self._activated:
+            completed()
+            return
+        if self.catalog_worker is not None and self.catalog_worker.isRunning():
+            failed(RuntimeError("Similar Artists catalogue loading is already active"))
+            return
+        self._catalog_completed = completed
+        self._catalog_failed = failed
+        self.catalog_worker = SimilarCatalogWorker(self.image_analysis.database)
+        self.catalog_worker.completed.connect(self._catalog_loaded)
+        self.catalog_worker.failed.connect(self._catalog_load_failed)
+        self.catalog_worker.start()
+
+    def _catalog_loaded(self, payload: dict) -> None:
+        if QThread.currentThread() is not self.thread():
+            self._catalog_load_failed(
+                "Similar Artists UI application must run on the GUI thread"
+            )
+            return
+        apply_started = perf_counter()
+        resumable = payload["resumable"]
+        if resumable:
+            self.resume_library_job = resumable[-1]["id"]
+            self.page.library_resume.show()
+            self.page.library_status.setText(
+                self._text("similar.resumable_index", count=resumable[-1]["scanned"])
+            )
+            self.page.library_status.show()
+        self._apply_catalog(payload["artists"], payload["status"])
+        timings = dict(payload["timings"])
+        timings["ui_model_apply_ms"] = (perf_counter() - apply_started) * 1000
+        self._activated = True
+        self._log(
+            "First access breakdown: "
+            + " ".join(f"{key}={value:.1f}" for key, value in timings.items())
+        )
+        callback, self._catalog_completed = self._catalog_completed, None
+        self._catalog_failed = None
+        if callback is not None:
+            callback()
+
+    def _catalog_load_failed(self, error: str) -> None:
+        callback, self._catalog_failed = self._catalog_failed, None
+        self._catalog_completed = None
+        if callback is not None:
+            callback(error)
+
+    def _refresh_catalog_if_active(self) -> None:
+        if self._activated:
+            self.refresh_catalog()
+
+    def run_feature_maintenance(self) -> dict[str, object]:
+        """Run the historical Similar Artists backfill once for this database."""
+        if self._startup_maintenance_complete:
+            return {"already_complete": True, "duration_ms": 0.0}
+        repository = self.image_analysis.repository
+        if repository.maintenance_completed(self.MAINTENANCE_KEY):
+            self._startup_maintenance_complete = True
+            return {"already_complete": True, "duration_ms": 0.0}
+        started = perf_counter()
+        stage_started = perf_counter()
+        repair = repository.repair_structured_artist_associations()
+        structured_ms = (perf_counter() - stage_started) * 1000
+        tag_database = self._startup_tag_database
+        stage_started = perf_counter()
+        category_repair = (
+            repository.repair_gelbooru_tag_categories(
+                LocalTagCategoryLookup(tag_database)
+            )
+            if tag_database and tag_database.is_file()
+            else 0
+        )
+        categories_ms = (perf_counter() - stage_started) * 1000
+        profiles_rebuilt = bool(sum(repair.values()) + category_repair)
+        stage_started = perf_counter()
+        if profiles_rebuilt:
+            self.service.build_all()
+        profiles_ms = (perf_counter() - stage_started) * 1000
+        duration_ms = (perf_counter() - started) * 1000
+        report = {
+            "already_complete": False,
+            "structured": repair,
+            "categories": category_repair,
+            "profiles_rebuilt": profiles_rebuilt,
+            "structured_ms": structured_ms,
+            "categories_ms": categories_ms,
+            "profiles_ms": profiles_ms,
+            "duration_ms": duration_ms,
+        }
+        marker_started = perf_counter()
+        repository.record_maintenance(self.MAINTENANCE_KEY, report)
+        report["marker_ms"] = (perf_counter() - marker_started) * 1000
+        self._startup_maintenance_complete = True
+        self._log(
+            "Feature maintenance complete: "
+            f"structured={sum(repair.values())} categories={category_repair} "
+            f"profiles_rebuilt={str(profiles_rebuilt).lower()} "
+            f"structured_ms={structured_ms:.1f} categories_ms={categories_ms:.1f} "
+            f"profiles_ms={profiles_ms:.1f} marker_ms={report['marker_ms']:.1f} "
+            f"duration_ms={duration_ms:.1f}"
+        )
+        return report
+
+    def maintenance_required(self) -> bool:
+        """Return whether this database still needs the historical backfill."""
+        return not self.image_analysis.repository.maintenance_completed(self.MAINTENANCE_KEY)
+
+    def prepare_feature(self) -> None:
+        """Prepare database-backed Similar Artists state at first use."""
+        self.run_feature_maintenance()
+        self.activate()
 
     def _log(self, message: str) -> None:
         self.log(log_event("SimilarArtists", message))
@@ -531,8 +691,10 @@ class SimilarArtistsController(QObject):
         return self.page.catalog.text(key, **values)
 
     def refresh_catalog(self) -> None:
-        self.page.set_artists(self.service.list_artist_options())
-        status = self.service.corpus_status()
+        self._apply_catalog(self.service.list_artist_options(), self.service.corpus_status())
+
+    def _apply_catalog(self, artists: list, status: dict) -> None:
+        self.page.set_artists(artists)
         counts = status["embedding_counts"]
         self.page.corpus.setText(
             self._text(
@@ -1488,6 +1650,7 @@ class SimilarArtistsController(QObject):
             self.scan_worker,
             self.prepare_worker,
             self.remote_worker,
+            self.catalog_worker,
         ):
             if worker and worker.isRunning():
                 worker.requestInterruption()

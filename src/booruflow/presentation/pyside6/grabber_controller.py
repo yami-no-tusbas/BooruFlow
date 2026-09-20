@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -10,6 +9,7 @@ from PySide6.QtCore import QObject, QProcess
 
 from booruflow.application.grabber_batches import GrabberSessionStore
 from booruflow.application.ports import SettingsRepository
+from booruflow.infrastructure.grabber import resolve_grabber_executable
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.presentation.pyside6.task_manager import TaskManager
 
@@ -39,14 +39,13 @@ class GrabberController(QObject):
 
     def store(self) -> GrabberSessionStore | None:
         settings = self.settings_repository.load() if self.settings_repository else {}
-        executable = str(settings.get("grabber_executable", "")).strip() or shutil.which(
-            "Grabber.exe"
-        )
-        directory = Path(executable).parent if executable else Path()
-        if not (directory / "Grabber.exe").is_file():
-            self.page.state.setText(self.catalog.text("grabber.missing", path=directory))
+        executable = resolve_grabber_executable(settings.get("grabber_executable", ""))
+        if executable is None or not executable.is_file():
+            self.page.state.setText(
+                self.catalog.text("grabber.missing", path=executable or "")
+            )
             return None
-        return GrabberSessionStore(directory)
+        return GrabberSessionStore(executable.parent)
 
     @staticmethod
     def tag_file(path: Path) -> set[str]:
@@ -125,7 +124,12 @@ class GrabberController(QObject):
                 len(self.state.get("files", [])),
                 "batch",
             )
-        self.process.start(str(store.directory / "Grabber.exe"), [])
+        settings = self.settings_repository.load() if self.settings_repository else {}
+        executable = resolve_grabber_executable(settings.get("grabber_executable", ""))
+        if executable is None or not executable.is_file():
+            self.page.state.setText(self.catalog.text("grabber.missing", path=executable or ""))
+            return
+        self.process.start(str(executable), [])
         self.page.state.setText(self.catalog.text("grabber.running"))
         self.log(self.catalog.text("grabber.started", batch=int(self.state.get("current", 0)) + 1))
 

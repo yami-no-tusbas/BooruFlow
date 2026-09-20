@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-import os
+import re
 import sqlite3
 import urllib.parse
 import urllib.request
@@ -11,32 +11,11 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
-from booruflow.infrastructure.wiki_tag_importer import tag_definition_details
-
-
-class TagDetailsCache:
-    def __init__(self, path: Path) -> None:
-        self.path = path
-
-    def load(self, board: str, tag: str) -> dict:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8-sig"))
-            value = data.get(board, {}).get(tag, {})
-            return value if isinstance(value, dict) else {}
-        except (OSError, ValueError, TypeError):
-            return {}
-
-    def save(self, board: str, tag: str, details: dict) -> None:
-        try:
-            data = json.loads(self.path.read_text(encoding="utf-8-sig"))
-            if not isinstance(data, dict): data = {}
-        except (OSError, ValueError, TypeError):
-            data = {}
-        data.setdefault(board, {})[tag] = details
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        temporary = self.path.with_suffix(".tmp")
-        temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        os.replace(temporary, self.path)
+from booruflow.infrastructure.wiki_page_cache import WikiPageCache, WikiPageRecord
+from booruflow.infrastructure.wiki_tag_importer import (
+    WikiPageNotFoundError,
+    fetch_wiki_page_details,
+)
 
 
 def _request_json(url: str, referer: str) -> object:
@@ -153,35 +132,141 @@ def _e621_samples(tag: str) -> dict:
     return {"samples": samples, "sample_size": len(valid_posts), "recurring": _recurring_tags(valid_posts, tag, _e621_post_tags)}
 
 
-def fetch_tag_details(
-    board: str, tag: str, cache_path: Path, user_id: str = "", api_key: str = "",
-    tag_database_path: Path | None = None, wiki_url: str = "",
+def _display_content(record: WikiPageRecord) -> str:
+    body = record.content
+    if record.content_format == "dtext":
+        body = re.sub(r"\[\[[^]|]+\|([^]]+)]]", r"\1", body)
+        body = re.sub(r"\[\[([^]]+)]]", r"\1", body)
+        body = re.sub(r"\[/?[^]]+]", "", body)
+        body = re.sub(r"(?m)^h\d\.\s*", "", body)
+        body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    return body[:6000]
+
+
+def cached_tag_details(cache_database: Path, board: str, tag: str) -> dict | None:
+    record = WikiPageCache(cache_database).get(board, tag)
+    return _record_details(record, cache_hit=True) if record else None
+
+
+def _record_details(
+    record: WikiPageRecord,
+    *,
+    cache_hit: bool,
+    refresh_failed: bool = False,
+    errors: list[str] | None = None,
 ) -> dict:
-    cache = TagDetailsCache(cache_path)
-    cached = cache.load(board, tag)
-    details = dict(cached)
+    return {
+        "board": record.site,
+        "tag": record.tag,
+        "definition": _display_content(record),
+        "wiki_url": record.source_url,
+        "wiki_tags": list(record.referenced_tags),
+        "wiki_exists": True,
+        "wiki_id": record.wiki_id,
+        "tag_type": record.tag_type,
+        "author": record.author,
+        "remote_updated_at": record.remote_updated_at,
+        "version": record.version,
+        "cached_at": record.cached_at,
+        "samples": list(record.samples),
+        "recurring": list(record.recurring),
+        "sample_size": record.sample_size,
+        "cache_hit": cache_hit,
+        "refresh_failed": refresh_failed,
+        "online": not cache_hit,
+        "errors": list(errors or []),
+    }
+
+
+def fetch_tag_details(
+    board: str,
+    tag: str,
+    cache_database: Path,
+    user_id: str = "",
+    api_key: str = "",
+    tag_database_path: Path | None = None,
+    wiki_url: str = "",
+    *,
+    force: bool = False,
+) -> dict:
+    """Load one page cache-first, or refresh it without risking the old cache."""
+    cache = WikiPageCache(cache_database)
+    previous = cache.get(board, tag)
+    if previous is not None and not force:
+        return _record_details(previous, cache_hit=True)
+
+    try:
+        page = fetch_wiki_page_details(board, tag, wiki_url)
+    except WikiPageNotFoundError:
+        remote_url = wiki_url or (
+            "https://e621.net/wiki_pages/show_or_new?"
+            + urllib.parse.urlencode({"title": tag})
+            if board == "e621"
+            else "https://gelbooru.com/index.php?"
+            + urllib.parse.urlencode({"page": "wiki", "s": "list", "search": tag})
+        )
+        return {
+            "board": board,
+            "tag": tag,
+            "wiki_url": remote_url,
+            "wiki_exists": False,
+            "cache_hit": False,
+            "online": True,
+            "errors": [],
+            "samples": [],
+            "recurring": [],
+            "sample_size": 0,
+        }
+    except Exception as exc:  # noqa: BLE001 - remote/parser boundary
+        if previous is not None:
+            return _record_details(
+                previous, cache_hit=True, refresh_failed=True, errors=[str(exc)]
+            )
+        return {
+            "board": board,
+            "tag": tag,
+            "wiki_url": wiki_url,
+            "wiki_exists": None,
+            "cache_hit": False,
+            "online": False,
+            "errors": [str(exc)],
+            "samples": [],
+            "recurring": [],
+            "sample_size": 0,
+        }
+
     errors: list[str] = []
-    online = False
-    try:
-        definition, resolved_wiki_url, wiki_tags = tag_definition_details(board, tag, wiki_url)
-        details.update({"definition": definition, "wiki_url": resolved_wiki_url, "wiki_tags": wiki_tags})
-        online = True
-    except Exception as exc:  # noqa: BLE001 - independent remote source boundary
-        errors.append(str(exc))
-    try:
-        sample_data = _e621_samples(tag) if board == "e621" else _gelbooru_samples(tag, user_id, api_key, tag_database_path)
-        details.update(sample_data)
-        online = True
-    except Exception as exc:  # noqa: BLE001 - independent remote source boundary
-        errors.append(str(exc))
-    details.update({
-        "board": board,
-        "tag": tag,
-        "online": online,
-        "errors": errors,
-        "cached": bool(cached) and not online,
-        "updated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-    })
-    if online:
-        cache.save(board, tag, {key: value for key, value in details.items() if key not in {"errors", "cached", "online"}})
+    sample_data = {
+        "samples": list(previous.samples) if previous else [],
+        "recurring": list(previous.recurring) if previous else [],
+        "sample_size": previous.sample_size if previous else 0,
+    }
+    if not force:
+        try:
+            sample_data = (
+                _e621_samples(tag)
+                if board == "e621"
+                else _gelbooru_samples(tag, user_id, api_key, tag_database_path)
+            )
+        except Exception as exc:  # noqa: BLE001 - independent sample source
+            errors.append(str(exc))
+    record = cache.put(WikiPageRecord(
+        site=board,
+        tag=tag,
+        content=str(page["content"]),
+        source_url=str(page["source_url"]),
+        content_format=str(page.get("content_format", "plain")),
+        wiki_id=page.get("wiki_id"),
+        tag_type=page.get("tag_type"),
+        author=page.get("author"),
+        remote_updated_at=page.get("remote_updated_at"),
+        version=page.get("version"),
+        referenced_tags=tuple(page.get("referenced_tags", [])),
+        samples=tuple(sample_data.get("samples", [])),
+        recurring=tuple(sample_data.get("recurring", [])),
+        sample_size=int(sample_data.get("sample_size", 0)),
+    ))
+    details = _record_details(record, cache_hit=False, errors=errors)
+    details["refreshed"] = force
+    details["updated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
     return details

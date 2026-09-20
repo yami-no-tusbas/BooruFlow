@@ -14,6 +14,7 @@ from urllib.request import urlopen
 
 from booruflow.infrastructure.browser_launcher import BrowserLauncher
 from booruflow.infrastructure.gelbooru_edit_transport import (
+    GelbooruLockedImageError,
     GelbooruSessionExpiredError,
     GelbooruSessionUnknownError,
     GelbooruTransportError,
@@ -96,8 +97,18 @@ class BrowserGelbooruEditTransport:
         browser.open_working_tab()
         browser.navigate(f"https://gelbooru.com/index.php?page=post&s=edit&id={post_id}")
         result = browser.evaluate(
-            """(() => {
+            r"""(() => {
                 if (document.querySelector('input[name=login], form[action*=login]')) return 'auth';
+                const expected = new URL(location.href).searchParams.get('id');
+                const locked = Array.from(document.querySelectorAll('a')).some(anchor => {
+                    const label = String(anchor.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase();
+                    try {
+                        const target = new URL(anchor.getAttribute('href') || '', location.href);
+                        return label === 'unlock image' && target.pathname.endsWith('/public/lock.php')
+                            && target.searchParams.get('id') === String(expected);
+                    } catch (_error) { return false; }
+                });
+                if (locked) return 'locked';
                 const form = document.querySelector('form[action*="edit_post.php"]');
                 const field = form && form.querySelector('[name="tags"]');
                 if (!form || !field) return 'form';
@@ -109,6 +120,8 @@ class BrowserGelbooruEditTransport:
             raise GelbooruSessionExpiredError(
                 "Session Gelbooru expirée : reconnectez-vous dans le profil dédié."
             )
+        if result == "locked":
+            raise GelbooruLockedImageError(f"Gelbooru image #{post_id} is locked")
         if result != "submitted":
             raise GelbooruTransportError("Formulaire Gelbooru d'édition introuvable ou inattendu.")
         try:

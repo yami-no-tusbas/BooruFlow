@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import os
 import shutil
-import urllib.request
 from collections.abc import Callable, Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -154,9 +153,12 @@ def migrate_legacy_hydra(legacy: Path, target: Path) -> HydraInstallation:
 def _download(
     artifact: HydraArtifact,
     destination: Path,
-    opener: Callable = urllib.request.urlopen,
+    opener: Callable | None = None,
     progress: Callable[[str, int, int], None] | None = None,
 ) -> None:
+    import urllib.request
+
+    opener = opener or urllib.request.urlopen
     destination.parent.mkdir(parents=True, exist_ok=True)
     partial = destination.with_suffix(destination.suffix + ".part")
     request = urllib.request.Request(artifact.url, headers={"User-Agent": "BooruFlow-Hydra/1"})
@@ -179,7 +181,7 @@ def _download(
 
 def install_hydra(
     target: Path,
-    opener: Callable = urllib.request.urlopen,
+    opener: Callable | None = None,
     progress: Callable[[str, int, int], None] | None = None,
 ) -> HydraInstallation:
     with _staging_directory(target) as staging:

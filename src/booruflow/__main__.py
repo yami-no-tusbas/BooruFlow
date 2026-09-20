@@ -1,5 +1,10 @@
 """Run the desktop application or a small first-party command group."""
 
+import os
+import time
+
+os.environ.setdefault("BOORUFLOW_PROCESS_START_NS", str(time.perf_counter_ns()))
+
 import sys
 from pathlib import Path
 

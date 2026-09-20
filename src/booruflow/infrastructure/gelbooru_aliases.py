@@ -6,9 +6,7 @@ import json
 import os
 import sqlite3
 import time
-import urllib.error
 import urllib.parse
-import urllib.request
 import uuid
 from collections.abc import Callable, Iterator, Sequence
 from contextlib import closing, contextmanager
@@ -531,6 +529,9 @@ def resolve_gelbooru_alias(name: str, database: Path, *, maximum_depth: int = 16
 
 
 def fetch_alias_html(pid: int = 0, search: str = "", *, retries: int = 3) -> str:
+    import urllib.error
+    import urllib.request
+
     parameters = {"page": "alias", "s": "list", "pid": pid}
     if search:
         parameters["search"] = search

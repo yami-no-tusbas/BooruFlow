@@ -55,6 +55,26 @@ class PostMetadataCache:
                             by_category("character"), by_category("species"),
                             str(row[1]), str(row[2]), str(row[3]), extra)
 
+    def find_candidates(
+        self,
+        post_id: str,
+        source_md5: str,
+        max_age_days: int | None = None,
+    ) -> tuple[PostMetadata, ...]:
+        """Return cache entries whose post id and local identity hash both match."""
+        sites = [
+            str(row[0])
+            for row in self.connection.execute(
+                "SELECT site FROM remote_posts WHERE post_id=? AND lower(md5)=lower(?) ORDER BY site",
+                (post_id, source_md5),
+            )
+        ]
+        return tuple(
+            metadata
+            for site in sites
+            if (metadata := self.get(site, post_id, max_age_days)) is not None
+        )
+
     def put(self, metadata: PostMetadata) -> None:
         now = datetime.now(UTC).isoformat(timespec="seconds")
         categories = dict(metadata.categories)

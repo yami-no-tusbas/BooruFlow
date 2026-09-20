@@ -2,6 +2,7 @@ import pytest
 
 from booruflow.infrastructure.gelbooru_edit_transport import (
     GelbooruEditTransport,
+    GelbooruLockedImageError,
     GelbooruSessionExpiredError,
     GelbooruTransportError,
     HttpResponse,
@@ -62,3 +63,24 @@ def test_concrete_session_encodes_form_with_required_content_type():
     assert result.status == 302
     assert opener.request.get_header("Content-type") == "application/x-www-form-urlencoded"
     assert opener.request.data == b"tags=a+b&source=x"
+
+
+@pytest.mark.parametrize("token", ["dummy", "different-value"])
+def test_concrete_session_detects_locked_image_without_exposing_csrf(token):
+    html = f'''<html><body><li><a href="./public/lock.php?id=1177298&csrf-token={token}">
+        Unlock Image
+    </a></li><form><textarea name="tags">solo</textarea></form></body></html>'''
+
+    class Response:
+        def read(self): return html.encode()
+
+    class Opener:
+        def __init__(self): self.calls = 0
+        def open(self, _request): self.calls += 1; return Response()
+
+    opener = Opener()
+    session = UrllibGelbooruAuthenticatedSession(object(), opener=opener)
+    with pytest.raises(GelbooruLockedImageError, match="1177298") as error:
+        session.read_edit_form("1177298")
+    assert token not in str(error.value)
+    assert opener.calls == 1

@@ -3,10 +3,14 @@ import unittest
 from pathlib import Path
 
 from booruflow.application import hydra_model_manager as manager
-from booruflow.application.model_inventory import inventory_models, model_totals
+from booruflow.application.model_inventory import format_size, inventory_models, model_totals
 
 
 class ModelInventoryTests(unittest.TestCase):
+    def test_sizes_are_formatted_for_people(self) -> None:
+        self.assertEqual(format_size(824 * 1024 * 1024), "824.0 Mio")
+        self.assertEqual(format_size(1471026299), "1.37 Gio")
+
     def test_known_weights_and_lfs_storage_are_reported_separately(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

@@ -770,6 +770,76 @@ class ImageAnalysisUiTests(unittest.TestCase):
         process.state.return_value=QProcess.ProcessState.NotRunning
         controller.shutdown(); page.close()
 
+    def test_options_reuses_asynchronous_analysis_install_process(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import MagicMock, patch
+
+        from PySide6.QtCore import QProcess
+        from PySide6.QtWidgets import QMessageBox
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import (
+            ImageAnalysisController,
+        )
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+
+        page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
+        logs = []
+        controller = ImageAnalysisController(
+            self.root,
+            "python",
+            page,
+            {},
+            dict,
+            logs.append,
+            auto_start_worker=False,
+        )
+        model_process = MagicMock()
+        model_process.state.return_value = QProcess.ProcessState.NotRunning
+        controller.model_process = model_process
+        controller.process = MagicMock()
+        controller.process.state.return_value = QProcess.ProcessState.NotRunning
+        options = SimpleNamespace(
+            set_analysis_install_running=MagicMock(),
+            refresh_analysis_status=MagicMock(),
+            page_status=MagicMock(),
+        )
+        controller.installation_page = options
+
+        with patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ):
+            controller.install_wd14(parent=page)
+
+        model_process.start.assert_called_once()
+        command = model_process.start.call_args.args[1]
+        self.assertIn("booruflow.cli.wd14_model", command)
+        self.assertIn("install", command)
+        options.set_analysis_install_running.assert_called_once_with(True, "model")
+
+        controller._model_finished(1, None)
+        options.set_analysis_install_running.assert_called_with(False)
+        options.page_status.show_message.assert_called_once()
+        self.assertIn("failed with exit code 1", logs[-1])
+
+        model_process.reset_mock()
+        options.set_analysis_install_running.reset_mock()
+        with patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.StandardButton.Yes,
+        ):
+            controller.install_gpu_runtime(parent=page)
+
+        runtime_command = model_process.start.call_args.args[1]
+        self.assertEqual(runtime_command[:4], ["-u", "-m", "pip", "install"])
+        options.set_analysis_install_running.assert_called_once_with(True, "runtime")
+        controller.model_process.state.return_value = QProcess.ProcessState.NotRunning
+        controller.shutdown()
+        page.close()
+
 
 if __name__ == "__main__":
     unittest.main()

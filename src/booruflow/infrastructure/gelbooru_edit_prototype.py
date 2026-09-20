@@ -53,13 +53,22 @@ EDIT_WORKFLOW_STATE_SCRIPT = r"""(() => {
     const save = form && form.querySelector('input[type="submit"][name="submit"][value="Save changes"]');
     const id = form && form.elements.namedItem('id');
     const expected = new URL(location.href).searchParams.get('id');
+    const lockedImage = Array.from(document.querySelectorAll('a')).some(anchor => {
+        const label = String(anchor.textContent || '').trim().replace(/\s+/g, ' ').toLowerCase();
+        try {
+            const target = new URL(anchor.getAttribute('href') || '', location.href);
+            return label === 'unlock image' && target.pathname.endsWith('/public/lock.php')
+                && target.searchParams.get('id') === String(expected);
+        } catch (_error) { return false; }
+    });
     return JSON.stringify({
         editFormExists: Boolean(form), editFormVisible: visible(form),
         tagsFieldPresent: Boolean(tags), tagsFieldDisabled: Boolean(tags && tags.disabled),
         tagsFieldReadonly: Boolean(tags && tags.readOnly), savePresent: Boolean(save),
         saveDisabled: Boolean(save && save.disabled),
         postIdMatches: Boolean(id) && String(id.value) === String(expected),
-        tagCount: tags ? tags.value.trim().split(/\s+/).filter(Boolean).length : 0
+        tagCount: tags ? tags.value.trim().split(/\s+/).filter(Boolean).length : 0,
+        lockedImage
     });
 })()"""
 

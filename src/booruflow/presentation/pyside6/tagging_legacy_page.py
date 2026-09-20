@@ -3,14 +3,22 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QIcon, QKeySequence, QPixmap, QShortcut
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtGui import (
+    QDesktopServices,
+    QIcon,
+    QKeySequence,
+    QMouseEvent,
+    QPixmap,
+    QShortcut,
+)
 from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
 from PySide6.QtMultimediaWidgets import QVideoWidget
-from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
+    QApplication,
+    QCheckBox,
     QComboBox,
     QCompleter,
     QFrame,
@@ -41,9 +49,13 @@ from booruflow.application.tagging import (
     build_final_tags_clipboard,
     parse_review_row_token,
 )
-from booruflow.domain.booru_sites import site_definition
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.presentation.pyside6.image_analysis_page import ScaledImageLabel
+from booruflow.presentation.pyside6.thumbnail_cache import (
+    ThumbnailCacheKey,
+    ThumbnailMemoryCache,
+)
+from booruflow.presentation.pyside6.thumbnail_loader import ThumbnailLoader
 
 
 class SuggestionItem(QTableWidgetItem):
@@ -55,49 +67,115 @@ class SuggestionItem(QTableWidgetItem):
 
 
 class CollapsibleResultGroup(QWidget):
+    selection_requested = Signal(bool)
+
     def __init__(self, title: str) -> None:
-        super().__init__(); self.cards = []
+        super().__init__(); self.cards = []; self.title = title; self.thumbnail_size = 150
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0)
-        self.toggle = QToolButton(text=title); self.toggle.setCheckable(True); self.toggle.setChecked(True)
+        header = QHBoxLayout(); self.toggle = QToolButton(text=title); self.toggle.setCheckable(True); self.toggle.setChecked(True)
         self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon); self.toggle.setArrowType(Qt.ArrowType.DownArrow)
+        self.select_all = QCheckBox(); self.select_all.setTristate(True)
         self.content = QWidget(); self.grid = QGridLayout(self.content); self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
-        self.toggle.toggled.connect(self._toggle); layout.addWidget(self.toggle); layout.addWidget(self.content)
+        self.toggle.toggled.connect(self._toggle); self.select_all.clicked.connect(self._group_clicked)
+        header.addWidget(self.toggle, 1); header.addWidget(self.select_all); layout.addLayout(header); layout.addWidget(self.content)
+        self.update_selection_label()
     def add_card(self, card) -> None: self.cards.append(card); self.reflow()
     def reflow(self) -> None:
-        columns = max(1, self.width() // 185)
+        columns = max(1, self.width() // (self.thumbnail_size + 35))
         for index, card in enumerate(self.cards): self.grid.addWidget(card, index // columns, index % columns)
+    def set_thumbnail_size(self, size: int) -> None:
+        self.thumbnail_size = size
+        for card in self.cards:
+            card.setIconSize(QSize(size, max(72, int(size * .9))))
+            card.setFixedSize(size + 25, max(112, int(size * .9) + 45))
+        self.reflow()
+    def update_selection_label(self) -> None:
+        selected = sum(card.isChecked() for card in self.cards)
+        state = (
+            Qt.CheckState.Unchecked if not selected
+            else Qt.CheckState.Checked if selected == len(self.cards)
+            else Qt.CheckState.PartiallyChecked
+        )
+        self.select_all.blockSignals(True); self.select_all.setCheckState(state); self.select_all.blockSignals(False)
+        self.select_all.setText(f"{selected} / {len(self.cards)}")
+    def _group_clicked(self) -> None:
+        self.selection_requested.emit(self.select_all.checkState() != Qt.CheckState.Unchecked)
     def resizeEvent(self, event) -> None: super().resizeEvent(event); self.reflow()
     def _toggle(self, expanded: bool) -> None:
         self.content.setVisible(expanded); self.toggle.setArrowType(Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow)
+
+
+class ResultCard(QToolButton):
+    open_requested = Signal(object)
+    checkbox_toggled = Signal(object, bool)
+
+    def __init__(self, post: dict) -> None:
+        super().__init__(); self.post = post
+        self.selection_checkbox = QCheckBox(self)
+        self.selection_checkbox.setStyleSheet(
+            "QCheckBox::indicator { width: 19px; height: 19px; }"
+            "QCheckBox { background: rgba(20, 20, 20, 150); border-radius: 4px; padding: 3px; }"
+        )
+        self.selection_checkbox.clicked.connect(
+            lambda checked: self.checkbox_toggled.emit(self.post, checked)
+        )
+        self.toggled.connect(self._sync_checkbox)
+
+    def _sync_checkbox(self, checked: bool) -> None:
+        self.selection_checkbox.blockSignals(True)
+        self.selection_checkbox.setChecked(checked)
+        self.selection_checkbox.blockSignals(False)
+
+    def resizeEvent(self, event) -> None:
+        super().resizeEvent(event)
+        self.selection_checkbox.move(7, 7)
+        self.selection_checkbox.raise_()
+
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() == Qt.MouseButton.LeftButton:
+            self.open_requested.emit(self.post); event.accept(); return
+        super().mouseDoubleClickEvent(event)
 
 
 class TaggingLegacyPage(QWidget):
     start_requested = Signal(object); stop_requested = Signal(); post_selected = Signal(int, object)
     analyze_requested = Signal(int); decision_requested = Signal(object, object); mapping_requested = Signal(int)
     refresh_metadata_requested = Signal(int); activity_logged = Signal(str, str)
+    diagnostic_logged = Signal(str, str, str)
     query_saved = Signal(str); manual_lookup_requested = Signal(str); manual_add_requested = Signal(str); tag_search_requested = Signal(str)
 
-    def __init__(self, catalog: LanguageCatalog, settings: dict[str, object], browser_launcher=None) -> None:
+    def __init__(
+        self, catalog: LanguageCatalog, settings: dict[str, object], browser_launcher=None,
+        thumbnail_cache: ThumbnailMemoryCache | None = None,
+    ) -> None:
         super().__init__(); self.catalog = catalog; self.settings = settings; self.browser_launcher = browser_launcher
         self.current_post_id = None; self.current_post = {}; self.result_posts = []; self.result_buttons = {}
+        self.result_groups = []; self._selection_anchor = -1
         self.current_result_index = -1; self.processed_in_session = set(); self._search_scroll_value = 0
         self._pending_next_id = None; self._pending_fallback_row = None; self.result_generation = 0
         self._all_suggestion_rows = []; self._sort_column = 1; self._sort_order = Qt.SortOrder.DescendingOrder
         self._gif_path = None
+        self.thumbnail_cache = thumbnail_cache or ThumbnailMemoryCache()
+        self._thumbnail_targets: dict[ThumbnailCacheKey, tuple[QToolButton, int]] = {}
+        self._review_origin = "tagging_grid"
         root = QVBoxLayout(self); root.setContentsMargins(18, 12, 18, 16); root.setSpacing(6)
         self.title = QLabel(); self.title.setStyleSheet("font-size:22px;font-weight:600"); root.addWidget(self.title)
         self.mode_stack = QStackedWidget(); root.addWidget(self.mode_stack, 1)
         self.mode_stack.setMinimumWidth(0)
         self.mode_stack.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self.search_view = QWidget(); self.review = QWidget(); self.mode_stack.addWidget(self.search_view); self.mode_stack.addWidget(self.review)
-        self._build_search(); self._build_review(); self.network = QNetworkAccessManager(self)
+        self._build_search(); self._build_review()
+        self.thumbnail_loader = ThumbnailLoader(self.thumbnail_cache, self)
+        self.thumbnail_loader.image_ready.connect(self._thumbnail_image_ready)
+        self.thumbnail_loader.failed.connect(self._thumbnail_failed)
+        self.thumbnail_loader.diagnostic.connect(self._thumbnail_diagnostic)
         self.start_button.clicked.connect(self._start); self.stop_button.clicked.connect(self.stop_requested.emit)
         self.zoom.currentIndexChanged.connect(lambda: self.preview.set_zoom(int(self.zoom.currentData())))
         self.analyze_button.clicked.connect(self._request_analysis); self.accept_button.clicked.connect(lambda: self._emit_decision("accepted"))
         self.reject_button.clicked.connect(lambda: self._emit_decision("rejected")); self.map_button.clicked.connect(self._request_mapping)
         self.refresh_button.clicked.connect(self._request_metadata_refresh); self.copy_button.clicked.connect(lambda: self._copy_mode("final"))
         self.copy_all_button.clicked.connect(lambda: self._copy_mode("final")); self.copy_open_button.clicked.connect(self._copy_and_open)
-        self.open_button.clicked.connect(lambda: self._open_post(self.current_post_id or 0)); self.back_button.clicked.connect(self.show_search)
+        self.open_button.clicked.connect(lambda: self._open_post(self.current_post_id or 0)); self.back_button.clicked.connect(self._back_from_review)
         self.previous_button.clicked.connect(lambda: self._navigate_result(-1)); self.next_button.clicked.connect(lambda: self._navigate_result(1))
         self.accept_shortcut = QShortcut(QKeySequence("A"), self.suggestions); self.reject_shortcut = QShortcut(QKeySequence("R"), self.suggestions)
         self.accept_shortcut.activated.connect(lambda: self._emit_decision("accepted")); self.reject_shortcut.activated.connect(lambda: self._emit_decision("rejected"))
@@ -186,32 +264,108 @@ class TaggingLegacyPage(QWidget):
         self.progress.setRange(0,total); self.progress.setValue(current); self.progress.setFormat(f"{current}/{total}"); self.state.setText(self.catalog.text("tagging.progress",page=page,examined=examined,retained=retained))
 
     def show_results(self, posts: list[dict]) -> None:
-        self._clear_results(); self.processed_in_session.clear(); ordered=[]; generation=self.result_generation
-        for key in ("critical","high","low"):
-            values=sorted((p for p in posts if p.get("priority")==key),key=lambda p:int(p.get("tag_count",0))); ordered.extend(values)
-            section=CollapsibleResultGroup(self.catalog.text("tagging.section",priority=self.catalog.text(f"tagging.priority.{key}"),count=len(values))); self.results_layout.addWidget(section)
+        self._clear_results(); self.processed_in_session.clear(); ordered=[]; generation=self.result_generation; thumbnail_keys=[]
+        for title, values in self._result_sections(posts):
+            ordered.extend(values)
+            section=CollapsibleResultGroup(title); self.results_layout.addWidget(section); self.result_groups.append(section)
+            section.selection_requested.connect(lambda checked, group=section: self._select_group(group, checked))
             for post in values:
-                pid=int(post.get("id",0)); card=QToolButton(); card.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon); card.setIconSize(QSize(150,135)); card.setFixedSize(175,180)
-                card.setText(self.catalog.text("tagging.card",id=pid,count=int(post.get("tag_count",0)))); card.clicked.connect(lambda _checked=False,value=post:self._open_result_post(value)); section.add_card(card); self.result_buttons[pid]=card
+                pid=int(post.get("id",0)); card=ResultCard(post); card.setCheckable(True); card.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
+                card.setText(self.catalog.text("tagging.card",id=pid,count=int(post.get("tag_count",0)))); card.clicked.connect(lambda checked, value=post:self._result_clicked(value, checked)); card.checkbox_toggled.connect(self._checkbox_clicked); card.open_requested.connect(self._open_result_post); section.add_card(card); self.result_buttons[pid]=card
                 preview=str(post.get("preview_url") or "")
                 if preview:
-                    request=QNetworkRequest(QUrl(preview)); request.setRawHeader(b"User-Agent",b"BooruFlow/0.1"); request.setRawHeader(b"Referer",site_definition(getattr(self,"active_site","gelbooru")).base_url.encode()); reply=self.network.get(request)
-                    reply.finished.connect(lambda current=reply,target=card,value=generation:self._thumbnail_ready(current,target,value))
-        self.result_posts=ordered; self.current_result_index=-1; self.show_search()
+                    site = str(getattr(self, "active_site", "gelbooru"))
+                    cache_key = ThumbnailCacheKey(site, pid, preview)
+                    self._thumbnail_targets[cache_key]=(card,generation); thumbnail_keys.append(cache_key)
+        self.result_posts=ordered; self.current_result_index=-1
+        self.set_thumbnail_size(int(self.settings.get("tagging_thumbnail_size", 150))); self.show_search()
+        self.thumbnail_loader.begin_wave(thumbnail_keys)
+        QTimer.singleShot(0, self._prioritize_visible_thumbnails)
     def _clear_results(self) -> None:
-        self.result_generation+=1; self.result_buttons.clear(); self.result_posts=[]
+        if hasattr(self,"thumbnail_loader"):self.thumbnail_loader.cancel()
+        self._thumbnail_targets.clear()
+        self.result_generation+=1; self.result_buttons.clear(); self.result_posts=[]; self.result_groups=[]; self._selection_anchor=-1
         while self.results_layout.count():
             item=self.results_layout.takeAt(0)
             if item.widget(): item.widget().deleteLater()
-    def _thumbnail_ready(self,reply:QNetworkReply,button:QToolButton,generation:int)->None:
-        try:
-            if generation==self.result_generation and reply.error()==QNetworkReply.NetworkError.NoError:
-                pixmap=QPixmap()
-                if pixmap.loadFromData(bytes(reply.readAll())): button.setIcon(QIcon(pixmap))
-        except RuntimeError: pass
-        finally: reply.deleteLater()
+    def selected_posts(self) -> list[dict]:
+        return [post for post in self.result_posts if self.result_buttons.get(int(post.get("id", 0))) and self.result_buttons[int(post.get("id", 0))].isChecked()]
+    def _result_clicked(self, post: dict, checked: bool) -> None:
+        index = self.result_posts.index(post); modifiers = QApplication.keyboardModifiers()
+        if modifiers & Qt.KeyboardModifier.ShiftModifier and self._selection_anchor >= 0:
+            target = checked
+            for offset in range(min(index, self._selection_anchor), max(index, self._selection_anchor) + 1):
+                self.result_buttons[int(self.result_posts[offset]["id"])].setChecked(target)
+        elif not modifiers & Qt.KeyboardModifier.ControlModifier:
+            for button in self.result_buttons.values(): button.setChecked(False)
+            self.result_buttons[int(post["id"])].setChecked(True)
+        self._selection_anchor = index; self._selection_changed()
+    def _checkbox_clicked(self, post: dict, checked: bool) -> None:
+        button = self.result_buttons.get(int(post.get("id", 0)))
+        if button is None: return
+        button.setChecked(checked)
+        self._selection_anchor = self.result_posts.index(post)
+        self._selection_changed()
 
-    def _open_result_post(self,post:dict)->None:
+    def _result_sections(self, posts: list[dict]) -> list[tuple[str, list[dict]]]:
+        return [
+            (
+                self.catalog.text(
+                    "tagging.section",
+                    priority=self.catalog.text(f"tagging.priority.{key}"),
+                    count=len(values),
+                ),
+                values,
+            )
+            for key in ("critical", "high", "low")
+            for values in [sorted(
+                (post for post in posts if post.get("priority") == key),
+                key=lambda post: int(post.get("tag_count", 0)),
+            )]
+        ]
+    def _select_group(self, group: CollapsibleResultGroup, selected: bool) -> None:
+        for card in group.cards: card.setChecked(selected)
+        self._selection_changed()
+    def select_all_results(self) -> None:
+        for button in self.result_buttons.values(): button.setChecked(True)
+        self._selection_changed()
+    def _selection_changed(self) -> None:
+        for group in self.result_groups: group.update_selection_label()
+        callback = getattr(self, "selection_changed", None)
+        if callback is not None: callback()
+    def set_thumbnail_size(self, size: int) -> None:
+        for group in self.result_groups: group.set_thumbnail_size(size)
+    def _thumbnail_image_ready(self,key:ThumbnailCacheKey,image)->None:
+        target=self._thumbnail_targets.get(key)
+        if target is None:return
+        button,generation=target
+        try:
+            if generation==self.result_generation:button.setIcon(QIcon(QPixmap.fromImage(image)))
+        except RuntimeError: pass
+
+    def _thumbnail_failed(self,key:ThumbnailCacheKey,reason:str)->None:
+        target=self._thumbnail_targets.get(key)
+        if target is None:return
+        button,generation=target
+        if generation!=self.result_generation:return
+        from PySide6.QtWidgets import QStyle
+        button.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning))
+        button.setToolTip(f"{button.toolTip()}\nThumbnail unavailable ({reason})".strip())
+
+    def _thumbnail_diagnostic(self,level:str,message:str)->None:
+        self.diagnostic_logged.emit(level,"Thumbnail",message)
+
+    def _prioritize_visible_thumbnails(self)->None:
+        viewport=self.results_scroll.viewport(); viewport_rect=viewport.rect(); visible=[]; nearby=[]
+        for key,(button,generation) in self._thumbnail_targets.items():
+            if generation!=self.result_generation:continue
+            rect=button.rect().translated(button.mapTo(viewport,QPoint(0,0)))
+            (visible if rect.intersects(viewport_rect) else nearby).append((abs(rect.top()),key))
+        ordered=sorted(visible,key=lambda item:item[0])+sorted(nearby,key=lambda item:item[0])
+        self.thumbnail_loader.prioritize([key for _distance,key in ordered])
+
+    def _open_result_post(self,post:dict,origin:str="tagging_grid")->None:
+        self._review_origin=origin
         index=next((i for i,p in enumerate(self.result_posts) if int(p.get("id",0))==int(post.get("id",0))),-1); self._open_result(max(index, 0),post)
     def _open_result(self,index:int,fallback:dict|None=None)->None:
         if self.result_posts: index%=len(self.result_posts); post=self.result_posts[index]
@@ -222,6 +376,11 @@ class TaggingLegacyPage(QWidget):
         self.review_title.setText(f"Gelbooru #{self.current_post_id}"); self.mode_stack.setCurrentWidget(self.review); self._update_counter(); self._update_review_action_states(); self.post_selected.emit(self.current_post_id,self.current_post)
     def _select_post(self,post:dict)->None:self._open_result_post(post)
     def show_search(self)->None:self.mode_stack.setCurrentWidget(self.search_view); self.results_scroll.verticalScrollBar().setValue(self._search_scroll_value)
+    def _back_from_review(self)->None:
+        batch_view=getattr(self,"batch_view",None)
+        self.mode_stack.setCurrentWidget(batch_view if self._review_origin=="batch" and batch_view is not None else self.search_view)
+        if self.mode_stack.currentWidget() is self.search_view:
+            self.results_scroll.verticalScrollBar().setValue(self._search_scroll_value)
     def _navigate_result(self,delta:int)->None:
         if self.result_posts and self.current_result_index>=0:self._open_result(self.current_result_index+delta)
     def _update_counter(self)->None:
@@ -374,7 +533,7 @@ class TaggingLegacyPage(QWidget):
             while widget is not None and widget is not self:
                 if isinstance(widget,(QLineEdit,QTextEdit,QPlainTextEdit,QAbstractSpinBox)):return super().eventFilter(watched,event)
                 widget=widget.parentWidget()
-            self.show_search();return True
+            self._back_from_review();return True
         if event.key()!=Qt.Key.Key_Space:return super().eventFilter(watched,event)
         while widget is not None and widget is not self:
             if isinstance(widget,(QLineEdit,QTextEdit,QPlainTextEdit,QAbstractSpinBox)):return super().eventFilter(watched,event)

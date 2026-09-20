@@ -1016,6 +1016,21 @@ def test_edit_diagnostic_rejects_login_or_wrong_post_and_never_logs_field_conten
     assert secret not in valid.safe_log()
 
 
+def test_edit_diagnostic_locked_marker_is_terminal_and_token_independent():
+    diagnostic = parse_edit_form_diagnostic(
+        edit_payload([real_edit_form()], lockedImage=True, csrfToken="dummy"), "42"
+    )
+    assert diagnostic.status == "locked_image"
+    assert diagnostic.locked_image
+    assert "dummy" not in diagnostic.safe_log()
+
+
+def test_edit_diagnostic_without_unlock_marker_is_not_locked():
+    diagnostic = parse_edit_form_diagnostic(edit_payload([real_edit_form()]), "42")
+    assert diagnostic.status == "form_ready"
+    assert not diagnostic.locked_image
+
+
 def test_edit_diagnostic_json_error_is_distinct_and_safe():
     diagnostic = parse_edit_form_diagnostic(json.dumps({
         "url": "https://gelbooru.com/index.php?page=post&s=view&id=42&token=secret",
@@ -1238,7 +1253,7 @@ def test_bridge_rejects_global_post_list_redirect_before_dom_confirmation():
     page.loadFinished.emit(True)
 
     assert isinstance(request.error, GelbooruTransportError)
-    assert "liste globale" in str(request.error)
+    assert request.error.reason == "unexpected_global_redirect"
     assert len(page.scripts) == 0
 
 

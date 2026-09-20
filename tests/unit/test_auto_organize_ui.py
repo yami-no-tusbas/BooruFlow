@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, patch
 
 os.environ.setdefault("QT_QPA_PLATFORM","offscreen")
 import shiboken6
-from PySide6.QtCore import QCoreApplication, QEvent, QThread, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, Qt, QThread, Signal
 from PySide6.QtWidgets import QApplication, QMainWindow
 
 from booruflow.domain.auto_organize import FilePlan, OrganizeMode, PlanStatus, PostMetadata
@@ -123,15 +123,17 @@ def test_auto_organize_error_log_redacts_credentials(tmp_path):
 
 def test_priority_tree_filter_keeps_matching_leaf_and_ancestors(tmp_path):
     page,controller,_logs=controller_for(tmp_path)
+    model=tmp_path/"Model"; (model/"Tags (Gelbooru)"/"Animal Ears"/"cat_ears").mkdir(parents=True)
+    assert controller.scan_model(str(model))
     page.rule_filter.setText("cat_ears"); app().processEvents()
     visible=[]
     def visit(item):
         if not item.isHidden(): visible.append(item.text(0))
         for index in range(item.childCount()): visit(item.child(index))
     for index in range(page.priority_tree.topLevelItemCount()): visit(page.priority_tree.topLevelItem(index))
-    assert "Tags" in visible and "Animal Ears" in visible and "cat_ears" in visible
+    assert "Tags (Gelbooru)" in visible and "Animal Ears" in visible and "cat_ears" in visible
     assert "Weapons" not in visible
-    assert "Feuilles Tags: 476" in page.rules_inventory.text()
+    assert "Feuilles Tags: 1" in page.rules_inventory.text()
     controller.shutdown()
 
 def test_plan_details_separate_route_winner_fallback_and_destination(tmp_path):
@@ -208,3 +210,37 @@ def test_window_close_during_analysis_waits_for_cooperative_cleanup(tmp_path):
     assert wait_until(lambda:controller.worker is not None and controller.worker.isRunning())
     host.close(); app().processEvents()
     assert not host.isVisible() and controller.worker is None
+
+
+def test_model_and_output_are_distinct_and_dry_run_columns_are_explicit(tmp_path):
+    page = AutoOrganizePage(None)
+    model = tmp_path / "Model"
+    output = tmp_path / "Output"
+    model.mkdir()
+    output.mkdir()
+    page.set_paths(str(model), str(output))
+    headers = [page.table.horizontalHeaderItem(index).text() for index in range(6)]
+    assert Path(page.model_path.text()) == model
+    assert Path(page.output_root.text()) == output
+    assert headers == [
+        "Source",
+        "Site / Post ID",
+        "Règle gagnante",
+        "Destination relative",
+        "Destination complète",
+        "État",
+    ]
+
+
+def test_controller_rescan_rebuilds_tree_after_model_change(tmp_path):
+    page, controller, _logs = controller_for(tmp_path)
+    model = tmp_path / "Model"
+    (model / "Professions" / "office_lady").mkdir(parents=True)
+    assert controller.scan_model(str(model))
+    assert page.priority_tree.findItems("office_lady", Qt.MatchFlag.MatchRecursive, 0)
+
+    (model / "Professions" / "maid").mkdir()
+    assert controller.scan_model(str(model))
+    assert page.priority_tree.findItems("maid", Qt.MatchFlag.MatchRecursive, 0)
+    assert not list(model.rglob("*.*"))
+    controller.shutdown()

@@ -32,6 +32,9 @@ class ScrollablePageHost(QScrollArea):
         super().__init__()
         self.page = page
         self._make_content_responsive(page)
+        policy = page.sizePolicy()
+        policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
+        page.setSizePolicy(policy)
         self.setWidget(page)
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.Shape.NoFrame)
@@ -42,6 +45,8 @@ class ScrollablePageHost(QScrollArea):
         """Let layouts shrink before the host exposes its fallback scrollbars."""
 
         for label in page.findChildren(QLabel):
+            if label.property("preserveHorizontalSize"):
+                continue
             label.setMinimumWidth(0)
             policy = label.sizePolicy()
             policy.setHorizontalPolicy(QSizePolicy.Policy.Ignored)
@@ -84,24 +89,23 @@ class DashboardPage(QWidget):
         grid.setHorizontalSpacing(14)
         grid.setVerticalSpacing(14)
         cards = (
-            FeatureCard("review", "home.review"),
             FeatureCard("tagging", "home.tagging"),
-            FeatureCard("image_analysis", "home.image_analysis"),
+            FeatureCard("image_finder", "home.image_finder"),
             FeatureCard("similar_artists", "home.similar_artists"),
             FeatureCard("organization", "home.organization"),
             FeatureCard("tag_browser", "home.tag_browser"),
+            FeatureCard("wiki_audit", "home.wiki_audit"),
             FeatureCard("wiki", "home.wiki"),
+            FeatureCard("grabber", "home.grabber"),
+            FeatureCard("auto_organize", "home.auto_organize"),
+            FeatureCard("folder_artists", "home.folder_artists"),
             FeatureCard("cleanup", "home.cleanup"),
             FeatureCard("options", "home.options"),
-            FeatureCard("grabber", "home.grabber"),
         )
         for position, card in enumerate(cards):
             grid.addWidget(self._card(card), position // 2, position % 2)
         layout.addLayout(grid)
         layout.addStretch(1)
-        self.availability = QLabel()
-        self.availability.setWordWrap(True)
-        layout.addWidget(self.availability)
         self.retranslate()
 
     def _card(self, card: FeatureCard) -> QFrame:
@@ -134,10 +138,6 @@ class DashboardPage(QWidget):
             heading.setText(text(f"nav.{card.navigation_key}"))
             description.setText(text(card.description_key))
             button.setText(text("home.open"))
-        if self.grabber.available:
-            self.availability.setText(text("grabber.available"))
-        else:
-            self.availability.setText(text("grabber.unavailable", reason=self.grabber.reason))
 
 
 class PlaceholderPage(QWidget):

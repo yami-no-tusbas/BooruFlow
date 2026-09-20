@@ -295,7 +295,7 @@ class ReviewPage(QWidget):
 
     def retranslate(self) -> None:
         text = self.catalog.text
-        self.title.setText(text("nav.review"))
+        self.title.setText(text("grabber_tools.builder"))
         self.search_group.setTitle(text("review.search_group"))
         self.site_label.setText(text("review.site"))
         self.entity_label.setText(text("review.entity"))

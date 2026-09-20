@@ -3,12 +3,21 @@
 from __future__ import annotations
 
 import json
+import urllib.error
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from typing import Any
 
 API_URL = "https://gelbooru.com/index.php"
 DEFAULT_USER_AGENT = "ArtistTagScanner/1.0 (personal Gelbooru library tool)"
+
+
+class GelbooruAuthenticationError(RuntimeError):
+    """Gelbooru rejected or requires the configured DAPI identity."""
+
+
+PageFetcher = Callable[[str, int, int, str, str], tuple[list[dict[str, Any]], int]]
 
 
 def normalize_posts(data: Any) -> list[dict[str, Any]]:
@@ -56,6 +65,12 @@ def fetch_page(
             charset = response.headers.get_content_charset() or "utf-8"
         response_text = raw.decode(charset, errors="replace")
         data = json.loads(response_text)
+    except urllib.error.HTTPError as exc:
+        if exc.code in {401, 403}:
+            raise GelbooruAuthenticationError(
+                "Gelbooru API authentication is required or invalid."
+            ) from exc
+        raise
     except json.JSONDecodeError as exc:
         preview = response_text[:300].replace("\n", " ")
         raise RuntimeError(
@@ -69,6 +84,43 @@ def fetch_page(
         except (TypeError, ValueError):
             pass
     return normalize_posts(data), total
+
+
+class GelbooruDapiClient:
+    """Authenticated, read-only facade over BooruFlow's canonical DAPI transport."""
+
+    def __init__(
+        self,
+        user_id: str = "",
+        api_key: str = "",
+        *,
+        page_fetcher: PageFetcher = fetch_page,
+    ) -> None:
+        self.user_id = user_id.strip()
+        self.api_key = api_key.strip()
+        self.page_fetcher = page_fetcher
+
+    @property
+    def authenticated(self) -> bool:
+        return bool(self.user_id and self.api_key)
+
+    def search_posts(self, query: str, *, limit: int = 100, page: int = 0) -> list[dict[str, Any]]:
+        posts, _total = self.page_fetcher(
+            query, page, limit, self.user_id, self.api_key
+        )
+        return posts
+
+    def fetch_post(self, post_id: int | str) -> dict[str, Any]:
+        posts = self.search_posts(f"id:{post_id}", limit=1)
+        if not posts:
+            raise LookupError(f"Gelbooru post {post_id} was not found")
+        return posts[0]
+
+    def random_post(self) -> dict[str, Any]:
+        posts = self.search_posts("sort:random", limit=1)
+        if not posts:
+            raise LookupError("Gelbooru returned no random post")
+        return posts[0]
 
 
 def fetch_result_count(

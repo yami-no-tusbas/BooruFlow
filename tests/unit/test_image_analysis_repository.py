@@ -38,7 +38,8 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
-            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 20)
+            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 23)
+            self.assertIn("wd14_score_vectors", tables)
             self.assertEqual(repository.connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
             self.assertEqual(repository.connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
             self.assertTrue({
@@ -58,7 +59,15 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 ).fetchone()
             )
         with ImageAnalysisRepository(self.database) as reopened:
-            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 20)
+            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 23)
+
+    def test_feature_maintenance_marker_is_database_local_and_persistent(self) -> None:
+        with ImageAnalysisRepository(self.database) as repository:
+            self.assertFalse(repository.maintenance_completed("similar-test"))
+            repository.record_maintenance("similar-test", {"rows": 3})
+            self.assertTrue(repository.maintenance_completed("similar-test"))
+        with ImageAnalysisRepository(self.database) as reopened:
+            self.assertTrue(reopened.maintenance_completed("similar-test"))
 
     def test_legacy_unverified_publications_are_requeued_without_losing_history(self) -> None:
         from booruflow.domain.image_analysis import PublishState
@@ -164,6 +173,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 "reviewed_at": repository.batch_entry(item_id)["reviewed_at"],
                 "publish_state": PublishState.PENDING_PUBLISH,
                 "publish_attempts": 0, "last_error": None,
+                "failure_reason": None, "failure_retryable": None,
                 "last_attempt_at": None, "published_at": None,
                 "published_verified_at": None,
                 "published_final_tags": None,
@@ -176,6 +186,46 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
             self.assertEqual(repository.batch_entry(item_id)["additions"], ["e"])
         with ImageAnalysisRepository(self.database) as reopened:
             self.assertEqual(reopened.batch_entry(item_id)["reviewed_final_tags"], ["a", "c", "e"])
+
+    def test_retry_failed_excludes_locked_and_exhausted_but_accepts_legacy_null(self) -> None:
+        from booruflow.domain.image_analysis import PublishState
+
+        with ImageAnalysisRepository(self.database) as repository:
+            item_ids = []
+            for post_id in ("1177298", "10583", "10584"):
+                item_id = repository.add_item(AnalysisItem(
+                    SourceReference(
+                        InputKind.GELBOORU_POST, site="gelbooru", post_id=post_id,
+                    )
+                ))
+                repository.save_review_batch_entry(
+                    item_id, original_tags=["a"], additions=["b"], removals=[],
+                    reviewed_final_tags=["a", "b"],
+                )
+                item_ids.append(item_id)
+
+            locked_id, exhausted_id, legacy_id = item_ids
+            repository.connection.executemany(
+                """UPDATE tagging_review_batch_entries
+                   SET publish_state=?, publish_attempts=?, failure_reason=?,
+                       failure_retryable=? WHERE item_id=?""",
+                (
+                    (PublishState.FAILED.value, 1, "locked_image", 0, locked_id),
+                    (PublishState.FAILED.value, 3, "publish_error", 1, exhausted_id),
+                    (PublishState.FAILED.value, 1, None, None, legacy_id),
+                ),
+            )
+            repository.connection.commit()
+
+            changed = repository.retry_failed_publishes(item_ids, max_attempts=3)
+
+            self.assertEqual(changed, 1)
+            self.assertIs(repository.batch_entry(locked_id)["publish_state"], PublishState.FAILED)
+            self.assertIs(repository.batch_entry(exhausted_id)["publish_state"], PublishState.FAILED)
+            self.assertIs(
+                repository.batch_entry(legacy_id)["publish_state"],
+                PublishState.PENDING_PUBLISH,
+            )
 
     def test_local_review_batch_is_not_given_a_remote_publish_state(self) -> None:
         from booruflow.domain.image_analysis import PublishState
@@ -623,6 +673,78 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
             first = repository.add_item(self.item("first.png"))
             second = repository.add_item(self.item("second.png"))
         self.assertNotEqual(first, second)
+
+    def test_manual_bulk_delta_merges_without_analysis_or_duplicate_tags(self) -> None:
+        with ImageAnalysisRepository(self.database) as repository:
+            first = repository.stage_manual_remote_delta(
+                "gelbooru", "123", ["blue_hair", "2girls"], ["child", "1girl", "child"], []
+            )
+            self.assertEqual(first["additions"], ["1girl", "child"])
+            self.assertEqual(repository.pending_change_count(), 1)
+            item = repository.item_by_remote_source("gelbooru", "123")
+            row = repository.connection.execute(
+                "SELECT analysis_requested,state FROM analysis_items WHERE id=?", (item.id,)
+            ).fetchone()
+            self.assertEqual((row["analysis_requested"], row["state"]), (0, "reviewed"))
+
+            merged = repository.stage_manual_remote_delta(
+                "gelbooru", "123", ["blue_hair", "2girls"], ["1girl"], ["2girls"]
+            )
+            self.assertEqual(merged["additions"], ["1girl", "child"])
+            self.assertEqual(merged["removals"], ["2girls"])
+
+            cancelled = repository.stage_manual_remote_delta(
+                "gelbooru", "123", ["blue_hair", "2girls"], ["2girls"], ["child"]
+            )
+            self.assertEqual(cancelled["additions"], ["1girl"])
+            self.assertEqual(cancelled["removals"], [])
+            self.assertEqual(repository.list_batch_entries(), [cancelled])
+            self.assertEqual(repository.pending_change_count(), 1)
+
+        with ImageAnalysisRepository(self.database) as reopened:
+            persisted = reopened.item_by_remote_source("gelbooru", "123")
+            entry = reopened.batch_entry(persisted.id)
+            self.assertEqual(entry["additions"], ["1girl"])
+            self.assertEqual(entry["removals"], [])
+            self.assertEqual(reopened.pending_change_count(), 1)
+
+    def test_batch_listing_loads_all_entries_without_n_plus_one_queries(self) -> None:
+        with ImageAnalysisRepository(self.database) as repository:
+            for post_id in ("101", "102", "103"):
+                repository.stage_manual_remote_delta(
+                    "gelbooru", post_id, ["solo"], ["1girl"], []
+                )
+            statements = []
+            repository.connection.set_trace_callback(statements.append)
+            entries = repository.list_batch_entries()
+            repository.connection.set_trace_callback(None)
+
+        selects = [statement for statement in statements if statement.lstrip().upper().startswith("SELECT")]
+        self.assertEqual(len(entries), 3)
+        self.assertEqual(len(selects), 1)
+
+    def test_manual_bulk_deltas_use_one_transaction_and_preserve_every_delta(self) -> None:
+        with ImageAnalysisRepository(self.database) as repository:
+            statements = []
+            repository.connection.set_trace_callback(statements.append)
+            entries = repository.stage_manual_remote_deltas([
+                {
+                    "site": "gelbooru", "post_id": str(post_id),
+                    "original_tags": ["solo", "blue_hair"],
+                    "additions": ["1girl", "1girl"], "removals": ["solo"],
+                }
+                for post_id in range(100, 150)
+            ])
+            repository.connection.set_trace_callback(None)
+
+            self.assertEqual(len(entries), 50)
+            self.assertEqual(repository.pending_change_count(), 50)
+            self.assertTrue(all(entry["additions"] == ["1girl"] for entry in entries))
+            self.assertTrue(all(entry["removals"] == ["solo"] for entry in entries))
+            self.assertEqual(
+                sum(statement == "BEGIN IMMEDIATE" for statement in statements), 1
+            )
+            self.assertEqual(sum(statement == "COMMIT" for statement in statements), 1)
 
 
 if __name__ == "__main__":

@@ -7,12 +7,15 @@ from __future__ import annotations
 
 import copy
 import html
+import inspect
 import json
 import re
 import time
 import urllib.parse
 import urllib.request
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from html.parser import HTMLParser
 from itertools import pairwise
@@ -35,10 +38,26 @@ GELBOORU_GROUPS = {
 }
 
 
-def _get(url: str) -> str:
+class WikiImportCancelled(RuntimeError):
+    """Raised at a safe boundary after a cooperative cancellation request."""
+
+
+CancelCheck = Callable[[], bool] | None
+
+
+def _check_cancelled(cancelled: CancelCheck) -> None:
+    if cancelled is not None and cancelled():
+        raise WikiImportCancelled("Wiki import cancelled")
+
+
+def _get_with_url(url: str) -> tuple[str, str]:
     request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
     with urllib.request.urlopen(request, timeout=45) as response:
-        return response.read().decode("utf-8", errors="replace")
+        return response.read().decode("utf-8", errors="replace"), response.geturl()
+
+
+def _get(url: str) -> str:
+    return _get_with_url(url)[0]
 
 
 def _e621_page(title: str) -> dict:
@@ -53,20 +72,28 @@ def _e621_page(title: str) -> dict:
     return exact
 
 
-def _e621_page_with_retry(title: str, attempts: int = 3) -> dict:
+def _e621_page_with_retry(
+    title: str, attempts: int = 3, cancelled: CancelCheck = None
+) -> dict:
     last_error: Exception | None = None
     for attempt in range(attempts):
+        _check_cancelled(cancelled)
         try:
             return _e621_page(title)
         except Exception as exc:
             last_error = exc
             if attempt + 1 < attempts:
+                _check_cancelled(cancelled)
                 time.sleep(0.6 * (attempt + 1))
     assert last_error is not None
     raise last_error
 
 
-def _e621_relationships(tag: str, relation_types: set[str] | None = None) -> dict[str, list[str]]:
+def _e621_relationships(
+    tag: str,
+    relation_types: set[str] | None = None,
+    cancelled: CancelCheck = None,
+) -> dict[str, list[str]]:
     """Return only approved aliases and implications for an e621 tag."""
     endpoints = {
         "aliases": ("tag_aliases.json", "consequent_name", "antecedent_name"),
@@ -75,6 +102,7 @@ def _e621_relationships(tag: str, relation_types: set[str] | None = None) -> dic
     }
     result: dict[str, list[str]] = {}
     for label, (endpoint, search_field, value_field) in endpoints.items():
+        _check_cancelled(cancelled)
         if relation_types is not None and label not in relation_types:
             continue
         query = urllib.parse.urlencode(
@@ -616,7 +644,8 @@ def gelbooru_page_tree(value: str) -> dict:
     return tree
 
 
-def import_catalogues(progress=None) -> dict:
+def import_catalogues(progress=None, cancelled: CancelCheck = None) -> dict:
+    _check_cancelled(cancelled)
     boards: dict[str, dict] = {"e621": {}, "gelbooru": {}}
     metadata: dict[str, dict] = {"e621": {}, "gelbooru": {}}
     sources: list[dict] = []
@@ -640,7 +669,7 @@ def import_catalogues(progress=None) -> dict:
                 target[key] = copy.deepcopy(child)
 
     index_title = "tag_group:index"
-    index_page = _e621_page_with_retry(index_title)
+    index_page = _e621_page_with_retry(index_title, cancelled=cancelled)
     boards["e621"] = parse_e621_group(str(index_page.get("body", "")))
     sources.append(
         {
@@ -657,8 +686,9 @@ def import_catalogues(progress=None) -> dict:
     )
     visited = {index_title.casefold()}
     while queue and len(visited) < 500:
+        _check_cancelled(cancelled)
         batch: list[str] = []
-        while queue and len(batch) < 12 and len(visited) + len(batch) < 500:
+        while queue and len(batch) < 8 and len(visited) + len(batch) < 500:
             title = queue.pop(0)
             normalized = title.casefold()
             if normalized in visited:
@@ -669,15 +699,22 @@ def import_catalogues(progress=None) -> dict:
             continue
         downloaded: dict[str, dict] = {}
         with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {executor.submit(_e621_page_with_retry, title): title for title in batch}
+            futures = {
+                executor.submit(_e621_page_with_retry, title, 3, cancelled): title
+                for title in batch
+            }
             for future in as_completed(futures):
                 title = futures[future]
                 try:
                     downloaded[title] = future.result()
+                except WikiImportCancelled:
+                    pass
                 except Exception:
                     if progress:
                         progress(f"e621 ignoré (indisponible) : {title}")
+        _check_cancelled(cancelled)
         for title in batch:
+            _check_cancelled(cancelled)
             page = downloaded.get(title)
             if page is None:
                 continue
@@ -699,6 +736,7 @@ def import_catalogues(progress=None) -> dict:
                 progress(f"e621 {len(visited)} : {title}")
 
     def expand_e621_groups(node, ancestry: frozenset[str]) -> None:
+        _check_cancelled(cancelled)
         if not isinstance(node, dict):
             return
         tag = str(node.get("__tag__", ""))
@@ -760,6 +798,7 @@ def import_catalogues(progress=None) -> dict:
     )
     implication_queue: list[str] = []
     while (implication_queue or ordinary_queue) and len(ordinary_visited) < 400:
+        _check_cancelled(cancelled)
         batch: list[tuple[str, bool]] = []
         while (
             (implication_queue or ordinary_queue)
@@ -778,18 +817,28 @@ def import_catalogues(progress=None) -> dict:
         def download_ordinary(
             title: str, fetch_page: bool
         ) -> tuple[dict | None, dict[str, list[str]]]:
+            _check_cancelled(cancelled)
             page = None
             relations: dict[str, list[str]] = {}
             if fetch_page:
                 try:
-                    page = _e621_page_with_retry(title, attempts=2)
+                    page = _e621_page_with_retry(title, attempts=2, cancelled=cancelled)
+                except WikiImportCancelled:
+                    raise
                 except Exception:
                     pass
             try:
-                relations = _e621_relationships(
-                    title,
-                    None if fetch_page else {"implicated_by"},
-                )
+                relation_types = None if fetch_page else {"implicated_by"}
+                if "cancelled" in inspect.signature(_e621_relationships).parameters:
+                    relations = _e621_relationships(
+                        title, relation_types, cancelled=cancelled
+                    )
+                else:
+                    # Preserve compatibility with narrow test/application doubles.
+                    relations = _e621_relationships(title, relation_types)
+                _check_cancelled(cancelled)
+            except WikiImportCancelled:
+                raise
             except Exception:
                 pass
             return page, relations
@@ -803,7 +852,9 @@ def import_catalogues(progress=None) -> dict:
             for future in as_completed(futures):
                 downloaded[futures[future]] = future.result()
 
+        _check_cancelled(cancelled)
         for title, _fetch_page in batch:
+            _check_cancelled(cancelled)
             page, relations = downloaded.get(title, (None, {}))
             normalized = title.casefold()
             targets = find_tag_nodes(boards["e621"], title)
@@ -860,6 +911,7 @@ def import_catalogues(progress=None) -> dict:
     # (felid) is discovered after its child branch (feline) was already expanded
     # elsewhere in the wiki.
     def expand_e621_details(node, ancestry: frozenset[str]) -> None:
+        _check_cancelled(cancelled)
         if not isinstance(node, dict):
             return
         tag = str(node.get("__tag__", "")).strip()
@@ -891,7 +943,8 @@ def import_catalogues(progress=None) -> dict:
 
     # The Vehicle page is a useful list but is not an e621 tag_group
     # from the main index, so it remains a supplementary root.
-    vehicle_page = _e621_page_with_retry("vehicle")
+    _check_cancelled(cancelled)
+    vehicle_page = _e621_page_with_retry("vehicle", cancelled=cancelled)
     vehicle_tree = parse_e621_group(str(vehicle_page.get("body", "")))
     if vehicle_tree:
         boards["e621"]["Vehicle"] = vehicle_tree
@@ -917,6 +970,7 @@ def import_catalogues(progress=None) -> dict:
         )
 
     master_url = "https://gelbooru.com/index.php?page=wiki&s=view&id=6682"
+    _check_cancelled(cancelled)
     gelbooru_tree, _definition = parse_gelbooru_group(_get(master_url))
     boards["gelbooru"] = gelbooru_tree
     sources.append(
@@ -933,8 +987,9 @@ def import_catalogues(progress=None) -> dict:
     )
     visited: set[str] = set()
     while queue and len(visited) < 350:
+        _check_cancelled(cancelled)
         batch: list[tuple[str, str]] = []
-        while queue and len(batch) < 16 and len(visited) + len(batch) < 350:
+        while queue and len(batch) < 8 and len(visited) + len(batch) < 350:
             title = queue.pop(0)
             normalized_title = title.casefold()
             if normalized_title in visited or normalized_title == "tag_groups":
@@ -946,17 +1001,29 @@ def import_catalogues(progress=None) -> dict:
             batch.append((title, url))
         if not batch:
             continue
+
+        def download_gelbooru(url: str) -> str:
+            _check_cancelled(cancelled)
+            return _get(url)
+
         downloaded: dict[str, tuple[str, str]] = {}
         with ThreadPoolExecutor(max_workers=8) as executor:
-            futures = {executor.submit(_get, url): (title, url) for title, url in batch}
+            futures = {
+                executor.submit(download_gelbooru, url): (title, url)
+                for title, url in batch
+            }
             for future in as_completed(futures):
                 title, url = futures[future]
                 try:
                     downloaded[title] = (url, future.result())
+                except WikiImportCancelled:
+                    pass
                 except Exception:
                     if progress:
                         progress(f"Gelbooru ignoré (indisponible) : {title}")
+        _check_cancelled(cancelled)
         for title, _url in batch:
+            _check_cancelled(cancelled)
             if title not in downloaded:
                 continue
             url, source = downloaded[title]
@@ -987,6 +1054,7 @@ def import_catalogues(progress=None) -> dict:
             if progress:
                 progress(f"Gelbooru {len(visited)} : {title}")
 
+    _check_cancelled(cancelled)
     return {"boards": boards, "metadata": metadata, "sources": sources}
 
 
@@ -1079,7 +1147,63 @@ def merge_catalogues(document: dict, imported: dict) -> dict[str, int]:
     }
 
 
-def tag_definition_details(board: str, tag: str, wiki_url: str = "") -> tuple[str, str, list[str]]:
+class WikiPageNotFoundError(RuntimeError):
+    """The remote source responded successfully but has no exact wiki page."""
+
+
+class WikiPageParseError(RuntimeError):
+    """The response could not be identified as the requested wiki page."""
+
+
+@dataclass(frozen=True, slots=True)
+class WikiFetchResponse:
+    """HTTP facts required to resolve one wiki response without losing redirects."""
+
+    requested_url: str
+    final_url: str
+    status: int
+    body: str
+    redirect_urls: tuple[str, ...] = ()
+
+
+def _has_create_wiki_target(value: str) -> bool:
+    normalized = urllib.parse.unquote(html.unescape(value)).casefold()
+    return bool(re.search(r"(?:[?&]|\b)page=wiki[^\s\"'<>]*[?&]s=create\b", normalized))
+
+
+def detect_missing_wiki_response(response: WikiFetchResponse) -> bool:
+    """Recognize Gelbooru's structural create-page response without JS execution."""
+    if any(
+        _has_create_wiki_target(url)
+        for url in (response.final_url, *response.redirect_urls)
+    ):
+        return True
+    # Gelbooru may expose the create target in a meta refresh, form, link, or script.
+    structural = re.findall(
+        r"<(?:meta|form|a|script)\b[^>]*>.*?(?:</script\s*>)?",
+        response.body,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    return any(_has_create_wiki_target(fragment) for fragment in structural)
+
+
+def _wiki_fetch_response(
+    value: WikiFetchResponse | tuple[str, str], requested_url: str
+) -> WikiFetchResponse:
+    if isinstance(value, WikiFetchResponse):
+        return value
+    body, final_url = value
+    return WikiFetchResponse(requested_url, final_url, 200, body)
+
+
+def fetch_wiki_page_details(
+    board: str,
+    tag: str,
+    wiki_url: str = "",
+    *,
+    fetcher: Callable[[str], WikiFetchResponse | tuple[str, str]] | None = None,
+) -> dict:
+    """Fetch one exact wiki page with source content and available metadata."""
     if board == "e621":
         page_id = re.search(r"/wiki_pages/(\d+)", wiki_url)
         page = (
@@ -1089,7 +1213,102 @@ def tag_definition_details(board: str, tag: str, wiki_url: str = "") -> tuple[st
         )
         raw_body = str(page.get("body", ""))
         referenced_tags = list(dict.fromkeys(_wiki_links(raw_body)))
-        body = raw_body
+        return {
+            "site": board,
+            "tag": tag,
+            "wiki_id": int(page["id"]),
+            "tag_type": None,
+            "content": raw_body,
+            "content_format": "dtext",
+            "author": str(page.get("updater_id") or "") or None,
+            "remote_updated_at": str(page.get("updated_at") or "") or None,
+            "version": int(page["version"]) if page.get("version") is not None else None,
+            "source_url": f"https://e621.net/wiki_pages/{page['id']}",
+            "referenced_tags": referenced_tags,
+        }
+    from booruflow.infrastructure.wiki_audit import page_kind, parse_wiki_response
+
+    search_url = wiki_url or "https://gelbooru.com/index.php?" + urllib.parse.urlencode(
+        {"page": "wiki", "s": "list", "search": tag}
+    )
+    get_page = fetcher or _get_with_url
+    response = _wiki_fetch_response(get_page(search_url), search_url)
+    source, final_url = response.body, response.final_url
+    status = parse_wiki_response(source, tag, final_url)
+    if not status.exists:
+        if detect_missing_wiki_response(response) or page_kind(source) in {"direct", "list"}:
+            raise WikiPageNotFoundError(f"Wiki page not found: {tag}")
+        raise WikiPageParseError(f"Unrecognized Gelbooru wiki response for {tag}")
+    list_status = status
+    if status.source == "list":
+        if status.wiki_id is None:
+            raise WikiPageParseError(f"Gelbooru wiki ID missing for {tag}")
+        direct_url = "https://gelbooru.com/index.php?" + urllib.parse.urlencode(
+            {"page": "wiki", "s": "view", "id": status.wiki_id}
+        )
+        response = _wiki_fetch_response(get_page(direct_url), direct_url)
+        source, final_url = response.body, response.final_url
+        status = parse_wiki_response(source, tag, final_url)
+        if not status.exists:
+            raise WikiPageParseError(f"Gelbooru direct wiki title mismatch for {tag}")
+    parser = _GelbooruWikiParser()
+    parser.feed(source)
+    parser.close()
+    definition_parts: list[str] = []
+    for value in parser.text:
+        folded = value.casefold()
+        if folded.startswith("other wiki information"):
+            break
+        if folded.startswith(("now viewing:", "tag type:")):
+            continue
+        definition_parts.append(value)
+    definition = "\n".join(definition_parts).strip()
+    from booruflow.infrastructure.wiki_html import sanitize_wiki_html
+
+    marker = re.search(
+        r"<h2\b[^>]*>\s*Now\s+Viewing:.*?</h2>",
+        source,
+        re.IGNORECASE | re.DOTALL,
+    )
+    editorial_source = source[marker.end():] if marker else ""
+    stop = re.search(r"Other\s+Wiki\s+Information", editorial_source, re.IGNORECASE)
+    if stop:
+        editorial_source = editorial_source[:stop.start()]
+    editorial_source = re.sub(
+        r"Tag\s+type\s*:[^<]*(?:<br\s*/?>)?\s*(?:</[^>]+>)?",
+        "",
+        editorial_source,
+        flags=re.IGNORECASE,
+    )
+    editorial_html = sanitize_wiki_html(editorial_source)
+    visible_editorial = html.unescape(re.sub(r"<[^>]*>", " ", editorial_html))
+    if not visible_editorial.strip():
+        editorial_html = ""
+    tag_type = next((
+        value.split(":", 1)[1].strip()
+        for value in parser.text
+        if re.match(r"^Tag\s+type\s*:", value, re.IGNORECASE)
+    ), None)
+    updated_at = status.updated_at or list_status.updated_at
+    return {
+        "site": board,
+        "tag": tag,
+        "wiki_id": status.wiki_id or list_status.wiki_id,
+        "tag_type": tag_type,
+        "content": editorial_html or definition,
+        "content_format": "html" if editorial_html else "plain",
+        "author": status.updated_by or list_status.updated_by,
+        "remote_updated_at": updated_at.isoformat() if updated_at else None,
+        "version": list_status.version,
+        "source_url": final_url or search_url,
+        "referenced_tags": list(dict.fromkeys(parser.links)),
+    }
+
+
+def tag_definition_details(board: str, tag: str, wiki_url: str = "") -> tuple[str, str, list[str]]:
+    page = fetch_wiki_page_details(board, tag, wiki_url)
+    body = str(page["content"])
+    if page["content_format"] == "dtext":
         body = re.sub(r"\[\[[^]|]+\|([^]]+)]]", r"\1", body)
         body = re.sub(r"\[\[([^]]+)]]", r"\1", body)
         body = re.sub(r"\[/?[^]]+]", "", body)
@@ -1110,17 +1329,7 @@ def tag_definition_details(board: str, tag: str, wiki_url: str = "") -> tuple[st
                 relation_lines.append(f"{heading}: {', '.join(values)}")
         if relation_lines:
             body = f"{body}\n\n" + "\n".join(relation_lines)
-        return body[:6000], f"https://e621.net/wiki_pages/{page['id']}", referenced_tags
-    url = wiki_url or "https://gelbooru.com/index.php?" + urllib.parse.urlencode(
-        {"page": "wiki", "s": "list", "search": tag}
-    )
-    source = _get(url)
-    _tags, definition = parse_gelbooru_group(source)
-    parser = _GelbooruWikiParser()
-    parser.feed(source)
-    parser.close()
-    referenced_tags = list(dict.fromkeys(parser.links))
-    return definition[:6000], url, referenced_tags
+    return body[:6000], str(page["source_url"]), list(page["referenced_tags"])
 
 
 def tag_definition(board: str, tag: str) -> tuple[str, str]:

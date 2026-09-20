@@ -1,8 +1,10 @@
 import importlib.util
 import os
+import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import MagicMock, patch
 
 PYSIDE6_AVAILABLE = importlib.util.find_spec("PySide6") is not None
 LANGUAGES = Path(__file__).resolve().parents[2] / "resources" / "i18n"
@@ -18,7 +20,7 @@ class PySide6ShellTests(unittest.TestCase):
         cls.app = QApplication.instance() or QApplication([])
 
     @staticmethod
-    def window(available: bool = False):
+    def window(available: bool = False, **kwargs):
         from booruflow.application.capabilities import ApplicationCapabilities
         from booruflow.domain import ToolAvailability
         from booruflow.infrastructure.localization import LanguageCatalog
@@ -30,46 +32,350 @@ class PySide6ShellTests(unittest.TestCase):
             ),
             LanguageCatalog(LANGUAGES),
             start_image_worker=False,
+            **kwargs,
         )
+
+    def open_feature(self, window, key: str) -> None:
+        window.navigate_to_key(key)
+        for _ in range(8):
+            self.app.processEvents()
+
+    @staticmethod
+    def build_image_and_similar(window) -> None:
+        image_page = window._build_image_analysis()
+        window._install_feature_page("image_analysis", image_page)
+        similar_page = window._build_similar_artists()
+        window._install_feature_page("similar_artists", similar_page)
 
     def test_main_window_exposes_top_level_navigation(self) -> None:
-        from booruflow.presentation.pyside6.cleanup_controller import CleanupController
-        from booruflow.presentation.pyside6.database_update_controller import (
-            DatabaseUpdateController,
+        window = self.window()
+        self.assertEqual(window.navigation.count(), 17)
+        self.assertEqual(window.pages.count(), 16)
+        self.assertNotIn("tagging_legacy", window.NAVIGATION_KEYS)
+        visible_keys = [
+            window.navigation.item(row).data(256)
+            for row in range(window.navigation.count())
+            if window.navigation.item(row).data(256)
+        ]
+        self.assertEqual(
+            visible_keys,
+            [
+                "home", "tagging", "image_finder", "similar_artists", "organization",
+                "tag_browser", "wiki_audit", "wiki", "grabber", "auto_organize",
+                "folder_artists", "cleanup", "options",
+            ],
         )
-        from booruflow.presentation.pyside6.grabber_controller import GrabberController
-        from booruflow.presentation.pyside6.organization_controller import (
-            OrganizationCoordinator,
-        )
-        from booruflow.presentation.pyside6.review_controller import ReviewCoordinator
-        from booruflow.presentation.pyside6.similar_artists_controller import (
-            SimilarArtistsController,
-        )
-        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        self.assertNotIn("review", visible_keys)
+        self.assertNotIn("image_analysis", visible_keys)
+        self.assertNotIn("tasks", visible_keys)
+        group_rows = [1, 5, 10, 15]
+        self.assertTrue(all(not window.navigation.item(row).flags() for row in group_rows))
+        self.assertTrue(all(window.navigation.item(row).icon().isNull() for row in group_rows))
+        self.assertEqual(window.navigation.currentRow(), 0)
+        self.assertEqual(window.constructed_page_keys, ("home",))
+        self.assertIsNone(window.database_controller)
+        self.assertIsNone(window.tagging_controller)
+        self.assertIsNone(window.image_analysis_controller)
+        self.assertIsNone(window.embedded_gelbooru_profile)
+        window.close()
+
+    def test_sidebar_rows_map_to_pages_by_key_and_width_stays_fixed(self) -> None:
+        from PySide6.QtWidgets import QHBoxLayout, QSplitter
 
         window = self.window()
-        self.assertEqual(window.navigation.count(), 13)
-        self.assertEqual(window.pages.count(), 13)
-        self.assertEqual(window.navigation.item(2).data(256), "tagging")
-        self.assertNotIn("tagging_legacy", window.NAVIGATION_KEYS)
-        self.assertEqual(window.navigation.item(3).data(256), "image_analysis")
-        self.assertEqual(window.navigation.item(4).data(256), "auto_organize")
-        self.assertEqual(window.navigation.item(5).data(256), "similar_artists")
-        self.assertEqual(window.navigation.item(7).data(256), "tag_browser")
-        self.assertEqual(window.navigation.item(8).data(256), "wiki")
-        self.assertEqual(window.navigation.item(12).data(256), "tasks")
-        self.assertEqual(window.navigation.currentRow(), 0)
-        self.assertIsInstance(window.database_controller, DatabaseUpdateController)
-        self.assertIsInstance(window.grabber_controller, GrabberController)
-        self.assertIsInstance(window.cleanup_controller, CleanupController)
-        self.assertIsInstance(window.tagging_controller, TaggingController)
-        self.assertIs(window.tagging_controller.image_analysis, window.image_analysis_controller)
-        self.assertIsInstance(window.similar_artists_controller, SimilarArtistsController)
-        self.assertIsInstance(window.review_coordinator, ReviewCoordinator)
-        self.assertIsInstance(window.organization_coordinator, OrganizationCoordinator)
-        self.assertIs(window.review_controller, window.review_coordinator.process_controller)
-        self.assertIs(window.database_process, window.database_controller.process)
-        self.assertIs(window.grabber_process, window.grabber_controller.process)
+        window.show()
+        self.app.processEvents()
+        workspace = window.centralWidget().layout().itemAt(0).widget()
+        workspace_layout = workspace.layout()
+        initial_width = window.navigation.width()
+        self.assertGreaterEqual(initial_width, 176)
+        self.assertLessEqual(initial_width, 320)
+        self.assertNotIsInstance(workspace, QSplitter)
+        self.assertIsInstance(workspace_layout, QHBoxLayout)
+        margins = workspace_layout.contentsMargins()
+        self.assertEqual(
+            (margins.left(), margins.top(), margins.right(), margins.bottom()),
+            (0, 0, 0, 0),
+        )
+        self.assertEqual(workspace_layout.spacing(), 0)
+        self.assertIs(workspace_layout.itemAt(0).widget(), window.navigation)
+        self.assertIs(workspace_layout.itemAt(1).widget(), window.pages)
+        self.assertEqual(
+            window.pages.geometry().left(), window.navigation.geometry().right() + 1
+        )
+        with patch.object(window.feature_lifecycle, "request"):
+            for key in (
+                "home", "tagging", "image_finder", "similar_artists", "organization",
+                "tag_browser", "wiki_audit", "wiki", "grabber", "auto_organize",
+                "folder_artists", "cleanup", "options",
+            ):
+                window.navigation.setCurrentRow(window._visible_navigation_row(key))
+                self.assertEqual(window.pages.currentIndex(), window.NAVIGATION_KEYS.index(key))
+                self.assertEqual(window.navigation.width(), initial_width)
+        window.resize(1280, 760)
+        self.app.processEvents()
+        self.assertEqual(window.navigation.width(), initial_width)
+        self.assertEqual(
+            window.pages.geometry().left(), window.navigation.geometry().right() + 1
+        )
+        window.close()
+
+    def test_status_bar_replaces_messages_and_manages_scoped_progress(self) -> None:
+        window = self.window()
+        status = window.status_controller
+        self.assertIn("Home", window.status_label.text())
+
+        status.show_message("home", "First message", 0)
+        self.assertEqual(window.status_message_label.text(), "First message")
+        status.show_message("home", "Replacement message", 0)
+        self.assertEqual(window.status_message_label.text(), "Replacement message")
+        self.assertEqual(window.status_message_label.toolTip(), "Replacement message")
+
+        status.set_progress("home", 2, 5, "Home operation")
+        self.assertFalse(window.global_progress.isHidden())
+        self.assertEqual(window.global_progress.value(), 2)
+        self.assertEqual(window.global_progress.maximum(), 5)
+        status.set_progress("home", 4, 5, "Home operation")
+        self.assertEqual(window.global_progress.value(), 4)
+
+        window.navigate_to_key("image_finder")
+        self.assertIn("Image Finder", window.status_label.text())
+        self.assertEqual(window.status_message_label.text(), "")
+        self.assertFalse(window.global_progress.isVisible())
+
+        status.set_progress("image_finder", 0, 0, "Searching")
+        self.assertFalse(window.global_progress.isHidden())
+        self.assertEqual(window.global_progress.minimum(), 0)
+        self.assertEqual(window.global_progress.maximum(), 0)
+        status.clear_progress("image_finder")
+        self.assertFalse(window.global_progress.isVisible())
+
+        status.set_progress("image_finder", 1, 10, "Background task", True)
+        window.navigate_to_key("wiki")
+        self.assertFalse(window.global_progress.isHidden())
+        self.assertEqual(window.global_progress.value(), 1)
+        status.clear_progress("image_finder", True)
+        self.assertTrue(window.global_progress.isHidden())
+        window.close()
+
+    def test_tagging_and_tag_browser_publish_to_global_status_bar(self) -> None:
+        from booruflow.application.targeted_wd14 import (
+            TargetedWD14Progress,
+            TargetedWD14Result,
+        )
+
+        window = self.window()
+        self.open_feature(window, "tagging")
+        window.tagging_page._confidence_tag = "1girl"
+        window.tagging_page.show_targeted_wd14_result(
+            TargetedWD14Result(
+                "1girl", {}, frozenset(), TargetedWD14Progress(154, 154, 149, 5, 0), 0.1
+            )
+        )
+        self.assertEqual(
+            window.status_message_label.text(),
+            "154 images · 149 cached · 5 new · 0 errors",
+        )
+        self.assertFalse(hasattr(window.tagging_page, "wd14_status"))
+
+        self.open_feature(window, "tag_browser")
+        window.tag_browser_page._copy_names(["one_tag"])
+        self.assertEqual(window.status_message_label.text(), "1 tag copied")
+        window.tag_browser_page._copy_names(["one_tag", "two_tags"])
+        self.assertEqual(window.status_message_label.text(), "2 tags copied")
+        window.navigate_to_key("wiki")
+        self.assertEqual(window.status_message_label.text(), "")
+        window.close()
+
+    def test_image_finder_publishes_results_to_global_status_bar(self) -> None:
+        window = self.window()
+        self.open_feature(window, "image_finder")
+
+        window.image_finder_controller._results(
+            SimpleNamespace(artworks=(), next_cursor=None), append=False
+        )
+
+        self.assertEqual(window.status_message_label.text(), "0 results found")
+        self.assertFalse(hasattr(window.image_finder_page, "status"))
+        window.close()
+
+    def test_status_bar_stays_responsive_with_long_messages(self) -> None:
+        from PySide6.QtWidgets import QSizePolicy
+
+        window = self.window()
+        window.resize(860, 600)
+        window.show()
+        window.status_controller.show_message("home", "Long status message " * 80, 0)
+        self.app.processEvents()
+        self.assertEqual(window.width(), 860)
+        self.assertEqual(
+            window.status_message_label.sizePolicy().horizontalPolicy(),
+            QSizePolicy.Policy.Ignored,
+        )
+        self.assertTrue(window.debug_log_toggle.isVisible())
+        self.assertTrue(window.log_button.isVisible())
+        self.assertTrue(window.clear_log_button.isVisible())
+        window.close()
+
+    def test_deferred_startup_does_not_run_similar_maintenance(self) -> None:
+        from booruflow.domain.image_analysis import AnalysisItem, InputKind, SourceReference
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            window = self.window(project_root=root)
+            self.build_image_and_similar(window)
+            repository = window.image_analysis_controller.repository
+            repository.add_item(
+                AnalysisItem(
+                    SourceReference(InputKind.GELBOORU_POST, site="gelbooru", post_id="42"),
+                    cached_path=root / "42.png",
+                    content_sha256="a" * 64,
+                    mime_type="image/png",
+                    width=1,
+                    height=1,
+                )
+            )
+            repository.cache_post_metadata(
+                "gelbooru", "42", "https://example.invalid/42.png", (), ("artist_a",)
+            )
+            maintenance = MagicMock(wraps=window.similar_artists_controller.run_feature_maintenance)
+            window.similar_artists_controller.run_feature_maintenance = maintenance
+            window.image_analysis_controller.start_worker = MagicMock()
+            window.complete_deferred_startup()
+            self.app.processEvents()
+
+            maintenance.assert_not_called()
+            window.complete_deferred_startup()
+            maintenance.assert_not_called()
+            window.close()
+
+    def test_similar_maintenance_waits_for_worker_exit_before_writing(self) -> None:
+        from PySide6.QtCore import QProcess
+
+        from booruflow.domain.image_analysis import AnalysisItem, InputKind, SourceReference
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            window = self.window(project_root=root)
+            self.build_image_and_similar(window)
+            repository = window.image_analysis_controller.repository
+            item_id = repository.add_item(
+                AnalysisItem(
+                    SourceReference(InputKind.GELBOORU_POST, site="gelbooru", post_id="42"),
+                    cached_path=root / "42.png",
+                    content_sha256="b" * 64,
+                    mime_type="image/png",
+                    width=1,
+                    height=1,
+                )
+            )
+            repository.cache_post_metadata(
+                "gelbooru", "42", "https://example.invalid/42.png", (), ("artist_b",)
+            )
+            competing = ImageAnalysisRepository(repository.path, timeout_seconds=0.05)
+            competing.connection.execute("BEGIN IMMEDIATE")
+            competing.connection.execute(
+                "UPDATE analysis_items SET updated_at=updated_at WHERE id=?", (item_id,)
+            )
+            controller = window.image_analysis_controller
+            controller.process.state = MagicMock(return_value=QProcess.ProcessState.Running)
+            controller.process.write = MagicMock()
+            controller.start_worker = MagicMock()
+            completed = MagicMock()
+            failed = MagicMock()
+
+            controller.run_exclusive_database_operation(
+                window.similar_artists_controller.prepare_feature, completed, failed
+            )
+            self.assertEqual(repository.artist_tags(item_id), ())
+            controller.process.write.assert_called_once_with(b"STOP\n")
+
+            competing.connection.rollback()
+            competing.close()
+            controller.process.state = MagicMock(return_value=QProcess.ProcessState.NotRunning)
+            controller._worker_finished(0, None)
+            self.app.processEvents()
+
+            self.assertEqual(repository.artist_tags(item_id), ("artist_b",))
+            completed.assert_called_once_with()
+            failed.assert_not_called()
+            controller.start_worker.assert_called_once_with()
+            window.close()
+
+    def test_similar_activation_does_not_stop_worker_after_maintenance_marker(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            window = self.window(project_root=Path(directory))
+            self.build_image_and_similar(window)
+            similar = window.similar_artists_controller
+            window.image_analysis_controller.repository.record_maintenance(
+                similar.MAINTENANCE_KEY, {"rows": 0}
+            )
+            window.image_analysis_controller.run_exclusive_database_operation = MagicMock()
+
+            completed = MagicMock()
+            failed = MagicMock()
+            similar.activate_async(completed, failed)
+            similar.catalog_worker.wait(5_000)
+            self.app.processEvents()
+
+            window.image_analysis_controller.run_exclusive_database_operation.assert_not_called()
+            self.assertTrue(similar._activated)
+            window.close()
+
+    def test_taxonomy_and_options_inventory_load_only_on_first_navigation(self) -> None:
+        window = self.window()
+        taxonomy = {
+            "version": 1,
+            "boards": {"gelbooru": {"People": {"__tags__": ["1girl"]}}, "e621": {}},
+            "metadata": {},
+            "sources": [],
+            "excluded_imported_tags": {},
+        }
+        window.taxonomy_repository.load = MagicMock(return_value=taxonomy)
+        with patch(
+            "booruflow.presentation.pyside6.options_maintenance_controller."
+            "OptionsMaintenanceController.refresh_storage"
+        ) as refresh_storage:
+
+            self.assertFalse(window._organization_loaded)
+            self.assertEqual(window.taxonomy_repository.load.call_count, 0)
+            self.open_feature(window, "organization")
+            self.open_feature(window, "organization")
+            self.assertEqual(window.taxonomy_repository.load.call_count, 1)
+            self.assertIs(window.organization_page.document, taxonomy)
+            self.open_feature(window, "options")
+            self.open_feature(window, "options")
+            self.assertEqual(refresh_storage.call_count, 1)
+        window.close()
+
+    def test_embedded_webengine_profile_is_lazy_and_created_once_on_gui_navigation(self) -> None:
+        window = self.window()
+        profile = object()
+        bridge = SimpleNamespace(cancel=lambda: None)
+        factory = object()
+        with (
+            patch(
+                "booruflow.infrastructure.embedded_gelbooru.EmbeddedGelbooruProfile",
+                return_value=profile,
+            ) as profile_type,
+            patch(
+                "booruflow.infrastructure.embedded_gelbooru.EmbeddedGelbooruBridge",
+                return_value=bridge,
+            ),
+            patch(
+                "booruflow.infrastructure.embedded_gelbooru.EmbeddedGelbooruSessionFactory",
+                return_value=factory,
+            ),
+        ):
+            self.assertIsNone(window.embedded_gelbooru_profile)
+            self.open_feature(window, "tagging")
+            self.assertIsNone(window.embedded_gelbooru_profile)
+            window._prepare_publication_backend()
+            window._prepare_publication_backend()
+            self.assertIs(window.embedded_gelbooru_profile, profile)
+            self.assertIs(window.embedded_gelbooru_session_factory, factory)
+            self.assertEqual(profile_type.call_count, 1)
         window.close()
 
     def test_log_can_be_toggled_and_cleared(self) -> None:
@@ -117,18 +423,198 @@ class PySide6ShellTests(unittest.TestCase):
     def test_dashboard_cards_navigate_by_stable_key(self) -> None:
         window = self.window()
         dashboard = window.content_pages[0]
-        review_card = dashboard.card_widgets[0]
-        self.assertEqual(review_card[0].navigation_key, "review")
-        review_card[3].click()
-        self.assertEqual(window.navigation.currentRow(), window.NAVIGATION_KEYS.index("review"))
+        card_keys = [card.navigation_key for card, *_rest in dashboard.card_widgets]
+        self.assertEqual(
+            card_keys,
+            [
+                "tagging", "image_finder", "similar_artists", "organization",
+                "tag_browser", "wiki_audit", "wiki", "grabber", "auto_organize",
+                "folder_artists", "cleanup", "options",
+            ],
+        )
+        grabber_card = next(value for value in dashboard.card_widgets if value[0].navigation_key == "grabber")
+        grabber_card[3].click()
+        self.assertEqual(window.navigation.currentRow(), window._visible_navigation_row("grabber"))
         window.close()
+
+    def test_grabber_tools_reuses_review_and_launcher_pages(self) -> None:
+        window = self.window()
+        self.open_feature(window, "grabber")
+        self.assertIs(window.grabber_tools_page.tabs.widget(0), window.review_page)
+        self.assertIs(window.grabber_tools_page.tabs.widget(1), window.grabber_page)
+        self.assertEqual(window.grabber_tools_page.tabs.tabText(0), "Tag List Builder")
+        self.assertEqual(window.grabber_tools_page.tabs.tabText(1), "Grabber Launcher")
+
+        window.navigate_to_key("review")
+        for _ in range(8):
+            self.app.processEvents()
+        self.assertEqual(window.navigation.currentRow(), window._visible_navigation_row("grabber"))
+        self.assertIs(window.grabber_tools_page.tabs.currentWidget(), window.review_page)
+        window.close()
+
+    def test_saved_grabber_path_updates_home_and_loaded_grabber_tools(self) -> None:
+        from booruflow.infrastructure.settings import JsonSettingsRepository
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            executable = root / "Grabber.exe"
+            executable.touch()
+            repository = JsonSettingsRepository(root / "settings.json")
+            window = self.window(
+                settings_repository=repository,
+                project_root=root,
+            )
+            self.open_feature(window, "options")
+            self.open_feature(window, "grabber")
+            self.assertFalse(window.grabber_page.available)
+
+            settings = dict(window._settings)
+            settings["grabber_executable"] = str(executable)
+            window._save_options(settings, {})
+
+            self.assertTrue(window.capabilities.grabber.available)
+            self.assertTrue(window.dashboard_page.grabber.available)
+            self.assertFalse(hasattr(window.dashboard_page, "availability"))
+            self.assertTrue(window.grabber_page.available)
+            self.assertEqual(repository.load()["grabber_executable"], str(executable))
+            window.close()
+
+    def test_options_install_actions_route_to_existing_analysis_controller(self) -> None:
+        window = self.window()
+        window.options_page = MagicMock()
+        window.image_analysis_controller = MagicMock()
+
+        window._install_image_analysis_from_options("runtime")
+        window._install_image_analysis_from_options("model")
+
+        window.image_analysis_controller.bind_installation_page.assert_called_with(
+            window.options_page
+        )
+        window.image_analysis_controller.install_gpu_runtime.assert_called_once_with(
+            parent=window.options_page
+        )
+        window.image_analysis_controller.install_wd14.assert_called_once_with(
+            parent=window.options_page
+        )
+        window.close()
+
+    def test_lazy_page_is_constructed_once_then_reused(self) -> None:
+        window = self.window()
+        self.assertIsNone(window.auto_organize_page)
+        self.assertIsNone(window.options_page)
+        self.open_feature(window, "auto_organize")
+        page = window.auto_organize_page
+        controller = window.auto_organize_controller
+        self.assertIsNotNone(page)
+        self.open_feature(window, "home")
+        self.open_feature(window, "auto_organize")
+        self.assertIs(window.auto_organize_page, page)
+        self.assertIs(window.auto_organize_controller, controller)
+        window.close()
+
+    def test_lazy_navigation_shows_existing_overlay_before_prepare_and_hides_it_once(self) -> None:
+        from PySide6.QtWidgets import QLabel
+
+        from booruflow.presentation.pyside6.feature_lifecycle import FeatureState
+
+        window = self.window()
+        registration = window.feature_lifecycle._features["auto_organize"]
+        completions = []
+        prepare_calls = []
+
+        def delayed_prepare(done, _failed):
+            prepare_calls.append(True)
+            window._install_feature_page("auto_organize", QLabel("Loaded content"))
+            completions.append(done)
+
+        registration.prepare = delayed_prepare
+        host = window.page_hosts["auto_organize"]
+        window.navigate_to_key("auto_organize")
+
+        self.assertIs(window.pages.currentWidget(), host)
+        self.assertIsNotNone(host.loading)
+        self.assertFalse(host.loading.isHidden())
+        self.assertIn("Loading Auto organize", host.loading_label.text())
+        self.assertIn("Auto organize — Loading", window.status_label.text())
+
+        for _ in range(4):
+            self.app.processEvents()
+        self.assertIs(window.feature_lifecycle.state("auto_organize"), FeatureState.LOADING)
+        self.assertEqual(len(prepare_calls), 1)
+        self.assertFalse(host.loading.isHidden())
+
+        completions[0]()
+        self.app.processEvents()
+        self.assertIs(window.feature_lifecycle.state("auto_organize"), FeatureState.READY)
+        self.assertTrue(host.loading.isHidden())
+        self.assertFalse(host.content.isHidden())
+        self.assertIn("Auto organize — Ready", window.status_label.text())
+
+        window.navigate_to_key("home")
+        window.navigate_to_key("auto_organize")
+        self.app.processEvents()
+        self.assertEqual(len(prepare_calls), 1)
+        self.assertTrue(host.loading.isHidden())
+        window.close()
+
+    def test_failed_lazy_page_is_isolated_and_retry_rebuilds_it(self) -> None:
+        from booruflow.presentation.pyside6.feature_lifecycle import FeatureState
+
+        window = self.window()
+        registration = window.feature_lifecycle._features["grabber"]
+        prepare = registration.prepare
+        registration.prepare = lambda _done, failed: failed("synthetic failure")
+        self.open_feature(window, "grabber")
+        self.assertIs(window.feature_lifecycle.state("grabber"), FeatureState.FAILED)
+        self.assertIsNone(window.review_page)
+        host = window.page_hosts["grabber"]
+        self.assertTrue(host.loading.isHidden())
+        self.assertFalse(host.failure.isHidden())
+        self.assertIn("Grabber Tools (Beta) — Failed", window.status_label.text())
+
+        self.open_feature(window, "tasks")
+        self.assertIs(window.feature_lifecycle.state("tasks"), FeatureState.READY)
+        registration.prepare = prepare
+        window.feature_lifecycle.retry("grabber")
+        for _ in range(8):
+            self.app.processEvents()
+        self.assertIs(window.feature_lifecycle.state("grabber"), FeatureState.READY)
+        self.assertIsNotNone(window.review_page)
+        window.close()
+
+    def test_dashboard_and_sidebar_share_the_same_lifecycle_entry(self) -> None:
+        window = self.window()
+        original = window.feature_lifecycle.request
+        requested = []
+        window.feature_lifecycle.request = lambda key: (requested.append(key), original(key))[1]
+        card = next(
+            value for value in window.dashboard_page.card_widgets
+            if value[0].navigation_key == "folder_artists"
+        )
+        card[3].click()
+        for _ in range(8):
+            self.app.processEvents()
+        window.navigation.setCurrentRow(window._visible_navigation_row("tag_browser"))
+        for _ in range(8):
+            self.app.processEvents()
+        self.assertIn("folder_artists", requested)
+        self.assertIn("tag_browser", requested)
+        window.close()
+
+    def test_close_with_unloaded_and_ready_lazy_features(self) -> None:
+        window = self.window()
+        self.open_feature(window, "auto_organize")
+        window.auto_organize_controller.shutdown = MagicMock(return_value=True)
+        self.assertIsNone(window.cleanup_controller)
+        window.close()
+        window.auto_organize_controller.shutdown.assert_called_once_with()
 
     def test_standard_window_keeps_every_page_horizontally_accessible(self) -> None:
         window = self.window()
         window.resize(1280, 820)
         window.show()
         for index in range(window.pages.count()):
-            window.navigation.setCurrentRow(index)
+            window.navigate_to(index)
             self.app.processEvents()
             self.assertEqual(
                 window.pages.widget(index).horizontalScrollBar().maximum(),
@@ -138,9 +624,11 @@ class PySide6ShellTests(unittest.TestCase):
         window.close()
 
     def test_image_analysis_action_bar_stays_inside_main_viewport(self) -> None:
-        window = self.window(); page = window.image_analysis_page
+        window = self.window()
+        page = window._build_image_analysis()
+        window._install_feature_page("image_analysis", page)
         image_analysis_index = window.NAVIGATION_KEYS.index("image_analysis")
-        window.navigation.setCurrentRow(image_analysis_index); window.show()
+        window.navigate_to_key("image_analysis"); window.show()
         buttons = (
             page.manual_add, page.accept, page.reject, page.accept_above,
             page.retry_button, page.skip_button, page.complete_button,
@@ -165,8 +653,10 @@ class PySide6ShellTests(unittest.TestCase):
         window.close()
 
     def test_tagging_review_actions_have_nonzero_geometry_in_main_viewport(self) -> None:
-        window = self.window(); page = window.tagging_page
-        window.navigation.setCurrentRow(2); window.show(); window.toggle_log()
+        window = self.window()
+        self.open_feature(window, "tagging")
+        page = window.tagging_page
+        window.show(); window.toggle_log()
         page._select_post({"id": 42, "tags": "solo"})
         page.show_local_review("Non analysée", None, ["solo"], [], [], [])
         buttons = (
@@ -190,6 +680,7 @@ class PySide6ShellTests(unittest.TestCase):
 
     def test_task_center_refreshes_when_a_task_changes(self) -> None:
         window = self.window()
+        self.open_feature(window, "tasks")
         task_id = window.task_manager.start("test", "Index local")
         self.app.processEvents()
         self.assertEqual(window.task_page.table.rowCount(), 1)
@@ -206,6 +697,7 @@ class PySide6ShellTests(unittest.TestCase):
         window = self.window()
         window.change_language("fr")
         self.assertEqual(window.navigation.item(0).text(), "Accueil")
+        self.assertEqual(window.navigation.item(1).text(), "PRINCIPAL")
         self.assertEqual(window.clear_log_button.text(), "Effacer le journal")
         self.assertIn("Prêt", window.status_label.text())
         window.close()
@@ -213,7 +705,9 @@ class PySide6ShellTests(unittest.TestCase):
     def test_organization_can_prepare_a_wiki_draft(self) -> None:
         window = self.window()
         window._prepare_wiki("Unit_Test_Wiki_Tag")
-        self.assertEqual(window.navigation.currentRow(), window.NAVIGATION_KEYS.index("wiki"))
+        for _ in range(8):
+            self.app.processEvents()
+        self.assertEqual(window.navigation.currentRow(), window._visible_navigation_row("wiki"))
         self.assertEqual(window.wiki_page.tag.text(), "Unit_Test_Wiki_Tag")
         self.assertIn("[b]Description:[/b]", window.wiki_page.source.toPlainText())
         window.close()
@@ -222,6 +716,7 @@ class PySide6ShellTests(unittest.TestCase):
         from PySide6.QtWidgets import QMessageBox
 
         window = self.window()
+        self.open_feature(window, "organization")
         preview = {"boards": {"gelbooru": {}}}
         summary = {"total": 10, "added": 2, "removed": 1}
         with (

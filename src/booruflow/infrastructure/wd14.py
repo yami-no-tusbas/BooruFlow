@@ -91,6 +91,28 @@ def load_selected_tags(path: Path) -> tuple[tuple[str, str], ...]:
     return tuple(rows)
 
 
+def wd14_config_identity(config: WD14Config) -> ModelIdentity:
+    """Resolve the persistent WD14 identity without loading the ONNX runtime."""
+    metadata_path = config.model_directory / METADATA_FILENAME
+    if not metadata_path.is_file():
+        raise WD14UnavailableError(f"WD14 metadata is missing: {metadata_path}")
+    try:
+        metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
+        version = str(metadata["model_sha256"])
+        model_id = str(metadata["model_id"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        raise WD14UnavailableError(f"WD14 metadata is invalid: {exc}") from exc
+    if model_id != config.model_id or len(version) != 64:
+        raise WD14UnavailableError("WD14 metadata identifies an unexpected model or version")
+    config_value = json.dumps({
+        "model_id": model_id, "model_sha256": version,
+        "preprocessing": PREPROCESSING_VERSION,
+        "store_threshold": config.store_threshold,
+    }, sort_keys=True, separators=(",", ":"))
+    config_hash = hashlib.sha256(config_value.encode("utf-8")).hexdigest()
+    return ModelIdentity("wd14", model_id, version, config_hash, "")
+
+
 def prepare_wd14_image(image: Image.Image, target_size: int):
     """Apply the official v3 ONNX preprocessing and return NHWC float32 BGR."""
     if target_size < 1:
@@ -141,17 +163,7 @@ class WD14Backend:
     def prepare(self,trace=None) -> None:
         if not self.model_path.is_file():
             raise WD14UnavailableError(f"WD14 model is missing: {self.model_path}")
-        metadata_path = self.config.model_directory / METADATA_FILENAME
-        if not metadata_path.is_file():
-            raise WD14UnavailableError(f"WD14 metadata is missing: {metadata_path}")
-        try:
-            metadata = json.loads(metadata_path.read_text(encoding="utf-8-sig"))
-            version = str(metadata["model_sha256"])
-            model_id = str(metadata["model_id"])
-        except (OSError, ValueError, KeyError, TypeError) as exc:
-            raise WD14UnavailableError(f"WD14 metadata is invalid: {exc}") from exc
-        if model_id != self.config.model_id or len(version) != 64:
-            raise WD14UnavailableError("WD14 metadata identifies an unexpected model or version")
+        persistent_identity = wd14_config_identity(self.config)
         self.tags = load_selected_tags(self.tags_path)
         try:
             arguments=(self.model_path,self.config.provider_preference)
@@ -179,14 +191,10 @@ class WD14Backend:
         except Exception as exc:
             self.close()
             raise WD14UnavailableError(f"could not initialize WD14 ONNX model: {exc}") from exc
-        config_value = json.dumps({
-            "model_id": model_id, "model_sha256": version,
-            "preprocessing": PREPROCESSING_VERSION,
-            "store_threshold": self.config.store_threshold,
-        }, sort_keys=True, separators=(",", ":"))
-        config_hash = hashlib.sha256(config_value.encode("utf-8")).hexdigest()
         self.identity = ModelIdentity(
-            "wd14", model_id, version, config_hash, self.device
+            persistent_identity.backend, persistent_identity.name,
+            persistent_identity.version, persistent_identity.configuration_hash,
+            self.device,
         )
 
     def analyze(self, path: Path) -> WD14Result:

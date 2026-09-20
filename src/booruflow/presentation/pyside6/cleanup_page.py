@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QDragEnterEvent, QDropEvent
+from PySide6.QtCore import Signal
+from PySide6.QtGui import QDragEnterEvent, QDropEvent
 from PySide6.QtWidgets import (
     QFileDialog,
     QGroupBox,
@@ -18,13 +18,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from booruflow.application.hydra_model_manager import legacy_hydra_directory
-from booruflow.application.model_inventory import (
-    format_size,
-    hydra_status,
-    inventory_models,
-    model_totals,
-)
 from booruflow.infrastructure.localization import LanguageCatalog
 
 
@@ -62,9 +55,6 @@ class CleanupPage(QWidget):
     stop_requested = Signal()
     recycle_requested = Signal()
     blacklist_changed = Signal(str)
-    hydra_install_requested = Signal()
-    hydra_migrate_requested = Signal()
-    hydra_remove_requested = Signal()
 
     def __init__(
         self, catalog: LanguageCatalog, settings: dict[str, object] | None = None,
@@ -78,32 +68,6 @@ class CleanupPage(QWidget):
         self.title.setStyleSheet("font-size: 22px; font-weight: 600;")
         layout.addWidget(self.title)
         self.project_root = project_root
-        self.disk_group = QGroupBox()
-        disk_layout = QVBoxLayout(self.disk_group)
-        self.disk_usage = QLabel()
-        self.disk_usage.setTextInteractionFlags(self.disk_usage.textInteractionFlags())
-        disk_layout.addWidget(self.disk_usage)
-        self.hydra_status_label = QLabel()
-        self.hydra_status_label.setWordWrap(True)
-        disk_layout.addWidget(self.hydra_status_label)
-        disk_actions = QHBoxLayout()
-        self.refresh_disk_button = QPushButton()
-        self.open_models_button = QPushButton()
-        self.hydra_install_button = QPushButton()
-        self.hydra_migrate_button = QPushButton()
-        self.hydra_remove_button = QPushButton()
-        self.open_models_button.setEnabled(project_root is not None)
-        self.hydra_install_button.setEnabled(project_root is not None)
-        self.hydra_migrate_button.setEnabled(project_root is not None)
-        self.hydra_remove_button.setEnabled(False)
-        disk_actions.addWidget(self.refresh_disk_button)
-        disk_actions.addWidget(self.open_models_button)
-        disk_actions.addWidget(self.hydra_install_button)
-        disk_actions.addWidget(self.hydra_migrate_button)
-        disk_actions.addWidget(self.hydra_remove_button)
-        disk_actions.addStretch(1)
-        disk_layout.addLayout(disk_actions)
-        layout.addWidget(self.disk_group)
         self.group = QGroupBox()
         box = QVBoxLayout(self.group)
         self.help = QLabel()
@@ -158,46 +122,7 @@ class CleanupPage(QWidget):
         self.blacklist_file.editingFinished.connect(
             lambda: self.blacklist_changed.emit(self.blacklist_file.text().strip())
         )
-        self.refresh_disk_button.clicked.connect(self.refresh_disk_usage)
-        self.open_models_button.clicked.connect(self._open_models)
-        self.hydra_install_button.clicked.connect(self.hydra_install_requested.emit)
-        self.hydra_migrate_button.clicked.connect(self.hydra_migrate_requested.emit)
-        self.hydra_remove_button.clicked.connect(self.hydra_remove_requested.emit)
         self.retranslate()
-        self.refresh_disk_usage()
-
-    def refresh_disk_usage(self) -> None:
-        if self.project_root is None:
-            self.disk_usage.setText(self.catalog.text("cleanup.disk_unavailable"))
-            return
-        totals = model_totals(inventory_models(self.project_root))
-        self.disk_usage.setText(self.catalog.text(
-            "cleanup.disk_models", total=format_size(totals["total"]),
-            wd14=format_size(totals["wd14"]), embeddings=format_size(totals["embeddings"]),
-            e621=format_size(totals["e621"]), other=format_size(totals["other"]),
-        ))
-        state, size, _message = hydra_status(self.project_root)
-        legacy = legacy_hydra_directory(self.project_root)
-        self.hydra_status_label.setText(self.catalog.text(
-            f"cleanup.hydra_{state}", size=format_size(size)
-        ))
-        self.hydra_install_button.setEnabled(True)
-        self.hydra_migrate_button.setVisible(
-            state != "installed" and legacy.is_dir()
-        )
-        self.hydra_remove_button.setEnabled(state == "installed")
-
-    def set_model_operation_running(self, running: bool, message: str = "") -> None:
-        self.hydra_install_button.setEnabled(not running)
-        self.hydra_migrate_button.setEnabled(not running)
-        self.hydra_remove_button.setEnabled(not running)
-        self.refresh_disk_button.setEnabled(not running)
-        if message:
-            self.hydra_status_label.setText(message)
-
-    def _open_models(self) -> None:
-        if self.project_root is not None:
-            QDesktopServices.openUrl(QUrl.fromLocalFile(str(self.project_root / "var" / "models")))
 
     def _browse_blacklist(self) -> None:
         selected, _filter = QFileDialog.getOpenFileName(
@@ -251,12 +176,6 @@ class CleanupPage(QWidget):
     def retranslate(self) -> None:
         text = self.catalog.text
         self.title.setText(text("nav.cleanup"))
-        self.disk_group.setTitle(text("cleanup.disk_group"))
-        self.refresh_disk_button.setText(text("cleanup.disk_refresh"))
-        self.open_models_button.setText(text("cleanup.disk_open_models"))
-        self.hydra_install_button.setText(text("cleanup.hydra_install"))
-        self.hydra_migrate_button.setText(text("cleanup.hydra_migrate"))
-        self.hydra_remove_button.setText(text("cleanup.hydra_remove"))
         self.group.setTitle(text("cleanup.group"))
         self.help.setText(text("cleanup.help"))
         self.blacklist_group.setTitle(text("cleanup.blacklist_group"))

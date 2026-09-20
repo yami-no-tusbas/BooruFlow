@@ -7,14 +7,15 @@ New orchestration is added here; the fallback controller is frozen in
 from __future__ import annotations
 
 import sqlite3
+from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
 from PySide6.QtCore import QThread, Signal
-from PySide6.QtWidgets import QMessageBox
+from PySide6.QtWidgets import QApplication, QMessageBox
 
-from booruflow.application.batch_publisher import BatchPublishSummary
+from booruflow.application.batch_publisher import MAX_PUBLISH_ATTEMPTS, BatchPublishSummary
 from booruflow.application.database_paths import gelbooru_alias_database, gelbooru_tag_database
 from booruflow.application.tag_canonicalization import canonicalize_new_gelbooru_tag
 from booruflow.application.tag_lookup import exact_tag, lookup_gelbooru_suggestions, lookup_tags
@@ -24,6 +25,10 @@ from booruflow.application.tagging import (
     match_local_tag,
     normalize_booru_tag,
     parse_review_row_token,
+)
+from booruflow.application.targeted_wd14 import (
+    TargetedWD14Analyzer,
+    resolve_wd14_target,
 )
 from booruflow.domain.booru_sites import category_name, site_definition
 from booruflow.domain.image_analysis import AnalysisState, DecisionState, ObservationSource
@@ -61,6 +66,7 @@ def _emit_perf(controller, step: str, started: float) -> None:
 
 class BatchPublishWorker(QThread):
     progress = Signal(int, int, str)
+    status = Signal(object)
     completed = Signal(object)
     failed = Signal(str)
 
@@ -77,9 +83,9 @@ class BatchPublishWorker(QThread):
                 self.publisher.cancel_check = self.isInterruptionRequested
             callback = lambda current, total, post_id: self.progress.emit(current, total, post_id)
             result = (
-                self.publisher.retry_failed(self.retry_ids, callback)
+                self.publisher.retry_failed(self.retry_ids, callback, self.status.emit)
                 if self.retry_ids is not None
-                else self.publisher.publish_pending(callback)
+                else self.publisher.publish_pending(callback, self.status.emit)
             )
             self.completed.emit(result)
         except Exception as exc:  # noqa: BLE001 - Qt boundary
@@ -107,6 +113,74 @@ class SessionTestWorker(QThread):
             self.completed.emit("unknown")
         except Exception as exc:  # noqa: BLE001 - session boundary
             self.completed.emit(f"error:{exc}")
+
+
+class TagSuggestionWorker(QThread):
+    """Run bounded local autocomplete queries away from the Qt GUI thread."""
+
+    completed = Signal(str, str, str, object, float)
+    failed = Signal(str, str, str, str)
+
+    def __init__(
+        self,
+        target: str,
+        site: str,
+        query: str,
+        tag_database: Path,
+        alias_database: Path | None,
+    ) -> None:
+        super().__init__()
+        self.target = target
+        self.site = site
+        self.query = query
+        self.tag_database = tag_database
+        self.alias_database = alias_database
+
+    def run(self) -> None:
+        started = perf_counter()
+        try:
+            if self.site == "gelbooru":
+                rows = lookup_gelbooru_suggestions(
+                    self.tag_database, self.alias_database, self.query, limit=20
+                )
+                suggestions = [(row.value, row.alias_source) for row in rows]
+            else:
+                suggestions = [
+                    row.name
+                    for row in lookup_tags(
+                        self.site, self.tag_database, self.query, limit=20
+                    )
+                ]
+        except Exception as exc:  # noqa: BLE001 - worker boundary
+            self.failed.emit(self.target, self.site, self.query, str(exc))
+            return
+        self.completed.emit(
+            self.target,
+            self.site,
+            self.query,
+            suggestions,
+            (perf_counter() - started) * 1_000,
+        )
+
+
+class TargetedWD14Worker(QThread):
+    progress = Signal(object)
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, analyzer: TargetedWD14Analyzer, tag: str, raw_names, posts) -> None:
+        super().__init__()
+        self.analyzer = analyzer; self.tag = tag; self.raw_names = raw_names; self.posts = posts
+
+    def run(self) -> None:
+        try:
+            result = self.analyzer.analyze(
+                self.tag, self.raw_names, self.posts, self.progress.emit,
+                self.isInterruptionRequested,
+            )
+            self.completed.emit(result)
+        except Exception as exc:  # noqa: BLE001 - worker boundary
+            self.failed.emit(str(exc))
 
 
 class MultiSiteSessionTestWorker(QThread):
@@ -163,12 +237,15 @@ class TaggingController(TaggingLegacyController):
 
     def __init__(self, *args, **kwargs) -> None:
         self._publisher_factory = kwargs.pop("publisher_factory", None)
+        self._publication_prepare = kwargs.pop("publication_prepare", None)
         self._session_factory = kwargs.pop("session_factory", None)
         self._session_factory_provider = kwargs.pop("session_factory_provider", None)
         self._e621_validation_factory = kwargs.pop("e621_validation_factory", None)
         self._publication_backend_provider = kwargs.pop("publication_backend_provider", None)
         self._diagnostic_mode_provider = kwargs.pop("diagnostic_mode_provider", None)
         self._http_diagnostic_mode_provider = kwargs.pop("http_diagnostic_mode_provider", None)
+        self._project_root = Path(kwargs.pop("project_root", Path.cwd()))
+        self._settings = kwargs.pop("settings", {})
         super().__init__(*args, **kwargs)
         self._current_remote_site: str | None = None
         self._undo_stack: list[ReviewDecisionOperation | ManualAddOperation] = []
@@ -188,8 +265,159 @@ class TaggingController(TaggingLegacyController):
         self.page.batch_cancel_requested.connect(self.cancel_batch_publish)
         self.page.reanalyze_requested.connect(self.reanalyze_current)
         self.page.site_changed.connect(self.site_changed)
+        self.page.bulk_apply_requested.connect(self.apply_bulk_manual_tags)
+        self.page.bulk_lookup_requested.connect(self.lookup_bulk_tags)
+        self.page.targeted_wd14_requested.connect(self.start_targeted_wd14)
+        self.page.targeted_wd14_cancel_requested.connect(self.cancel_targeted_wd14)
         self.publish_worker: BatchPublishWorker | None = None
         self.session_test_worker: SessionTestWorker | None = None
+        self.targeted_wd14_worker: TargetedWD14Worker | None = None
+        self.bulk_lookup_workers: dict[str, TagSuggestionWorker] = {}
+        self._bulk_lookup_pending: dict[str, str] = {}
+        self._bulk_suggestion_cache: OrderedDict[
+            tuple[str, str, str, str], list[str] | list[tuple[str, str | None]]
+        ] = OrderedDict()
+
+    def start_targeted_wd14(self, tag: str, posts: list[dict]) -> None:
+        if self.targeted_wd14_worker and self.targeted_wd14_worker.isRunning():
+            self.targeted_wd14_worker.requestInterruption()
+            self.page.show_targeted_wd14_unavailable(
+                tag, self.catalog.text("tagging.wd14.busy")
+            )
+            return
+        if _active_site(self) != "gelbooru":
+            self.page.show_targeted_wd14_unavailable(
+                tag, self.catalog.text("tagging.wd14.unsupported_site")
+            )
+            return
+        model_directory = Path(self._settings.get(
+            "image_analysis_wd14_model_directory",
+            self._project_root / "var" / "models" / "image_analysis" / "wd-vit-tagger-v3",
+        ))
+        alias_database = gelbooru_alias_database(self._settings)
+        try:
+            raw_names = resolve_wd14_target(tag, model_directory, alias_database)
+        except Exception as exc:  # noqa: BLE001 - local model diagnostic boundary
+            self.page.show_targeted_wd14_unavailable(tag, str(exc))
+            return
+        if not raw_names:
+            self.page.show_targeted_wd14_unavailable(
+                tag, self.catalog.text("tagging.wd14.tag_unavailable")
+            )
+            self._log(f"Targeted WD14 unavailable tag={tag}", level="WARNING")
+            return
+        analyzer = TargetedWD14Analyzer(
+            self._project_root / "var" / "state" / "image_analysis.sqlite",
+            self._project_root / "var" / "cache" / "image_analysis",
+            model_directory,
+            str(self._settings.get("image_analysis_wd14_model_id", "SmilingWolf/wd-vit-tagger-v3")),
+            alias_database, self.credentials(), gelbooru_tag_database(self._settings),
+        )
+        self._log(f"Targeted WD14 analysis started tag={tag} visible_items={len(posts)}")
+        worker = TargetedWD14Worker(analyzer, tag, raw_names, list(posts))
+        worker.progress.connect(self._targeted_wd14_progress)
+        worker.completed.connect(self._targeted_wd14_completed)
+        worker.failed.connect(lambda error, value=tag: self._targeted_wd14_failed(value, error))
+        worker.finished.connect(self._targeted_wd14_finished)
+        self.targeted_wd14_worker = worker
+        worker.start()
+
+    def _targeted_wd14_progress(self, progress) -> None:
+        self.page.set_targeted_wd14_progress(progress)
+        if progress.completed == progress.reused and not progress.analyzed and not progress.failed:
+            self._log(
+                f"Targeted WD14 cache lookup existing={progress.reused} "
+                f"missing={progress.total - progress.reused}"
+            )
+        self._log(
+            f"Targeted WD14 progress completed={progress.completed}/{progress.total} "
+            f"reused={progress.reused} analyzed={progress.analyzed} failed={progress.failed}",
+            level="DEBUG",
+        )
+
+    def _targeted_wd14_completed(self, result) -> None:
+        self.page.show_targeted_wd14_result(result)
+        counts = {}
+        from booruflow.application.targeted_wd14 import confidence_bucket
+        for post_id in result.scores:
+            key = confidence_bucket(result.scores[post_id]); counts[key] = counts.get(key, 0) + 1
+        self._log(
+            f"Targeted WD14 analysis completed tag={result.tag} total={result.progress.total} "
+            f"reused={result.progress.reused} analyzed={result.progress.analyzed} "
+            f"failed={result.progress.failed} elapsed={result.elapsed_seconds:.1f}s"
+        )
+        self._log("WD14 confidence groups " + " ".join(f"{key}={value}" for key, value in counts.items()))
+
+    def _targeted_wd14_failed(self, tag: str, error: str) -> None:
+        self.page.show_targeted_wd14_unavailable(tag, error)
+        self._log(f"Targeted WD14 analysis failed tag={tag} error={error}", level="ERROR")
+
+    def _targeted_wd14_finished(self) -> None:
+        worker = self.targeted_wd14_worker
+        self.targeted_wd14_worker = None
+        if worker is not None:
+            worker.deleteLater()
+
+    def cancel_targeted_wd14(self) -> None:
+        if self.targeted_wd14_worker and self.targeted_wd14_worker.isRunning():
+            self.targeted_wd14_worker.requestInterruption()
+
+    def shutdown(self) -> bool:
+        clean = True
+        worker = self.targeted_wd14_worker
+        if worker is not None and worker.isRunning():
+            worker.requestInterruption()
+            clean = worker.wait(10_000) and clean
+        for lookup_worker in tuple(self.bulk_lookup_workers.values()):
+            if lookup_worker.isRunning():
+                lookup_worker.requestInterruption()
+                clean = lookup_worker.wait(5_000) and clean
+        return clean
+
+    def apply_bulk_manual_tags(
+        self, posts: list[dict], additions: list[str], removals: list[str]
+    ) -> None:
+        """Stage manual edits for search results; never analyze or publish."""
+        if not self.image_analysis:
+            return
+        total_started = perf_counter()
+        repository = self.image_analysis.repository
+        changes = [
+            {
+                "site": _active_site(self), "post_id": str(post.get("id", "")).strip(),
+                "original_tags": str(post.get("tags", "")).split(),
+                "additions": additions, "removals": removals,
+            }
+            for post in posts if str(post.get("id", "")).strip()
+        ]
+        publisher_active = bool(self.publish_worker and self.publish_worker.isRunning())
+        self._log(
+            f"Bulk apply started selected={len(changes)} additions={len(additions)} "
+            f"removals={len(removals)} publisher_active={str(publisher_active).lower()}"
+        )
+        repository_started = perf_counter()
+        entries = repository.stage_manual_remote_deltas(changes)
+        repository_ms = (perf_counter() - repository_started) * 1000
+        self._log(
+            f"Bulk repository staging posts={len(entries)} elapsed_ms={repository_ms:.1f}"
+        )
+        self._log(
+            f"Manual bulk delta staged locally: posts={len(entries)} "
+            f"additions={len(additions)} removals={len(removals)}"
+        )
+        refresh_started = perf_counter()
+        refresh_stats = self.refresh_batch() or {}
+        refresh_ms = (perf_counter() - refresh_started) * 1000
+        self._log(
+            f"Bulk batch/grid refresh elapsed_ms={refresh_ms:.1f} "
+            f"filter_ms={float(refresh_stats.get('filter_ms', 0.0)):.1f} "
+            f"grid_rebuilt={str(bool(refresh_stats.get('grid_rebuilt', False))).lower()} "
+            f"removed={int(refresh_stats.get('removed', 0))}"
+        )
+        self._log(
+            f"Bulk apply completed posts={len(entries)} "
+            f"total_ms={(perf_counter() - total_started) * 1000:.1f}"
+        )
 
     def site_changed(self, site: str) -> None:
         if self.worker is not None and self.worker.isRunning():
@@ -201,17 +429,73 @@ class TaggingController(TaggingLegacyController):
         self._last_polled_state = None
         self._undo_stack.clear()
         self._redo_stack.clear()
+        self._bulk_lookup_pending.clear()
         if self.image_analysis:
             self.page.set_reviewed_post_ids(
                 self.image_analysis.repository.reviewed_remote_post_ids(site)
             )
+            self.refresh_batch()
         self._log(f"site={site} context selected")
+
+    def finished(self, *args) -> None:
+        super().finished(*args)
+        posts = args[0] if args else []
+        error = str(args[4]) if len(args) > 4 else ""
+        stopped = bool(args[5]) if len(args) > 5 else False
+        if error:
+            self.page.page_status.show_message(
+                self.catalog.text("status.message.failed_see_log"), timeout_ms=6_000
+            )
+        elif not stopped:
+            self.page.page_status.show_message(
+                self.catalog.text("tagging.search.summary", retained=len(posts)),
+                timeout_ms=6_000,
+                log=True,
+            )
+        if self.page.result_posts:
+            self.refresh_batch()
+
+    def start(self, request) -> None:
+        credentials = self.credentials().get(request.site, {})
+        if (
+            not isinstance(credentials, dict)
+            or not credentials.get("user_id")
+            or not credentials.get("api_key")
+        ):
+            self.page.page_status.show_message(
+                self.catalog.text("tagging.credentials_missing", site=request.site),
+                timeout_ms=6_000,
+            )
+        super().start(request)
 
     def select_post(self, post_id: int, post: dict) -> None:
         started = perf_counter()
         self._local_batch_item_id = None
         self._current_remote_site = str(self.page.active_site)
+        existing = None
+        lookup_failed = False
+        if self.image_analysis:
+            try:
+                existing = self.image_analysis.repository.item_by_remote_source(
+                    self._current_remote_site, str(post_id)
+                )
+            except Exception:  # noqa: BLE001 - legacy controller reports the detail
+                lookup_failed = True
         super().select_post(post_id, post)
+        if lookup_failed:
+            return
+        if existing is not None and existing.state is AnalysisState.PENDING:
+            # Targeted WD14 may have populated the shared cache with an item
+            # deliberately marked analysis_requested=0. Selecting it for full
+            # review must promote that same row instead of waiting forever.
+            self.analyze(post_id)
+        state = existing.state if existing is not None else AnalysisState.PENDING
+        if state in {AnalysisState.PENDING, AnalysisState.PROCESSING}:
+            self._analysis_pending_status()
+        elif state in {AnalysisState.READY_FOR_REVIEW, AnalysisState.REVIEWED}:
+            self._analysis_complete_status(cached=True)
+        elif state is AnalysisState.FAILED:
+            self._analysis_failed_status(existing.last_error or "analysis failed")
         self._log(
             f"Tagging item selected: site={self._current_remote_site} post_id={post_id}",
             level="DEBUG",
@@ -221,13 +505,87 @@ class TaggingController(TaggingLegacyController):
         )
         _emit_perf(self, "remote_metadata_apply", started)
 
+    def _page_available(self) -> bool:
+        try:
+            return self.page.thread() is not None
+        except RuntimeError:
+            return False
+
+    def _analysis_pending_status(self) -> None:
+        if not self._page_available():
+            return
+        self.page.page_status.set_state("analyzing")
+        self.page.page_status.show_message(
+            self.catalog.text("tagging.analysis.status_running"), timeout_ms=0
+        )
+        self.page.page_status.set_busy(
+            accessible_text=self.catalog.text("tagging.analysis.status_running")
+        )
+
+    def _analysis_complete_status(self, *, cached: bool = False) -> None:
+        if not self._page_available():
+            return
+        self.page.page_status.clear_progress()
+        self.page.page_status.set_state("ready")
+        self.page.page_status.show_message(
+            self.catalog.text(
+                "tagging.analysis.status_cached" if cached else "tagging.analysis.status_complete"
+            ),
+            timeout_ms=5_000,
+        )
+
+    def _analysis_failed_status(self, detail: str, *, log_detail: bool = True) -> None:
+        if not self._page_available():
+            return
+        self.page.page_status.clear_progress()
+        self.page.page_status.set_state("ready")
+        self.page.page_status.show_message(
+            self.catalog.text("tagging.analysis.status_failed"), timeout_ms=6_000
+        )
+        if log_detail:
+            self._log(f"Analysis failed: {detail}", level="ERROR")
+
+    def analyze(self, post_id: int) -> None:
+        self._analysis_pending_status()
+        super().analyze(post_id)
+        if not self.image_analysis:
+            return
+        item = self.image_analysis.repository.item_by_remote_source(
+            _active_site(self), str(post_id)
+        )
+        if item is not None and item.state is AnalysisState.PENDING:
+            ensure = getattr(self.image_analysis, "ensure_worker_available", None)
+            if callable(ensure):
+                ensure("interactive Tagging request")
+
+    def _poll_current(self) -> None:
+        if not self._page_available():
+            self.current_post_id = None
+            return
+        previous = self._last_polled_state
+        super()._poll_current()
+        if self._last_polled_state == previous or not self.image_analysis:
+            return
+        item = self.image_analysis.repository.item_by_remote_source(
+            _active_site(self), str(self.current_post_id)
+        )
+        if item is None:
+            return
+        if item.state in {AnalysisState.PENDING, AnalysisState.PROCESSING}:
+            self._analysis_pending_status()
+        elif item.state in {AnalysisState.READY_FOR_REVIEW, AnalysisState.REVIEWED}:
+            self._analysis_complete_status()
+        elif item.state is AnalysisState.FAILED:
+            self._analysis_failed_status(item.last_error or "analysis failed")
+
     def _image_analysis_state_changed(self, state: str, detail: str) -> None:
-        if self.current_post_id is None:
+        if self.current_post_id is None or not self._page_available():
             return
         if state in {"failed", "startup_timeout", "unavailable"}:
-            self._log(detail or f"ImageAnalysis {state}", level="ERROR")
+            self._analysis_failed_status(detail or f"ImageAnalysis {state}")
         elif state in {"starting", "initializing", "restarting"}:
             self._log(detail or f"ImageAnalysis {state}")
+            self._analysis_pending_status()
         self.refresh_local_review()
 
     def _worker_pending_label(self) -> str | None:
@@ -266,10 +624,12 @@ class TaggingController(TaggingLegacyController):
             self._log(f"Could not re-analyze item: {exc}", level="ERROR", item_id=item_id)
             self.refresh_local_review()
 
-    def refresh_batch(self) -> None:
+    def refresh_batch(self) -> dict[str, object] | None:
         if self.image_analysis:
             repository = self.image_analysis.repository
-            self.page.show_batch_entries(repository.list_batch_entries())
+            entries = repository.list_batch_entries()
+            self.page.show_batch_entries(entries)
+            refresh_stats = self.page.set_batch_queue_entries(entries)
             credentials = getattr(self, "credentials", dict)().get("e621", {})
             self.page.set_e621_publish_configured(
                 isinstance(credentials, dict)
@@ -287,6 +647,8 @@ class TaggingController(TaggingLegacyController):
             except TypeError:  # compatibility with older lightweight repositories
                 reviewed = repository.reviewed_remote_post_ids()
             self.page.set_reviewed_post_ids(reviewed)
+            return refresh_stats
+        return None
 
     def review_batch_item(self, item_id: int) -> None:
         """Return to the existing review UI without altering its batch snapshot."""
@@ -312,7 +674,8 @@ class TaggingController(TaggingLegacyController):
                 {
                     "id": int(entry["post_id"]),
                     "tags": " ".join(tags),
-                }
+                },
+                origin="batch",
             )
             return
         self._local_batch_item_id = item_id
@@ -424,7 +787,18 @@ class TaggingController(TaggingLegacyController):
             and str(entry["publish_state"].value)
             == ("failed" if retry_ids is not None else "pending_publish")
             and bool(entry.get("additions") or entry.get("removals"))
+            and (
+                entry["site"] != "gelbooru"
+                or int(entry.get("publish_attempts", 0)) < MAX_PUBLISH_ATTEMPTS
+            )
             and (retry_ids is None or int(entry["item_id"]) in set(retry_ids))
+            and (
+                retry_ids is None
+                or (
+                    entry.get("failure_retryable") is not False
+                    and int(entry.get("publish_attempts", 0)) < MAX_PUBLISH_ATTEMPTS
+                )
+            )
         ]
         if not pending:
             self.page.show_batch_publish_summary(self.catalog.text("tagging.publish.none"))
@@ -507,9 +881,19 @@ class TaggingController(TaggingLegacyController):
         answer = QMessageBox.question(self.page, title, message)
         if answer != QMessageBox.StandardButton.Yes:
             return
+        publication_prepare = getattr(self, "_publication_prepare", None)
+        if publication_prepare is not None:
+            try:
+                publication_prepare()
+            except Exception as exc:  # noqa: BLE001 - visible publication boundary
+                self.page.show_batch_publish_summary(
+                    self.catalog.text("tagging.publish.interrupted", error=exc)
+                )
+                return
         self.page.set_batch_publish_running(True)
         self.publish_worker = BatchPublishWorker(self._publisher_factory, retry_ids)
         self.publish_worker.progress.connect(self.page.set_batch_publish_progress)
+        self.publish_worker.status.connect(self.page.show_batch_publish_progress)
         self.publish_worker.completed.connect(self._batch_publish_completed)
         self.publish_worker.failed.connect(self._batch_publish_failed)
         self.publish_worker.start()
@@ -528,9 +912,19 @@ class TaggingController(TaggingLegacyController):
                 "tagging.publish.summary.sites", sites=", ".join(summary.sites)
             )
         self.page.show_batch_publish_summary(
-            self.catalog.text("tagging.publish.summary", total=summary.total, published=summary.published, no_op=summary.no_op, failed=summary.failed, suffix=suffix)
+            self.catalog.text(
+                "tagging.publish.summary", total=summary.total,
+                published=summary.published, no_op=summary.no_op, failed=summary.failed,
+                duration=self.page.format_duration(summary.duration_seconds), suffix=suffix,
+            )
         )
+        self._request_publish_completion_attention()
         self.refresh_batch()
+
+    def _request_publish_completion_attention(self) -> None:
+        window = self.page.window()
+        if not window.isActiveWindow():
+            QApplication.alert(window)
 
     def _batch_publish_failed(self, error: str) -> None:
         self.page.set_batch_publish_running(False)
@@ -635,24 +1029,109 @@ class TaggingController(TaggingLegacyController):
 
     def lookup_manual_tags(self, text: str) -> None:
         started = perf_counter()
-        database = self._tag_database()
-        if database is None or not text.strip():
-            self.page.set_manual_suggestions([])
-            return
         try:
-            if _active_site(self) == "gelbooru":
-                rows = lookup_gelbooru_suggestions(
-                    database, self._alias_database(), text.strip(), limit=20
-                )
-                self.page.set_manual_suggestions([(row.value, row.alias_source) for row in rows])
-            else:
-                rows = lookup_tags("e621", database, text.strip(), limit=20)
-                self.page.set_manual_suggestions([row.name for row in rows])
+            self.page.set_manual_suggestions(self._tag_suggestions(text))
         except (FileNotFoundError, ValueError) as exc:
             self.page.set_manual_suggestions([])
             self._log(f"Manual tag lookup unavailable: {exc}", level="WARNING")
         finally:
             _emit_perf(self, "manual_tag_lookup", started)
+
+    def lookup_bulk_tags(self, target: str, text: str) -> None:
+        query = text.strip()
+        if len(query) < 2:
+            self.page.set_bulk_suggestions(target, [])
+            return
+        database = self._tag_database()
+        if database is None:
+            self.page.set_bulk_suggestions(target, [])
+            return
+        site = _active_site(self)
+        alias_database = self._alias_database() if site == "gelbooru" else None
+        cache_key = (
+            site,
+            str(database),
+            str(alias_database or ""),
+            query.casefold(),
+        )
+        cached = self._bulk_suggestion_cache.get(cache_key)
+        if cached is not None:
+            self._bulk_suggestion_cache.move_to_end(cache_key)
+            if self.page.bulk_lookup_text(target) == query:
+                self.page.set_bulk_suggestions(target, cached)
+            return
+        active_worker = self.bulk_lookup_workers.get(target)
+        if active_worker is not None and active_worker.isRunning():
+            self._bulk_lookup_pending[target] = query
+            return
+        worker = TagSuggestionWorker(target, site, query, database, alias_database)
+        self.bulk_lookup_workers[target] = worker
+        worker.completed.connect(self._bulk_lookup_completed)
+        worker.failed.connect(self._bulk_lookup_failed)
+        worker.finished.connect(
+            lambda target=target, worker=worker: self._bulk_lookup_worker_finished(
+                target, worker
+            )
+        )
+        worker.start()
+
+    def _bulk_lookup_completed(
+        self,
+        target: str,
+        site: str,
+        query: str,
+        suggestions: list[str] | list[tuple[str, str | None]],
+        elapsed_ms: float,
+    ) -> None:
+        worker = self.bulk_lookup_workers.get(target)
+        if worker is None:
+            return
+        cache_key = (
+            site,
+            str(worker.tag_database),
+            str(worker.alias_database or ""),
+            query.casefold(),
+        )
+        self._bulk_suggestion_cache[cache_key] = list(suggestions)
+        self._bulk_suggestion_cache.move_to_end(cache_key)
+        while len(self._bulk_suggestion_cache) > 64:
+            self._bulk_suggestion_cache.popitem(last=False)
+        current = self.page.bulk_lookup_text(target)
+        if site == _active_site(self) and current == query:
+            self.page.set_bulk_suggestions(target, suggestions)
+        self._log(
+            f"Bulk autocomplete target={target} query_length={len(query)} "
+            f"suggestions={len(suggestions)} elapsed_ms={elapsed_ms:.1f}",
+            level="DEBUG",
+        )
+
+    def _bulk_lookup_failed(
+        self, target: str, site: str, query: str, error: str
+    ) -> None:
+        if site == _active_site(self) and self.page.bulk_lookup_text(target) == query:
+            self.page.set_bulk_suggestions(target, [])
+        self._log(f"Bulk tag lookup unavailable: {error}", level="WARNING")
+
+    def _bulk_lookup_worker_finished(
+        self, target: str, worker: TagSuggestionWorker
+    ) -> None:
+        if self.bulk_lookup_workers.get(target) is worker:
+            self.bulk_lookup_workers.pop(target, None)
+        worker.deleteLater()
+        pending = self._bulk_lookup_pending.pop(target, "")
+        if pending and self.page.bulk_lookup_text(target) == pending:
+            self.lookup_bulk_tags(target, pending)
+
+    def _tag_suggestions(self, text: str) -> list[str] | list[tuple[str, str | None]]:
+        database = self._tag_database()
+        if database is None or not text.strip():
+            return []
+        if _active_site(self) == "gelbooru":
+            rows = lookup_gelbooru_suggestions(
+                database, self._alias_database(), text.strip(), limit=20
+            )
+            return [(row.value, row.alias_source) for row in rows]
+        return [row.name for row in lookup_tags("e621", database, text.strip(), limit=20)]
 
     def _eligible_exact_name(self, value: str) -> str | None:
         database = self._tag_database()

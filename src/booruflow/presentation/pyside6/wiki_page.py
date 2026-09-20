@@ -39,6 +39,7 @@ from booruflow.application.wiki import (
 )
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.presentation.pyside6.icons import wiki_tool_icon
+from booruflow.presentation.pyside6.status_bar import PageStatus
 
 
 class WikiPage(QWidget):
@@ -54,6 +55,7 @@ class WikiPage(QWidget):
         browser_launcher=None,
     ) -> None:
         super().__init__(); self.catalog = catalog; self.drafts_directory = drafts_directory; self.tag_database_path = tag_database_path
+        self.page_status = PageStatus("wiki", self)
         self.settings_repository = settings_repository
         self.browser_launcher = browser_launcher
         self._active_draft_path: Path | None = None
@@ -221,14 +223,19 @@ class WikiPage(QWidget):
             self.validation.setText(self.catalog.text("wiki.load_failed", error=exc))
 
     def _copy_source(self) -> None:
-        QApplication.clipboard().setText(self.source.toPlainText()); self.validation.setText(self.catalog.text("wiki.copied"))
+        QApplication.clipboard().setText(self.source.toPlainText())
+        self.page_status.show_message(
+            self.catalog.text("wiki.copied"), timeout_ms=5_000, log=True
+        )
 
     def _open_create(self) -> None:
         QApplication.clipboard().setText(self.source.toPlainText())
         url = "https://gelbooru.com/index.php?page=wiki&s=create"
         if self.browser_launcher: self.browser_launcher.open(url)
         else: QDesktopServices.openUrl(QUrl(url))
-        self.validation.setText(self.catalog.text("wiki.opened_create"))
+        self.page_status.show_message(
+            self.catalog.text("wiki.opened_create"), timeout_ms=6_000, log=True
+        )
 
     def _open_preview_link(self, url: QUrl) -> None:
         if url.scheme() == "booruflow-tag": self.organization_tag_requested.emit(urllib.parse.unquote(url.path()))

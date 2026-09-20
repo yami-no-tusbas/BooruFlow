@@ -20,7 +20,9 @@ from booruflow.application.auto_organize import (
     apply_plans,
     load_rules,
     rule_inventory,
+    rule_node_from_dict,
     rule_node_to_dict,
+    scan_classification_model,
     validate_batch,
     validation_summary,
 )
@@ -91,8 +93,9 @@ class AnalyzeWorker(QThread):
 
 class ExecuteWorker(QThread):
     completed=Signal(dict)
+    operation=Signal(dict)
     def __init__(self,plans): super().__init__(); self.plans=plans; self.result={}
-    def run(self): self.result=apply_plans(self.plans); self.completed.emit(self.result)
+    def run(self): self.result=apply_plans(self.plans,self.operation.emit); self.completed.emit(self.result)
 
 class AutoOrganizeController(QObject):
     def __init__(self,root:Path,page,log,parent=None,gelbooru_tag_database:Path|None=None,
@@ -111,19 +114,56 @@ class AutoOrganizeController(QObject):
             return replace(metadata,categories=categories,artists=artists,
                 copyrights=tuple(tag for tag in metadata.tags if categories.get(tag)=="copyright"),
                 characters=tuple(tag for tag in metadata.tags if categories.get(tag)=="character"))
-        self.fetcher=enriched_fetch; self.rules=self._load_rules(); self._show_rules()
+        self.fetcher=enriched_fetch; saved=self.override_repository.load(); self.model_root=None
+        self.rules=()
+        saved_model=Path(str(saved.get("model_root",""))) if saved.get("model_root") else None
+        saved_output=str(saved.get("output_root", ""))
+        if saved_model and saved_model.is_dir():
+            self.model_root=saved_model.resolve(strict=False)
+            self.rules=scan_classification_model(
+                self.model_root,self._load_rules(),self._saved_rules()
+            )
+        self.page.set_paths(str(self.model_root or ""),saved_output); self._show_rules()
+        self.page.model_scan_requested.connect(self.scan_model)
         self.page.rules_save_requested.connect(self.save_rules); self.page.rules_reset_requested.connect(self.reset_rules)
         self.page.rules_changed.connect(self.invalidate_plan)
-    def _load_rules(self): return load_rules(self.default_rules_path,self.override_path)
+    def _load_rules(self): return load_rules(self.default_rules_path)
+    def _saved_rules(self):
+        roots=self.override_repository.load().get("roots",())
+        if not isinstance(roots,list): return ()
+        try: return tuple(rule_node_from_dict(value) for value in roots if isinstance(value,dict))
+        except (KeyError,TypeError,ValueError): return ()
     def _show_rules(self):
         self.page.set_rules(self.rules); inventory=rule_inventory(self.rules); self.page.set_rule_inventory(inventory)
         counts=" · ".join(f"{name}={count}" for name,count in inventory["branches"].items())
-        self.log(log_event("AutoOrganize",f"Canonical rules loaded: {counts}; sites gelbooru={inventory['gelbooru']} e621={inventory['e621']} shared={inventory['shared']}"))
-    def analyze(self,roots,mode,recursive,use_cache,force_refresh,destination):
+        source="model" if self.model_root else "canonical defaults"
+        self.log(log_event("AutoOrganize",f"Effective rules loaded from {source}: {counts}; sites gelbooru={inventory['gelbooru']} e621={inventory['e621']} shared={inventory['shared']}"))
+    def scan_model(self,path):
+        try:
+            model_root=Path(path).resolve(strict=True)
+            self.rules=scan_classification_model(
+                model_root,self._load_rules(),self._saved_rules()
+            )
+        except (OSError,ValueError) as exc:
+            self.page.state.setText(f"Échec du scan du modèle : {exc}")
+            self.log(log_event("AutoOrganize",f"Model scan failed: {exc}",level="ERROR")); return False
+        self.model_root=model_root; self.page.set_paths(str(model_root)); self._show_rules(); self.invalidate_plan()
+        values=self.override_repository.load(); values["model_root"]=str(model_root); self.override_repository.save(values)
+        inventory=rule_inventory(self.rules); self.page.rules_state.setText(f"Modèle rescanné — {inventory['tags_total']} règles reconnues.")
+        self.log(log_event("AutoOrganize",f"Classification model scanned root={model_root} rules={inventory['tags_total']}")); return True
+    def analyze(self,roots,mode,recursive,use_cache,force_refresh,destination,model=""):
         if self.worker is not None:
             self.log(log_event("AutoOrganize","Analysis request ignored: worker cleanup is still active",level="WARNING")); return
+        if mode==OrganizeMode.ORGANIZE.value:
+            requested_model=Path(model).resolve(strict=False) if model else None
+            if requested_model is None:
+                self.page.state.setText("Choisissez un dossier modèle."); return
+            if (
+                self.model_root is None or requested_model!=self.model_root
+            ) and not self.scan_model(str(requested_model)): return
         self.log(log_event("AutoOrganize",f"Analysis requested roots={len(roots)} mode={mode} recursive={recursive} pid={os.getpid()} thread_id={threading.get_ident()}"))
         target=Path(destination) if destination else self.root/"var"/"organized"; self.page.set_running(True)
+        values=self.override_repository.load(); values["model_root"]=str(self.model_root or ""); values["output_root"]=str(destination or ""); self.override_repository.save(values)
         self.worker=AnalyzeWorker(self.cache_path,self.fetcher,self.rules,target,roots,OrganizeMode(mode),recursive,use_cache,force_refresh)
         self._pending_analysis_result=None; self._progress_phase=""
         self.worker.progress.connect(self._on_progress); self.worker.error_detail.connect(self._on_error_detail)
@@ -180,7 +220,7 @@ class AutoOrganizeController(QObject):
             timings={}; self.page.state.setText(f"Échec : {error}"); self.log(log_event("AutoOrganize",str(error),level="ERROR"))
         else:
             timings=self.page.show_plans(plans); summary=validation_summary(plans)
-            labels={"analyzed":"Analysés","exact":"Identiques","divergences":"À modifier","ambiguous":"Ambigus","errors":"Erreurs","tag_matches":"Avec match Tags","by_tags":"Classés Tags","by_species":"Classés Species","by_copyright":"Classés Copyright","by_artist":"Classés Artist","routed_cl":"Routés C&L","routed_yl":"Routés Y&L"}
+            labels={"analyzed":"Analysés","exact":"Identiques","divergences":"À modifier","ambiguous":"Ambigus","unresolved":"Non résolus","conflicts":"Conflits de destination","errors":"Erreurs","tag_matches":"Avec match Tags","by_tags":"Classés Tags","by_species":"Classés Species","by_copyright":"Classés Copyright","by_artist":"Classés Artist","routed_cl":"Routés C&L","routed_yl":"Routés Y&L"}
             self.page.state.setText(" — ".join(f"{labels.get(k,k)}: {v}" for k,v in summary.items()))
             self.page.execute_button.setEnabled(any(p.status in {PlanStatus.RENAME,PlanStatus.MOVE,PlanStatus.RENAME_MOVE} for p in plans))
         if timings:
@@ -197,16 +237,29 @@ class AutoOrganizeController(QObject):
     def invalidate_plan(self):
         if self.plans: self.plans=[]; self.page.clear_plan("Priorités modifiées : relancez l’analyse.")
     def save_rules(self):
-        roots=self.page.rules(); self.override_repository.save({"version":2,"roots":[rule_node_to_dict(node) for node in roots]})
-        self.rules=self._load_rules(); self._show_rules(); self.invalidate_plan(); self.page.rules_state.setText("Priorités enregistrées.")
+        roots=self.page.rules(); values={"version":3,"roots":[rule_node_to_dict(node) for node in roots],"model_root":str(self.model_root or ""),"output_root":self.page.output_root.text().strip()}; self.override_repository.save(values)
+        if self.model_root and self.model_root.is_dir():
+            self.rules=scan_classification_model(
+                self.model_root,self._load_rules(),roots
+            )
+        else: self.rules=()
+        self._show_rules(); self.invalidate_plan(); self.page.rules_state.setText("Priorités enregistrées.")
     def reset_rules(self):
-        self.override_repository.save({}); self.rules=self._load_rules(); self._show_rules()
+        values={"version":3,"model_root":str(self.model_root or ""),"output_root":self.page.output_root.text().strip()}; self.override_repository.save(values)
+        if self.model_root and self.model_root.is_dir():
+            self.rules=scan_classification_model(self.model_root,self._load_rules())
+        else: self.rules=()
+        self._show_rules()
         self.invalidate_plan(); self.page.rules_state.setText("Priorités par défaut restaurées.")
     def execute(self):
         if QMessageBox.question(self.page,"Confirmer les opérations","Appliquer uniquement les renommages/déplacements non ambigus de cet aperçu ?") != QMessageBox.StandardButton.Yes: return
         self.page.execute_button.setEnabled(False); self.page.state.setText("Exécution en cours…"); self.worker=ExecuteWorker(self.plans)
-        self._pending_execution_result=None; self.worker.completed.connect(self._execution_result_received)
+        self._pending_execution_result=None; self.worker.operation.connect(self._operation_reported); self.worker.completed.connect(self._execution_result_received)
         self.worker.finished.connect(self._execution_thread_finished); self.worker.start()
+    def _operation_reported(self,detail):
+        state=str(detail.get("state","unknown")); source=str(detail.get("source","")); destination=str(detail.get("destination","")); message=str(detail.get("message",""))
+        level="ERROR" if state=="failed" else "INFO"; suffix=f" error={message}" if message else ""
+        self.log(log_event("AutoOrganize",f"Operation {state}: {source} -> {destination}{suffix}",level=level))
     def _execution_result_received(self,result): self._pending_execution_result=dict(result)
     def _execution_thread_finished(self):
         worker=self.worker
@@ -214,7 +267,7 @@ class AutoOrganizeController(QObject):
         self._executed(self._pending_execution_result or worker.result)
         worker.deleteLater(); self.worker=None; self._pending_execution_result=None
     def _executed(self,result):
-        self.page.show_plans(self.plans); self.page.state.setText(" — ".join(f"{k}: {v}" for k,v in result.items())); self.log(f"Rangement auto: {result}"); self.worker.deleteLater(); self.worker=None
+        self.page.show_plans(self.plans); self.page.state.setText(" — ".join(f"{k}: {v}" for k,v in result.items())); self.log(f"Rangement auto: {result}")
     def shutdown(self):
         self._closing=True; worker=self.worker
         if isinstance(worker,AnalyzeWorker) and worker.isRunning():

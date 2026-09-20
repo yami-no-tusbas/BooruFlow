@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from time import perf_counter
 
 from booruflow.application.tagging import TaggingRequest, tagging_priority
 from booruflow.domain.booru_sites import site_definition
@@ -51,6 +52,7 @@ class E621TaggingScanner:
         *,
         cancelled: Callable[[], bool] = lambda: False,
         progress: Callable[[int, int, int, int, int], None] = lambda *_args: None,
+        timing: Callable[[dict[str, object]], None] = lambda _metrics: None,
     ) -> tuple[list[dict], int, int, bool]:
         selected: list[dict] = []
         examined = 0
@@ -60,7 +62,10 @@ class E621TaggingScanner:
             for block_index in range(request.pages_per_block):
                 if cancelled():
                     break
+                network_started = perf_counter()
                 posts = self.client.fetch_posts(tags=request.query, limit=100, page=page)
+                network_ms = (perf_counter() - network_started) * 1000
+                processing_started = perf_counter()
                 for raw_post in posts:
                     post = normalize_e621_post(raw_post)
                     count = int(post["tag_count"])
@@ -70,6 +75,10 @@ class E621TaggingScanner:
                             count, request.critical_maximum, request.high_maximum
                         )
                         selected.append(post)
+                timing({
+                    "page": page, "posts": len(posts), "network_ms": network_ms,
+                    "processing_ms": (perf_counter() - processing_started) * 1000,
+                })
                 progress(page, block_index + 1, request.pages_per_block, examined, len(selected))
                 page += 1
                 if len(posts) < 100:

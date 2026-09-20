@@ -148,6 +148,78 @@ class PySide6OptionsTests(unittest.TestCase):
         self.assertEqual(values["image_analysis_worker_recycle_after"], 500)
         page.close()
 
+    def test_image_analysis_statuses_are_named_and_advanced_rows_are_collapsed(self) -> None:
+        from booruflow.presentation.pyside6.options_page import OptionsPage
+        from booruflow.presentation.pyside6.pages import ScrollablePageHost
+
+        page = OptionsPage(self.catalog(), {})
+        host = ScrollablePageHost(page)
+        host.resize(900, 720)
+        host.show()
+        self.app.processEvents()
+        self.assertEqual(page.gpu_runtime_label.text(), "GPU runtime:")
+        self.assertEqual(page.wd14_model_label.text(), "WD14 model:")
+        self.assertTrue(page.gpu_runtime_status.text())
+        self.assertTrue(page.wd14_model_status.text())
+        self.assertTrue(page.gpu_runtime_label.isVisibleTo(host))
+        self.assertGreaterEqual(page.gpu_runtime_label.width(), 190)
+        self.assertFalse(page.download_prefetch_label.isVisible())
+        self.assertFalse(page.download_prefetch.isVisible())
+
+        page.image_advanced.setChecked(True)
+        self.app.processEvents()
+        self.assertTrue(page.download_prefetch_label.isVisibleTo(host))
+        self.assertFalse(page.download_prefetch_label.isHidden())
+        self.assertFalse(page.download_prefetch.isHidden())
+        self.assertTrue(page.download_prefetch_label.text())
+        self.assertTrue(page.analysis_prefetch_label.text())
+        self.assertTrue(page.store_threshold_label.text())
+        self.assertTrue(page.heartbeat_label.text())
+        self.assertTrue(page.stale_timeout_label.text())
+        self.assertTrue(page.recycle_count_label.text())
+        host.close()
+        page.close()
+
+    def test_database_and_alias_actions_keep_labels_tooltips_and_modes(self) -> None:
+        from PySide6.QtTest import QSignalSpy
+
+        from booruflow.presentation.pyside6.options_page import OptionsPage
+
+        page = OptionsPage(self.catalog(), {"gelbooru_database": "tags.db"})
+        self.assertEqual(page.database_path.action.text(), "Update database")
+        self.assertEqual(page.database_site.sizePolicy().horizontalPolicy().name, "Preferred")
+        self.assertEqual(page.database_path.edit.sizePolicy().horizontalPolicy().name, "Expanding")
+        self.assertIn("Fetch new alias", page.alias_update.toolTip())
+        self.assertIn("Recheck aliases", page.alias_pending.toolTip())
+        self.assertIn("complete reconciliation", page.alias_reconcile.toolTip())
+        requested = QSignalSpy(page.alias_update_requested)
+        page.alias_update.click()
+        page.alias_pending.click()
+        page.alias_reconcile.click()
+        self.assertEqual([requested.at(i)[0] for i in range(3)], ["incremental", "pending", "full"])
+        page.close()
+
+    def test_browser_publisher_and_storage_actions_are_compact(self) -> None:
+        from PySide6.QtWidgets import QSizePolicy
+
+        from booruflow.presentation.pyside6.options_page import OptionsPage
+
+        page = OptionsPage(self.catalog(), {})
+        buttons = (
+            page.reset_browser_profile,
+            page.test_browser,
+            page.open_embedded_session,
+            page.test_embedded_session,
+            page.reset_embedded_session,
+            page.refresh_storage,
+            page.open_models,
+        )
+        self.assertTrue(all(
+            button.sizePolicy().horizontalPolicy() == QSizePolicy.Policy.Fixed
+            for button in buttons
+        ))
+        page.close()
+
     def test_image_analysis_labels_tooltips_and_percentages_survive_retranslation(self) -> None:
         from PySide6.QtTest import QSignalSpy
 
@@ -232,6 +304,45 @@ class PySide6OptionsTests(unittest.TestCase):
         self.assertEqual(emitted["gelbooru_database"], "gel.db")
         self.assertEqual(emitted["e621_database"], "e621.db")
         self.assertEqual(emitted["output_root"], "results")
+        page.close()
+
+    def test_grabber_executable_is_persisted_and_status_tracks_exact_file(self) -> None:
+        import tempfile
+
+        from PySide6.QtTest import QSignalSpy
+
+        from booruflow.presentation.pyside6.options_page import OptionsPage
+
+        with tempfile.TemporaryDirectory() as directory:
+            executable = Path(directory) / "Grabber.exe"
+            executable.touch()
+            page = OptionsPage(
+                self.catalog(), {"grabber_executable": str(executable)}
+            )
+            self.assertEqual(page.grabber_executable.edit.text(), str(executable))
+            self.assertEqual(page.grabber_status.text(), "Grabber is available.")
+            saved = QSignalSpy(page.save_requested)
+            page.save_button.click()
+            self.assertEqual(saved.at(0)[0]["grabber_executable"], str(executable))
+            page.grabber_executable.edit.setText(str(executable.with_name("missing.exe")))
+            self.assertEqual(
+                page.grabber_status.text(),
+                "The selected Grabber executable was not found.",
+            )
+            page.close()
+
+    def test_analysis_install_buttons_emit_existing_workflow_requests(self) -> None:
+        from PySide6.QtTest import QSignalSpy
+
+        from booruflow.presentation.pyside6.options_page import OptionsPage
+
+        page = OptionsPage(self.catalog(), {})
+        gpu = QSignalSpy(page.gpu_runtime_install_requested)
+        wd14 = QSignalSpy(page.wd14_install_requested)
+        page.gpu_runtime_install.click()
+        page.wd14_install.click()
+        self.assertEqual(gpu.count(), 1)
+        self.assertEqual(wd14.count(), 1)
         page.close()
 
     def test_blacklist_browse_uses_text_file_dialog(self) -> None:
@@ -329,14 +440,14 @@ class PySide6OptionsTests(unittest.TestCase):
         )
         page.close()
 
-    def test_alias_actions_are_localized_on_tagging_and_preserve_database_path(self) -> None:
+    def test_alias_actions_are_localized_in_options_and_preserve_database_path(self) -> None:
         from PySide6.QtTest import QSignalSpy
 
-        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+        from booruflow.presentation.pyside6.options_page import OptionsPage
 
         catalog = self.catalog()
         catalog.set_language("fr")
-        page = TaggingPage(
+        page = OptionsPage(
             catalog,
             {
                 "gelbooru_tag_database": "D:/tags.db",
@@ -344,15 +455,15 @@ class PySide6OptionsTests(unittest.TestCase):
             },
         )
         requested = QSignalSpy(page.alias_update_requested)
-        stopped = QSignalSpy(page.alias_stop_requested)
+        stopped = QSignalSpy(page.database_stop_requested)
 
-        self.assertEqual(page.alias_update.text(), "Mettre à jour")
-        self.assertEqual(page.alias_pending.text(), "Vérifier pending")
-        self.assertEqual(page.alias_reconcile.text(), "Réconcilier")
+        self.assertEqual(page.alias_update.text(), "Mettre à jour les alias")
+        self.assertEqual(page.alias_pending.text(), "Revérifier les alias en attente")
+        self.assertEqual(page.alias_reconcile.text(), "Rescannage complet des alias")
         page.alias_reconcile.click()
         self.assertEqual(requested.at(0), ["full", str(Path("D:/aliases.db"))])
 
-        page.set_alias_running(True)
+        page.set_database_running(True, "aliases:full")
         self.assertEqual(page.alias_update.text(), "Arrêter")
         self.assertTrue(page.alias_update.isEnabled())
         self.assertFalse(page.alias_pending.isEnabled())

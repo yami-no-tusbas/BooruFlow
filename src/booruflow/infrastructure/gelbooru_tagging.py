@@ -7,6 +7,7 @@ import json
 import urllib.parse
 import urllib.request
 from collections.abc import Callable
+from time import perf_counter
 
 from booruflow.application.tagging import TaggingRequest, tagging_priority
 
@@ -39,6 +40,7 @@ class GelbooruTaggingScanner:
         *,
         cancelled: Callable[[], bool] = lambda: False,
         progress: Callable[[int, int, int, int, int], None] = lambda *_args: None,
+        timing: Callable[[dict[str, object]], None] = lambda _metrics: None,
     ) -> tuple[list[dict], int, int, bool]:
         selected: list[dict] = []
         examined = 0
@@ -60,8 +62,12 @@ class GelbooruTaggingScanner:
                     url,
                     headers={"User-Agent": "BooruFlow/0.1", "Referer": "https://gelbooru.com/"},
                 )
+                network_started = perf_counter()
                 with urllib.request.urlopen(http_request, timeout=30) as response:
-                    posts = payload_posts(json.loads(response.read().decode("utf-8", errors="replace")))
+                    payload = response.read()
+                network_ms = (perf_counter() - network_started) * 1000
+                processing_started = perf_counter()
+                posts = payload_posts(json.loads(payload.decode("utf-8", errors="replace")))
                 for post in posts:
                     count = len(post_tags(post))
                     examined += 1
@@ -72,6 +78,10 @@ class GelbooruTaggingScanner:
                             count, request.critical_maximum, request.high_maximum
                         )
                         selected.append(item)
+                timing({
+                    "page": page, "posts": len(posts), "network_ms": network_ms,
+                    "processing_ms": (perf_counter() - processing_started) * 1000,
+                })
                 next_page = page + 1
                 progress(page, block_index + 1, request.pages_per_block, examined, len(selected))
                 if len(posts) < 100:

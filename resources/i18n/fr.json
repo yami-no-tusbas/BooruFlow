@@ -5,15 +5,40 @@
   "nav.review": "Révision",
   "nav.tagging": "Tagging",
   "nav.image_analysis": "Analyse d’images",
+  "nav.image_finder": "Image Finder (Beta)",
   "nav.auto_organize": "Rangement auto",
+  "nav.folder_artists": "Artistes du dossier",
   "nav.similar_artists": "Artistes similaires",
-  "nav.organization": "Organisation",
+  "nav.organization": "Explorateur de wiki",
   "nav.tag_browser": "Explorateur de tags",
-  "nav.wiki": "Wiki",
-  "nav.cleanup": "Nettoyage",
+  "nav.wiki_audit": "Audit des wikis",
+  "nav.wiki": "Éditeur de wiki",
+  "nav.cleanup": "Nettoyage par blacklist",
   "nav.options": "Options",
-  "nav.grabber": "Grabber",
+  "nav.grabber": "Outils Grabber (Beta)",
   "nav.tasks": "Centre de tâches",
+  "nav.group.main": "PRINCIPAL",
+  "nav.group.wiki_tags": "WIKI & TAGS",
+  "nav.group.local_tools": "OUTILS LOCAUX",
+  "nav.group.settings": "PARAMÈTRES",
+  "grabber_tools.builder": "Créateur de listes de tags",
+  "grabber_tools.launcher": "Lanceur Grabber",
+  "image_finder.connected": "Pixiv : connecté",
+  "image_finder.not_connected": "Pixiv : non connecté",
+  "image_finder.refresh_token": "Jeton de rafraîchissement Pixiv (stocké localement)",
+  "image_finder.connect": "Connecter Pixiv",
+  "image_finder.disconnect": "Déconnecter",
+  "image_finder.search_placeholder": "Rechercher des tags ou du texte sur Pixiv…",
+  "image_finder.search": "Rechercher",
+  "image_finder.next": "Page suivante",
+  "image_finder.open_source": "Ouvrir la source",
+  "image_finder.download_original": "Télécharger l’original",
+  "image_finder.failed": "Échec de l’opération Image Finder — voir le journal",
+  "image_finder.results.one": "1 résultat trouvé",
+  "image_finder.results.many": "{count} résultats trouvés",
+  "image_finder.connected_feedback": "Pixiv connecté",
+  "image_finder.disconnected_feedback": "Pixiv déconnecté",
+  "image_finder.saved": "Image originale enregistrée",
   "standalone.title": "Assistant de tagging Gelbooru",
   "standalone.credentials": "Accès Gelbooru",
   "standalone.credential_note": "Enregistré uniquement sur cet ordinateur dans le dossier config local. Ne partagez jamais ce fichier ni votre clé API.",
@@ -37,28 +62,80 @@
   "table.empty_tasks": "Aucune tâche n’a encore été enregistrée.",
   "table.empty_batch": "Aucun élément de revue ne correspond à ce filtre.",
   "table.empty_analysis": "Lancez une analyse pour prévisualiser les opérations proposées.",
+  "folder_artists.explanation": "Compte les artistes uniquement depuis les noms des images. Cet outil BooruFlow ne supprime et ne déplace jamais aucun fichier.",
+  "folder_artists.folder": "Dossier :",
+  "folder_artists.choose": "Choisir un dossier",
+  "folder_artists.choose_title": "Choisir le dossier d’images à analyser",
+  "folder_artists.analyze": "Analyser",
+  "folder_artists.stop": "Arrêter",
+  "folder_artists.column_artist": "Artiste",
+  "folder_artists.column_images": "Images",
+  "folder_artists.filter_images": "Filtre Images :",
+  "folder_artists.filter_placeholder": "<500, >=50, 50 ~ 100",
+  "folder_artists.filter_invalid": "Expression invalide",
+  "folder_artists.empty": "Choisissez un dossier puis lancez l’analyse.",
+  "folder_artists.open": "Ouvrir dans Everything",
+  "folder_artists.ready": "Prêt — cet outil lit uniquement les noms de fichiers.",
+  "folder_artists.scanning": "Analyse… {images} image(s) trouvée(s)",
+  "folder_artists.stopping": "Arrêt de l’analyse…",
+  "folder_artists.folder_missing": "Choisissez un dossier existant avant de démarrer.",
+  "folder_artists.failed": "Échec de l’analyse : {error}",
+  "folder_artists.cancelled": "Analyse arrêtée. Les résultats partiels n’ont pas été conservés.",
+  "folder_artists.finished": "Analyse terminée — {artists} artiste(s) distinct(s).",
+  "folder_artists.summary": "Images trouvées : {found} · Avec artiste : {with_artist} · Anonymous ignorés : {anonymous} · Noms non reconnus : {unrecognized} · Artistes distincts : {artists} · Entrées inaccessibles : {inaccessible}",
+  "folder_artists.rescan_required": "Le dossier a changé ou n’est plus accessible. Analysez-le de nouveau avant d’ouvrir Everything.",
+  "folder_artists.choose_everything": "Localiser Everything.exe",
+  "folder_artists.everything_filter": "Everything (Everything.exe);;Applications (*.exe)",
+  "folder_artists.everything_missing": "Everything.exe est introuvable. Installez-le ou sélectionnez son exécutable à l’invite.",
+  "folder_artists.everything_failed": "Impossible d’ouvrir Everything : {error}",
+  "folder_artists.opened": "Everything ouvert pour l’artiste : {artist}",
   "status.ready": "{page} — Prêt.",
   "status.saved": "Options — Enregistrées.",
   "status.save_failed": "Options — Échec de l’enregistrement.",
+  "status.page_state": "{page} — {state}",
+  "status.state.ready": "Prêt",
+  "status.state.loading": "Chargement",
+  "status.state.failed": "Échec",
+  "status.state.searching": "Recherche",
+  "status.state.analyzing": "Analyse",
+  "status.state.scanning": "Scan",
+  "status.state.updating": "Mise à jour",
+  "status.state.stopping": "Arrêt…",
+  "status.state.loading_wiki": "Chargement du wiki",
+  "status.state.refreshing_wiki": "Actualisation du wiki",
+  "status.state.working": "Traitement",
+  "status.state.installing_gpu_runtime": "Installation du runtime GPU",
+  "status.state.installing_wd14": "Installation de WD14",
+  "status.state.calculating_disk_usage": "Calcul du stockage",
+  "status.progress": "Progression de l’opération",
+  "status.message.saved": "Options enregistrées",
+  "status.message.save_failed": "Échec de l’enregistrement — voir le journal",
+  "status.message.failed_see_log": "Échec de l’opération — voir le journal",
   "log.show": "Afficher le journal",
   "log.hide": "Masquer le journal",
   "log.clear": "Effacer le journal",
+  "log.debug": "Afficher DEBUG",
   "log.started": "BooruFlow PySide6 a démarré.",
   "log.grabber_unavailable": "Intégration Grabber facultative indisponible : {reason}",
   "log.options_saved": "Options enregistrées.",
   "log.options_failed": "Impossible d’enregistrer les options : {error}",
   "home.subtitle": "Rechercher, réviser, organiser et maintenir les métadonnées Booru depuis un même espace.",
   "home.open": "Ouvrir",
-  "home.wiki": "Préparer des brouillons wiki Gelbooru validés depuis des modèles réutilisables.",
+  "home.wiki": "Rédiger, mettre en forme, sauvegarder et reprendre des brouillons wiki Gelbooru.",
   "home.review": "Trouver et réviser des tags par catégorie ou depuis une liste TXT.",
   "home.tagging": "Examiner les posts insuffisamment tagués sans envoi automatique.",
+  "home.image_finder": "Trouver des images liées via les sources de découverte configurées.",
   "home.image_analysis": "Préparer des images locales ou booru et réviser les analyses persistantes.",
+  "home.auto_organize": "Planifier et vérifier l’organisation déterministe des dossiers d’images locaux.",
+  "home.folder_artists": "Examiner les dossiers d’artistes et envoyer les recherches sélectionnées vers Everything.",
   "home.similar_artists": "Explorer les profils d’artistes selon plusieurs axes visuels indépendants.",
-  "home.organization": "Maintenir la taxonomie locale et ses sources.",
+  "home.organization": "Parcourir les tags et données wiki d’un site via la taxonomie locale.",
   "home.tag_browser": "Rechercher rapidement dans la base locale, sélectionner des plages et copier des listes de tags.",
-  "home.cleanup": "Auditer des dossiers avant tout nettoyage récupérable.",
+  "home.wiki_audit": "Auditer les tags locaux par rapport aux pages wiki disponibles.",
+  "home.cleanup": "Auditer les images téléchargées avec la blacklist Grabber configurée.",
   "home.options": "Configurer les sites, bases, langues et identifiants.",
-  "home.grabber": "Générer et reprendre des lots Grabber lorsque l’outil est disponible.",
+  "home.grabber": "Construire des listes de tags, puis générer et reprendre des lots Grabber.",
+  "home.tasks": "Suivre les tâches en arrière-plan en cours et terminées.",
   "image_analysis.add_files": "Ajouter des images…",
   "image_analysis.choose_images": "Choisir des images",
   "image_analysis.image_filter": "Images (*.png *.jpg *.jpeg *.webp *.gif *.bmp);;Tous les fichiers (*)",
@@ -115,7 +192,36 @@
   "options.credentials_status_server_error": "Erreur serveur",
   "options.credentials_status_malformed_response": "Réponse serveur invalide",
   "options.paths": "Chemins locaux",
+  "options.databases": "Bases de données et index",
+  "options.grabber_executable": "Exécutable Grabber :",
+  "options.grabber_available": "Grabber est disponible.",
+  "options.grabber_not_configured": "Grabber n’est pas configuré.",
+  "options.grabber_not_found": "L’exécutable Grabber sélectionné est introuvable.",
+  "options.choose_grabber": "Choisir l’exécutable Grabber",
+  "options.executable_filter": "Applications (*.exe);;Tous les fichiers (*)",
   "options.database_path": "Chemin de la base :",
+  "options.gpu_runtime": "Runtime GPU :",
+  "options.wd14_model": "Modèle WD14 :",
+  "options.installed": "Installé",
+  "options.not_installed": "Non installé",
+  "options.install_gpu_runtime": "Installer le runtime GPU",
+  "options.wd14_install": "Installer WD14",
+  "options.wd14_reinstall": "Réinstaller WD14",
+  "options.installing_gpu_runtime": "Installation du runtime GPU…",
+  "options.installing_wd14": "Installation de WD14…",
+  "options.gpu_install_title": "Installer le runtime GPU",
+  "options.gpu_install_confirm": "Installer ou mettre à jour le runtime GPU ? Le worker d’analyse redémarrera à la fin de l’installation.",
+  "options.wd14_install_title": "Installer WD14",
+  "options.wd14_install_confirm": "Télécharger et installer le modèle WD14 (environ 380 Mo) dans {path} ?",
+  "options.install_complete": "Installation terminée.",
+  "options.install_failed": "Échec de l’installation. Les détails techniques ont été consignés dans le journal.",
+  "options.storage_cleanup": "Stockage et nettoyage",
+  "options.disk_usage": "Stockage des modèles :",
+  "options.storage_refresh": "Actualiser",
+  "options.storage_open_models": "Ouvrir le dossier des modèles",
+  "options.storage_models_summary": "{total} au total — WD14 {wd14}, e621 {e621}, autres {other}",
+  "options.calculating_disk_usage": "Calcul du stockage des modèles…",
+  "options.storage_failed": "Impossible de calculer les informations de stockage.",
   "options.browser": "Navigateur",
   "options.browser_open_external": "Ouvrir les liens externes avec :",
   "options.browser_command": "Modèle de commande :",
@@ -220,7 +326,7 @@
   "options.text_filter": "Fichiers texte (*.txt);;Tous les fichiers (*)",
   "options.note": "Les identifiants restent dans le dossier config local et sont exclus de Git.",
   "options.save": "Enregistrer les options",
-  "options.update_database": "Mettre à jour",
+  "options.update_database": "Mettre à jour la base",
   "options.stop_database": "Arrêter",
   "options.database_stopping": "Arrêt de la reconstruction… La base temporaire permettra de reprendre plus tard.",
   "options.database_running": "Mise à jour de la base {site}… Les détails sont dans le journal.",
@@ -230,10 +336,13 @@
   "options.database_failed": "Mise à jour {site} interrompue avec le code {code}. Consulte le journal.",
   "options.database_path_required": "Choisissez un chemin de base avant de lancer la mise à jour.",
   "options.alias_database_path_required": "Configurez le chemin de la base d’alias avant de lancer la mise à jour.",
-  "options.alias_update": "Mettre à jour",
+  "options.alias_update": "Mettre à jour les alias",
   "options.alias_label": "Alias Gelbooru",
-  "options.alias_pending": "Vérifier pending",
-  "options.alias_reconcile": "Réconcilier",
+  "options.alias_pending": "Revérifier les alias en attente",
+  "options.alias_reconcile": "Rescannage complet des alias",
+  "options.alias_update_tip": "Récupère les nouvelles modifications depuis le dernier checkpoint.",
+  "options.alias_pending_tip": "Revérifie les alias encore en attente ou non résolus.",
+  "options.alias_reconcile_tip": "Effectue une réconciliation complète du catalogue local des alias.",
   "options.alias_start": "Démarrage de l’opération alias Gelbooru {mode} : {path}",
   "options.alias_summary": "Alias — actifs : {active} · pending : {pending} · missing : {missing} · nouveaux : {new} · modifiés : {modified} · checkpoint : {checkpoint} · état : {state}",
   "options.alias_state_completed": "terminé",
@@ -243,8 +352,9 @@
   "options.alias_state_full_reconciliation_recommended": "réconciliation complète recommandée",
   "options.alias_state_unknown": "inconnu",
   "tag_browser.filters": "Recherche en lecture seule",
-  "tag_browser.database": "Base :",
-  "tag_browser.query": "Nom du tag :",
+  "tag_browser.database": "Site :",
+  "tag_browser.query": "Recherche :",
+  "tag_browser.mode": "Correspondance :",
   "tag_browser.placeholder": "Exemple : *_ears ou ^.*_(ears|tail)$",
   "tag_browser.mode_contains": "Contient",
   "tag_browser.mode_auto": "Automatique",
@@ -258,8 +368,40 @@
   "tag_browser.searching": "Recherche en cours…",
   "tag_browser.results": "{count} résultat(s) affiché(s).",
   "tag_browser.copied": "{count} tag(s) copié(s).",
+  "tag_browser.copied.one": "1 tag copié",
+  "tag_browser.copied.many": "{count} tags copiés",
   "tag_browser.database_missing": "Base Gelbooru introuvable. Vérifie son chemin dans Options.",
   "tag_browser.error": "Recherche impossible : {error}",
+  "tag_browser.all": "Tous",
+  "tag_browser.no": "Non",
+  "tag_browser.yes": "Oui",
+  "tag_browser.category": "Catégorie :",
+  "tag_browser.posts": "Posts :",
+  "tag_browser.minimum": "Minimum de posts",
+  "tag_browser.maximum": "Maximum de posts",
+  "tag_browser.ambiguous": "Ambiguïté :",
+  "tag_browser.ambiguous_tooltip": "Tags signalés comme ambigus dans le catalogue local du site sélectionné.",
+  "tag_browser.unambiguous": "Non ambigu",
+  "tag_browser.state": "Type de tag :",
+  "tag_browser.alias": "Alias sortant :",
+  "tag_browser.alias_tooltip": "Filtre les tags ayant un alias sortant actif. Disponible pour Gelbooru.",
+  "tag_browser.limit": "Limite de résultats :",
+  "tag_browser.canonical": "Canonique",
+  "tag_browser.alias_state": "Alias",
+  "tag_browser.deprecated": "Obsolète",
+  "tag_browser.ambiguous_state": "Ambigu",
+  "tag_browser.with_alias": "Avec alias",
+  "tag_browser.without_alias": "Sans alias",
+  "tag_browser.copy_tag": "Copier le tag",
+  "tag_browser.copy_canonical": "Copier le tag canonique",
+  "tag_browser.open_site": "Ouvrir sur {site}",
+  "tag_browser.open_canonical_site": "Ouvrir le tag canonique sur {site}",
+  "tag_browser.column_id": "id",
+  "tag_browser.column_name": "nom",
+  "tag_browser.column_posts": "posts",
+  "tag_browser.column_category": "catégorie",
+  "tag_browser.column_ambiguous": "ambigu",
+  "tag_browser.column_state": "état",
 "review.search_group": "1 — Générer la liste à examiner",
   "review.site": "Site :",
   "review.entity": "Type d’entité :",
@@ -303,13 +445,17 @@
   "entity.characters": "Personnages",
   "entity.species": "Espèces"
   ,"tagging.group": "Repérer les posts Gelbooru pauvres en tags"
+  ,"tagging.group_site": "Repérer les posts {site} pauvres en tags"
   ,"tagging.query": "Recherche Gelbooru :"
+  ,"tagging.search_label": "Recherche :"
   ,"tagging.pages": "Pages par bloc :"
   ,"tagging.start": "Première page :"
   ,"tagging.minimum": "Tags minimum :"
   ,"tagging.maximum": "Tags maximum :"
   ,"tagging.critical": "Critique jusqu’à :"
   ,"tagging.high": "Haute jusqu’à :"
+  ,"tagging.thresholds": "Seuils : Critique ≤ {critical} · Haute ≤ {high}"
+  ,"tagging.search.summary": "{retained} posts retenus"
   ,"tagging.start_button": "Rechercher"
   ,"tagging.stop": "Arrêter"
   ,"tagging.ready": "Prêt. Les résultats s’ouvrent dans le navigateur authentifié ; BooruFlow n’envoie jamais de tags."
@@ -348,6 +494,20 @@
   ,"tagging.result": "{priority} — post #{id} — {count} tags"
   ,"tagging.section": "{priority} — {count} image(s)"
   ,"tagging.card": "#{id} · {count} tags"
+  ,"tagging.bulk.title": "Tagging manuel en lot — enregistré localement pour revue"
+  ,"tagging.bulk.add": "Tags à ajouter :"
+  ,"tagging.bulk.remove": "Tags à retirer :"
+  ,"tagging.bulk.apply": "Appliquer aux {count} images sélectionnées"
+  ,"tagging.bulk.pending": "{count} modification(s) en attente"
+  ,"tagging.bulk.tooltip": "À publier :"
+  ,"tagging.bulk.selected": "{count} image(s) sélectionnée(s)"
+  ,"tagging.bulk.placeholder": "Saisir un tag, puis appuyer sur Entrée"
+  ,"tagging.results.hide_queued": "Masquer les résultats déjà en file d’attente"
+  ,"tagging.results.counts": "{total} résultats · {queued} déjà en file · {displayed} affichés"
+  ,"tagging.card.status.processed": "✓ Traité"
+  ,"tagging.card.status.publishing": "↻ Publication"
+  ,"tagging.card.status.published": "✓ Publié"
+  ,"tagging.card.status.failed": "⚠ Échec"
   ,"tagging.alias_suggestion": "{tag} — alias de {alias}"
   ,"tagging.alias.title": "Alias de tags"
   ,"tagging.review.back": "← Retour aux résultats [Échap]"
@@ -427,6 +587,10 @@
   ,"tagging.batch.state.failed": "Échec"
   ,"tagging.batch.state.local": "Local"
   ,"tagging.batch.state.reviewed": "Révisé localement"
+  ,"tagging.batch.failed_reason": "Échec — {reason}"
+  ,"tagging.batch.failure.locked_image": "Image verrouillée"
+  ,"tagging.batch.failure.unexpected_global_redirect": "Redirection inattendue"
+  ,"tagging.batch.failure.other": "Erreur de publication"
   ,"tagging.batch.counts": "{pending} · {local} · {published} · {failed}"
   ,"tagging.batch.count.pending.one": "{count} en attente"
   ,"tagging.batch.count.pending.other": "{count} en attente"
@@ -440,6 +604,10 @@
   ,"tagging.analysis.unavailable": "Erreur : ImageAnalysis indisponible. {detail}"
   ,"tagging.analysis.error": "Erreur : {error}"
   ,"tagging.analysis.pending": "Analyse en attente…"
+  ,"tagging.analysis.status_running": "Analyse de l’image…"
+  ,"tagging.analysis.status_complete": "Analyse terminée"
+  ,"tagging.analysis.status_cached": "Analyse disponible dans le cache"
+  ,"tagging.analysis.status_failed": "Échec de l’analyse — voir le journal"
   ,"tagging.analysis.worker_starting": "Démarrage du worker d’analyse…"
   ,"tagging.analysis.worker_initializing": "Initialisation du worker d’analyse…"
   ,"tagging.analysis.worker_restarting": "Redémarrage du worker d’analyse…"
@@ -494,7 +662,14 @@
   ,"tagging.publish.confirm_title": "Confirmer la publication"
   ,"tagging.publish.confirm": "Publier {count} modification(s) sur Gelbooru ?\n\n{additions} ajout(s), {removals} retrait(s)."
   ,"tagging.publish.confirm_sites": "Publier {count} modification(s) sur {sites} ?\n\n{additions} ajout(s), {removals} retrait(s)."
-  ,"tagging.publish.summary": "{total} entrées · {published} publiées · {no_op} no-op · {failed} échecs{suffix}"
+  ,"tagging.publish.summary": "Publication terminée\n\n{total} traités · {published} publiés · {no_op} sans changement · {failed} échecs\nDurée : {duration}{suffix}"
+  ,"tagging.publish.detail": "Publication\n\n{processed} / {total} traités · {remaining} restants\nPost actuel : {target}\nDernier résultat : {result}\n{wait}\nTemps restant estimé : ~{eta}"
+  ,"tagging.publish.wait": "Prochain envoi dans : {seconds:.1f} s"
+  ,"tagging.publish.sending": "Envoi…"
+  ,"tagging.publish.result.published": "publié"
+  ,"tagging.publish.result.no_op": "aucun changement nécessaire"
+  ,"tagging.publish.result.failed": "échec"
+  ,"tagging.publish.result.completed": "terminé"
   ,"tagging.publish.summary.expired": " · session expirée, lot mis en pause"
   ,"tagging.publish.summary.unknown": " · état de session indéterminé, lot mis en pause"
   ,"tagging.publish.summary.cancelled": " · annulé avant le post suivant"
@@ -588,6 +763,8 @@
   ,"organization.search": "Rechercher un tag…"
   ,"organization.search_button": "Rechercher"
   ,"organization.update": "Mettre à jour depuis les wikis"
+  ,"organization.stop": "Arrêter"
+  ,"organization.refresh_wiki": "Actualiser ce wiki"
   ,"organization.add_category": "Ajouter une catégorie"
   ,"organization.add_tags": "Ajouter des tags"
   ,"organization.add_child_tags": "Ajouter des tags enfants…"
@@ -601,22 +778,33 @@
   ,"organization.wiki_removed": "Association avec la page wiki retirée. Appuie sur Enregistrer pour conserver."
   ,"organization.import": "Importer une hiérarchie…"
   ,"organization.imported": "Hiérarchie importée depuis {path}. Utilise Enregistrer pour la conserver."
-  ,"organization.send_review": "Envoyer vers Révision"
-  ,"organization.sent_review": "{count} tag(s) de la taxonomie envoyés vers Révision."
+  ,"organization.send_review": "Envoyer vers le créateur de listes"
+  ,"organization.sent_review": "{count} tag(s) de la taxonomie envoyés vers le créateur de listes."
   ,"organization.empty_entry": "Entrée historique vide : aucune sous-catégorie ni définition en cache n’est enregistrée."
   ,"organization.search_results": "Résultats de la recherche"
   ,"organization.no_tag_selected": "Sélectionne un tag pour l’examiner"
   ,"organization.details_loading": "Chargement du wiki et de quelques images d’exemple…"
   ,"organization.wiki_empty": "Le wiki est accessible, mais sa page ne contient aucune description."
+  ,"organization.wiki_not_found": "Aucune page wiki exacte n’existe pour ce tag."
   ,"organization.cached_offline": "Internet est indisponible. Les dernières informations en cache sont affichées."
   ,"organization.internet_required": "Une connexion Internet est nécessaire pour charger ce wiki et ses exemples.\n\n{error}"
   ,"organization.open_wiki": "Ouvrir la page wiki dans le navigateur"
+  ,"organization.tag_type": "Type de tag : {value}"
+  ,"organization.wiki_author": "Auteur : {value}"
+  ,"organization.wiki_version": "Version : {value}"
+  ,"organization.remote_updated": "Wiki distant modifié : {value}"
+  ,"organization.cached_at": "Mis en cache : {value}"
+  ,"organization.loading_wiki": "Chargement du wiki…"
+  ,"organization.refreshing_wiki": "Actualisation du wiki…"
+  ,"organization.wiki_loaded_cache": "Wiki chargé depuis le cache local"
+  ,"organization.wiki_updated": "Wiki actualisé"
+  ,"organization.refresh_failed_cached": "Échec de l’actualisation — version en cache affichée"
   ,"organization.no_samples": "Aucune image d’exemple n’a été renvoyée pour ce tag."
   ,"organization.wiki_references": "Tags référencés par ce wiki :"
   ,"organization.recurring": "Top {count} des tags récurrents sur {sample_size} posts échantillonnés"
   ,"organization.no_recurring": "Aucun tag récurrent n’a pu être calculé sur {sample_size} posts échantillonnés."
-  ,"organization.recurring_tooltip": "Coche ce tag pour la Revue ; clique sur son nom pour l’afficher ici."
-  ,"organization.send_recurring_review": "Envoyer les tags récurrents cochés vers Revue"
+  ,"organization.recurring_tooltip": "Coche ce tag pour le créateur de listes ; clique sur son nom pour l’afficher ici."
+  ,"organization.send_recurring_review": "Envoyer les tags récurrents cochés vers le créateur de listes"
   ,"organization.details_offline_log": "Impossible d’actualiser les détails de {tag} : {error}"
   ,"organization.rename": "Renommer"
   ,"organization.delete": "Supprimer"
@@ -631,6 +819,9 @@
   ,"organization.backup": "Sauvegarde de la taxonomie : {path}"
   ,"organization.failed": "Échec de l’opération sur la taxonomie : {error}"
   ,"organization.updating": "Téléchargement et analyse des sources wiki officielles…"
+  ,"organization.stopping": "Arrêt de la mise à jour des wikis…"
+  ,"organization.update_stopped": "Mise à jour arrêtée"
+  ,"organization.update_stopped_log": "Mise à jour des wikis arrêtée après {count} étape(s) de progression terminée(s)."
   ,"organization.update_confirm": "Import analysé : {total} tags uniques, {added} ajout(s), {removed} retrait(s). L’appliquer ? Une sauvegarde datée sera créée avant."
   ,"organization.cancelled": "Mise à jour wiki analysée puis annulée."
   ,"wiki.tag": "Tag du wiki :"
@@ -907,4 +1098,76 @@
   ,"similar.references": "Références"
   ,"similar.no_common_tag": "Aucun tag fréquent commun"
   ,"similar.comparison_section": "{section}\nCommuns : {common}\n{left}: {left_values}\n{right}: {right_values}"
+  ,"feature.loading": "Chargement de {feature}…"
+  ,"feature.failed": "Impossible de préparer {feature}."
+  ,"feature.retry": "Réessayer"
+  ,"feature.details": "Détails"
+  ,"tagging.wd14.starting": "Analyse WD14 : {tag}"
+  ,"tagging.wd14.progress": "WD14 : {tag} — {completed}/{total} · {remaining} restantes · {reused} réutilisées · {analyzed} analysées · {failed} erreurs"
+  ,"tagging.wd14.complete": "{total} images · {reused} déjà analysées · {analyzed} analysées maintenant · {failed} erreurs"
+  ,"tagging.wd14.status.progress": "{reused} en cache · {analyzed} nouvelles · {failed} erreurs"
+  ,"tagging.wd14.status.complete": "{total} images · {reused} en cache · {analyzed} nouvelles · {failed} erreurs"
+  ,"tagging.wd14.progress_accessible": "Progression de l’analyse WD14 ciblée"
+  ,"tagging.wd14.tag_unavailable": "Tag indisponible dans WD14"
+  ,"tagging.wd14.unsupported_site": "La confiance WD14 ciblée est disponible uniquement pour les résultats Gelbooru."
+  ,"tagging.wd14.busy": "L’analyse WD14 précédente s’arrête. Réessayez dans un instant."
+  ,"tagging.wd14.bucket.90-100": "90–100 % — {count}"
+  ,"tagging.wd14.bucket.80-89": "80–89 % — {count}"
+  ,"tagging.wd14.bucket.70-79": "70–79 % — {count}"
+  ,"tagging.wd14.bucket.60-69": "60–69 % — {count}"
+  ,"tagging.wd14.bucket.50-59": "50–59 % — {count}"
+  ,"tagging.wd14.bucket.40-49": "40–49 % — {count}"
+  ,"tagging.wd14.bucket.30-39": "30–39 % — {count}"
+  ,"tagging.wd14.bucket.20-29": "20–29 % — {count}"
+  ,"tagging.wd14.bucket.10-19": "10–19 % — {count}"
+  ,"tagging.wd14.bucket.under-10": "<10 % — {count}"
+  ,"tagging.wd14.bucket.not-analyzed": "Non analysé — {count}"
+  ,"tagging.wd14.bucket.failed": "Échec d’analyse — {count}"
+  ,"wiki_audit.reference_placeholder": "ID ou URL d’un post Gelbooru"
+  ,"wiki_audit.load": "Charger le post"
+  ,"wiki_audit.random": "Post aléatoire"
+  ,"wiki_audit.authentication_error": "Authentification API Gelbooru requise ou invalide. Vérifiez la clé API et l’identifiant utilisateur configurés."
+  ,"wiki_audit.refresh": "Tout actualiser"
+  ,"wiki_audit.state": "Wiki :"
+  ,"wiki_audit.category": "Catégorie :"
+  ,"wiki_audit.minimum": "Posts minimum :"
+  ,"wiki_audit.minimum_tip": "Conserver les tags ayant au moins ce nombre de posts."
+  ,"wiki_audit.search": "Nom du tag :"
+  ,"wiki_audit.search_placeholder": "Saisir pour filtrer…"
+  ,"wiki_audit.length": "Longueur du wiki :"
+  ,"wiki_audit.filter_all": "Tous"
+  ,"wiki_audit.filter_present": "Avec wiki"
+  ,"wiki_audit.filter_missing": "Wiki manquant"
+  ,"wiki_audit.filter_old": "Ancien wiki (5 ans et +)"
+  ,"wiki_audit.length_all": "Tous"
+  ,"wiki_audit.length_empty": "Vide"
+  ,"wiki_audit.length_short": "Court"
+  ,"wiki_audit.length_non_empty": "Non vide"
+  ,"wiki_audit.ignore_metadata": "Ignorer Metadata"
+  ,"wiki_audit.ignore_deprecated": "Ignorer les obsolètes"
+  ,"wiki_audit.read": "Lire le wiki"
+  ,"wiki_audit.open": "Ouvrir sur Gelbooru"
+  ,"wiki_audit.refresh_wiki": "Actualiser la vue"
+  ,"wiki_audit.empty": "Chargez un post Gelbooru pour auditer ses tags."
+  ,"wiki_audit.database_missing": "Base locale de tags Gelbooru introuvable. Vérifiez les Options."
+  ,"wiki_audit.loading": "Chargement du post et vérification des wikis…"
+  ,"wiki_audit.progress": "Vérification {completed}/{total} : {tag}"
+  ,"wiki_audit.error": "Échec de l’audit des wikis : {error}"
+  ,"wiki_audit.summary": "{total} tags · {present} avec wiki · {missing} manquants · {errors} erreurs · {suspicious} obsolètes/alias · {visible} affichés"
+  ,"wiki_audit.has_wiki": "Wiki présent"
+  ,"wiki_audit.no_wiki": "Aucun wiki"
+  ,"wiki_audit.empty_wiki": "Ce wiki existe mais ne contient aucun texte éditorial."
+  ,"wiki_audit.empty_wiki_tooltip": "Le wiki existe mais ne contient aucun texte éditorial."
+  ,"wiki_audit.network_error": "Erreur réseau"
+  ,"wiki_audit.parse_error": "Erreur de parsing"
+  ,"wiki_audit.loading_wiki": "Chargement du wiki…"
+  ,"wiki_audit.column_tag": "Tag"
+  ,"wiki_audit.column_category": "Catégorie"
+  ,"wiki_audit.column_posts": "Nombre de posts"
+  ,"wiki_audit.column_alias": "Alias"
+  ,"wiki_audit.column_wiki": "Wiki"
+  ,"wiki_audit.column_words": "Mots"
+  ,"wiki_audit.column_date": "Date du wiki"
+  ,"wiki_audit.column_version": "Version"
+  ,"wiki_audit.column_author": "Auteur du wiki"
 }

@@ -6,6 +6,8 @@ import json
 import sqlite3
 from pathlib import Path
 
+from booruflow.infrastructure.wiki_page_cache import ensure_wiki_page_schema
+
 
 class TaxonomyDatabase:
     def __init__(self, path: Path, board: str) -> None:
@@ -42,6 +44,7 @@ class TaxonomyDatabase:
             CREATE INDEX IF NOT EXISTS idx_memberships_tag ON memberships(tag_name);
             """
         )
+        ensure_wiki_page_schema(self.connection)
         self.connection.commit()
 
     def sync_from_document(

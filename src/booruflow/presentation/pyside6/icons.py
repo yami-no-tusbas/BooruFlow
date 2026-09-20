@@ -13,10 +13,13 @@ NAVIGATION_COLORS = {
     "tagging": "#F59E0B",
     "tagging_legacy": "#A16207",
     "image_analysis": "#7C3AED",
+    "image_finder": "#0284C7",
     "auto_organize": "#0891B2",
+    "folder_artists": "#C2410C",
     "similar_artists": "#D946EF",
     "organization": "#8B5CF6",
     "tag_browser": "#0F766E",
+    "wiki_audit": "#B45309",
     "wiki": "#EC4899",
     "cleanup": "#EF4444",
     "options": "#64748B",
@@ -74,6 +77,14 @@ def _similar_artists(painter: QPainter) -> None:
     painter.drawLine(QPointF(19, 13), QPointF(18, 17))
 
 
+def _folder_artists(painter: QPainter) -> None:
+    painter.drawEllipse(QPointF(11, 11), 3, 3)
+    painter.drawArc(QRectF(6, 14, 10, 8), 0, 180 * 16)
+    painter.drawLine(QPointF(18, 10), QPointF(23, 10))
+    painter.drawLine(QPointF(18, 15), QPointF(23, 15))
+    painter.drawLine(QPointF(18, 20), QPointF(23, 20))
+
+
 def _tag_browser(painter: QPainter) -> None:
     painter.drawRoundedRect(QRectF(5, 7, 20, 16), 2, 2)
     painter.drawLine(QPointF(5, 12), QPointF(25, 12))
@@ -122,10 +133,13 @@ _DRAWERS: dict[str, Callable[[QPainter], None]] = {
     "tagging": _tagging,
     "tagging_legacy": _tagging,
     "image_analysis": _image_analysis,
+    "image_finder": _image_analysis,
     "auto_organize": _organization,
+    "folder_artists": _folder_artists,
     "similar_artists": _similar_artists,
     "organization": _organization,
     "tag_browser": _tag_browser,
+    "wiki_audit": _wiki,
     "wiki": _wiki,
     "cleanup": _cleanup,
     "options": _options,

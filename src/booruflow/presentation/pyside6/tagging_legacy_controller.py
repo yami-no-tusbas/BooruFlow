@@ -5,6 +5,7 @@ from __future__ import annotations
 import urllib.error
 from collections.abc import Callable
 from pathlib import Path
+from time import perf_counter
 
 from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QInputDialog, QMessageBox
@@ -43,6 +44,7 @@ def _controller_site(controller) -> str:
 
 class TaggingWorker(QThread):
     progress = Signal(int, int, int, int, int)
+    timing = Signal(object)
     completed = Signal(list, int, int, bool, str, bool, str)
 
     def __init__(self, request: TaggingRequest, user_id: str, api_key: str) -> None:
@@ -60,6 +62,7 @@ class TaggingWorker(QThread):
                     self.request,
                     cancelled=self.isInterruptionRequested,
                     progress=lambda *values: self.progress.emit(*values),
+                    timing=self.timing.emit,
                 )
             else:
                 posts, examined, next_page, reached_end = GelbooruTaggingScanner().scan(
@@ -68,6 +71,7 @@ class TaggingWorker(QThread):
                     self.api_key,
                     cancelled=self.isInterruptionRequested,
                     progress=lambda *values: self.progress.emit(*values),
+                    timing=self.timing.emit,
                 )
             self.completed.emit(
                 posts, examined, next_page, reached_end, "", self.isInterruptionRequested(),
@@ -118,6 +122,7 @@ class TaggingLegacyController(QObject):
         self.task_manager = task_manager
         self.task_id: str | None = None
         self.worker: TaggingWorker | None = None
+        self._search_started_at = 0.0
         self.image_analysis = None
         self.current_post_id: int | None = None
         self.current_post: dict = {}
@@ -129,6 +134,7 @@ class TaggingLegacyController(QObject):
         page.mapping_requested.connect(self.map_selected)
         page.refresh_metadata_requested.connect(self.refresh_metadata)
         page.activity_logged.connect(self._page_activity)
+        page.diagnostic_logged.connect(self._page_diagnostic)
         page.manual_lookup_requested.connect(self.lookup_manual_tags)
         page.manual_add_requested.connect(self.add_manual_tag)
         page.tag_search_requested.connect(self.open_tag_search)
@@ -152,6 +158,9 @@ class TaggingLegacyController(QObject):
 
     def _page_activity(self, action: str, detail: str) -> None:
         self._log(f"{action}: {detail}")
+
+    def _page_diagnostic(self, level: str, action: str, detail: str) -> None:
+        self._log(f"{action}: {detail}", level=level)
 
     def bind_image_analysis(self, controller) -> None:
         self.image_analysis = controller
@@ -216,6 +225,9 @@ class TaggingLegacyController(QObject):
         except Exception as exc:  # noqa: BLE001 - Qt signal boundary
             self._log(f"Could not open local review: {exc}", level="ERROR")
             self.page.set_analysis_request_state(self.catalog.text("tagging.analysis.error", error=exc), False)
+            callback = getattr(self, "_analysis_failed_status", None)
+            if callable(callback):
+                callback(str(exc), log_detail=False)
 
     def analyze(self, post_id: int) -> None:
         if not self.image_analysis: return
@@ -258,6 +270,9 @@ class TaggingLegacyController(QObject):
         except Exception as exc:  # noqa: BLE001 - Qt action boundary must surface every failure
             self._log(f"Local analysis failed: {exc}", level="ERROR")
             self.page.set_analysis_request_state(self.catalog.text("tagging.analysis.error", error=exc), False)
+            callback = getattr(self, "_analysis_failed_status", None)
+            if callable(callback):
+                callback(str(exc), log_detail=False)
 
     def _local_names(self, names: list[str]) -> set[str]:
         path_value = str(self.image_analysis.settings.get(
@@ -486,19 +501,29 @@ class TaggingLegacyController(QObject):
             self.page.state.setText(self.catalog.text("tagging.credentials_missing", site=site))
             return
         self.page.set_running(True)
+        self._search_started_at = perf_counter()
         if self.task_manager:
             self.task_id = self.task_manager.start(
                 "tagging", self.catalog.text("nav.tagging"), request.query
             )
-        self._log(f"site={site} search started query={request.query}")
+        self._log(f"Search started site={site} query={request.query}")
         self.worker = TaggingWorker(
             request,
             str(site_credentials["user_id"]),
             str(site_credentials["api_key"]),
         )
         self.worker.progress.connect(self.progress)
+        self.worker.timing.connect(self.search_timing)
         self.worker.completed.connect(self.finished)
         self.worker.start()
+
+    def search_timing(self, metrics: dict[str, object]) -> None:
+        self._log(
+            f"Search page timing page={metrics.get('page')} posts={metrics.get('posts')} "
+            f"network_ms={float(metrics.get('network_ms', 0.0)):.1f} "
+            f"processing_ms={float(metrics.get('processing_ms', 0.0)):.1f}",
+            level="DEBUG",
+        )
 
     def stop(self) -> None:
         if self.worker:
@@ -533,7 +558,17 @@ class TaggingLegacyController(QObject):
             return
         self.page.set_running(False)
         self.page.spins["start"].setValue(max(1, next_page))
+        response_ms = (perf_counter() - self._search_started_at) * 1000
+        self._log(
+            f"Search response received site={completed_site} posts={len(posts)} "
+            f"examined={examined} network_scan_ms={response_ms:.1f}"
+        )
+        render_started = perf_counter()
         self.page.show_results(posts)
+        self._log(
+            f"Result processing/render posts={len(posts)} "
+            f"elapsed_ms={(perf_counter() - render_started) * 1000:.1f}"
+        )
         if error:
             message = self.catalog.text(f"tagging.error.{error}")
             self.page.state.setText(message)

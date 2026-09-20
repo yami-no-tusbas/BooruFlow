@@ -59,6 +59,9 @@ class TaxonomyRepository:
             pass
         return default_document()
 
+    def database_path(self, board: str) -> Path:
+        return self.databases_directory / f"tag_organization_{board}.sqlite"
+
     def save(self, document: dict) -> Path | None:
         self.path.parent.mkdir(parents=True, exist_ok=True)
         backup = None
@@ -71,9 +74,7 @@ class TaxonomyRepository:
         temporary.write_text(json.dumps(document, ensure_ascii=False, indent=2), encoding="utf-8")
         os.replace(temporary, self.path)
         for board in ("gelbooru", "e621"):
-            database = TaxonomyDatabase(
-                self.databases_directory / f"tag_organization_{board}.sqlite", board
-            )
+            database = TaxonomyDatabase(self.database_path(board), board)
             try:
                 database.sync_from_document(
                     document.get("boards", {}).get(board, {}),

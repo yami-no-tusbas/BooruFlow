@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import sqlite3
 from collections.abc import Callable
+from contextlib import nullcontext
 from datetime import UTC, datetime
 from importlib.resources import files
 from pathlib import Path
@@ -24,7 +25,7 @@ from booruflow.domain.image_analysis import (
     validate_transition,
 )
 
-SCHEMA_VERSION = 20
+SCHEMA_VERSION = 23
 
 
 def utc_now() -> str:
@@ -238,9 +239,62 @@ class ImageAnalysisRepository:
             )
             with self.connection:
                 self.connection.executescript(migration)
+            version = 20
+        if version == 20:
+            migration = (
+                files("booruflow.infrastructure.schema")
+                .joinpath("image_analysis_v21.sql")
+                .read_text(encoding="utf-8")
+            )
+            with self.connection:
+                self.connection.executescript(migration)
+            version = 21
+        if version == 21:
+            columns = {
+                str(row[1])
+                for row in self.connection.execute(
+                    "PRAGMA table_info(tagging_review_batch_entries)"
+                )
+            }
+            with self.connection:
+                if {"failure_reason", "failure_retryable"}.issubset(columns):
+                    self.connection.execute("PRAGMA user_version=22")
+                else:
+                    migration = (
+                        files("booruflow.infrastructure.schema")
+                        .joinpath("image_analysis_v22.sql")
+                        .read_text(encoding="utf-8")
+                    )
+                    self.connection.executescript(migration)
+            version = 22
+        if version == 22:
+            migration = (
+                files("booruflow.infrastructure.schema")
+                .joinpath("image_analysis_v23.sql")
+                .read_text(encoding="utf-8")
+            )
+            with self.connection:
+                self.connection.executescript(migration)
 
     def close(self) -> None:
         self.connection.close()
+
+    def maintenance_completed(self, key: str) -> bool:
+        return (
+            self.connection.execute(
+                "SELECT 1 FROM feature_maintenance WHERE maintenance_key=?", (key,)
+            ).fetchone()
+            is not None
+        )
+
+    def record_maintenance(self, key: str, details: dict[str, object]) -> None:
+        with self.connection:
+            self.connection.execute(
+                """INSERT OR REPLACE INTO feature_maintenance(
+                       maintenance_key,completed_at,details_json)
+                   VALUES(?,?,?)""",
+                (key, utc_now(), json.dumps(details, ensure_ascii=False, sort_keys=True)),
+            )
 
     def __enter__(self) -> Self:
         return self
@@ -258,7 +312,8 @@ class ImageAnalysisRepository:
     ) -> int:
         now = utc_now()
         source = item.source
-        with self.connection:
+        transaction = nullcontext() if self.connection.in_transaction else self.connection
+        with transaction:
             cursor = self.connection.execute(
                 """
                 INSERT INTO analysis_items(
@@ -399,7 +454,8 @@ class ImageAnalysisRepository:
     ) -> None:
         now = utc_now()
         site = source.site
-        with self.connection:
+        transaction = nullcontext() if self.connection.in_transaction else self.connection
+        with transaction:
             self._insert_provenance(item_id, source, now)
             if queue_visible is not None:
                 self.connection.execute(
@@ -817,6 +873,7 @@ class ImageAnalysisRepository:
                  ON m.site=p.site AND m.post_id=p.post_id
                WHERE m.state='resolved' AND p.site IN ('gelbooru','e621')"""
         )
+        associations: dict[str, set[tuple[int, str]]] = {"gelbooru": set(), "e621": set()}
         for row in rows:
             try:
                 artists = tuple(
@@ -826,48 +883,60 @@ class ImageAnalysisRepository:
                 )
             except (TypeError, ValueError):
                 artists = ()
-            repaired[str(row["site"])] += (
-                self.assign_artist(
-                    [int(row["item_id"])], str(row["site"]), artists[0], "source_tag"
+            site = str(row["site"])
+            for artist in artists:
+                associations[site].add((int(row["item_id"]), artist))
+        with self.connection:
+            for site, values in associations.items():
+                cursor = self.connection.executemany(
+                    """INSERT OR IGNORE INTO item_artists(item_id,site,artist_tag,provenance)
+                       SELECT id,?,?,? FROM analysis_items WHERE id=?""",
+                    ((site, artist, "source_tag", item_id) for item_id, artist in values),
                 )
-                if len(artists) == 1
-                else 0
-            )
-            if len(artists) > 1:
-                for artist in artists:
-                    repaired[str(row["site"])] += self.assign_artist(
-                        [int(row["item_id"])], str(row["site"]), artist, "source_tag"
-                    )
+                repaired[site] = max(0, int(cursor.rowcount))
         return repaired
 
     def repair_gelbooru_tag_categories(self, category_lookup) -> int:
         """Reclassify persisted Gelbooru tags using the configured authoritative catalogue."""
-        repaired = 0
-        rows = list(
-            self.connection.execute(
-                """SELECT DISTINCT p.item_id FROM image_provenances p
+        rows = self.connection.execute(
+            """SELECT DISTINCT p.item_id,s.tag_name
+               FROM image_provenances p
+               JOIN source_tags s ON s.item_id=p.item_id AND s.site='gelbooru'
                WHERE p.site='gelbooru' AND NOT EXISTS(
-                   SELECT 1 FROM item_artists a WHERE a.item_id=p.item_id AND a.site='gelbooru')"""
-            )
+                   SELECT 1 FROM item_artists a
+                   WHERE a.item_id=p.item_id AND a.site='gelbooru')"""
         )
+        names_by_item: dict[int, set[str]] = {}
+        all_names: set[str] = set()
         for row in rows:
-            item_id = int(row[0])
-            names = tuple(
-                str(value[0])
-                for value in self.connection.execute(
-                    "SELECT tag_name FROM source_tags WHERE item_id=? AND site='gelbooru'",
-                    (item_id,),
-                )
+            item_id, name = int(row[0]), str(row[1])
+            names_by_item.setdefault(item_id, set()).add(name)
+            all_names.add(name)
+        categories = category_lookup(tuple(sorted(all_names)))
+        category_updates = [
+            (categories[name], item_id, name)
+            for item_id, names in names_by_item.items()
+            for name in names
+            if name in categories
+        ]
+        artists = {
+            (item_id, name)
+            for item_id, names in names_by_item.items()
+            for name in names
+            if categories.get(name) == "artist"
+        }
+        with self.connection:
+            self.connection.executemany(
+                """UPDATE source_tags SET category=?
+                   WHERE item_id=? AND site='gelbooru' AND tag_name=?""",
+                category_updates,
             )
-            categories = category_lookup(names)
-            with self.connection:
-                self.connection.executemany(
-                    "UPDATE source_tags SET category=? WHERE item_id=? AND site='gelbooru' AND tag_name=?",
-                    ((category, item_id, name) for name, category in categories.items()),
-                )
-            for artist in (name for name, category in categories.items() if category == "artist"):
-                repaired += self.assign_artist([item_id], "gelbooru", artist, "source_tag")
-        return repaired
+            cursor = self.connection.executemany(
+                """INSERT OR IGNORE INTO item_artists(item_id,site,artist_tag,provenance)
+                   SELECT id,'gelbooru',?,'source_tag' FROM analysis_items WHERE id=?""",
+                ((artist, item_id) for item_id, artist in artists),
+            )
+        return max(0, int(cursor.rowcount))
 
     def unassigned_artist_diagnostics(self) -> list[dict]:
         """Explain every resolved canonical image lacking an artist association."""
@@ -1246,7 +1315,8 @@ class ImageAnalysisRepository:
             json.dumps(self._stable_tags(removals)),
             json.dumps(stable_final_tags),
         )
-        with self.connection:
+        transaction = nullcontext() if self.connection.in_transaction else self.connection
+        with transaction:
             self.connection.execute(
                 """INSERT INTO tagging_review_batch_entries(
                        item_id,site,post_id,original_tags_json,additions_json,
@@ -1264,12 +1334,119 @@ class ImageAnalysisRepository:
             )
         return state
 
+    def stage_manual_remote_delta(
+        self,
+        site: str,
+        post_id: str | int,
+        original_tags: list[str] | tuple[str, ...],
+        additions: list[str] | tuple[str, ...] = (),
+        removals: list[str] | tuple[str, ...] = (),
+    ) -> dict[str, object]:
+        """Merge a manual delta into the durable review queue without analysis.
+
+        The remote identity and the tags already returned by the search are
+        sufficient.  No source image, model run, or publication transport is
+        touched here.
+        """
+        normalized_site = str(site).strip().casefold()
+        if normalized_site not in {"gelbooru", "e621"}:
+            raise ValueError(f"unsupported remote site: {site}")
+        normalized_post_id = str(post_id).strip()
+        if not normalized_post_id:
+            raise ValueError("post_id must not be blank")
+        clean_original = self._stable_tags(original_tags)
+        clean_additions = self._stable_tags(additions)
+        clean_removals = self._stable_tags(removals)
+        item = self.item_by_remote_source(normalized_site, normalized_post_id)
+        source = (
+            ObservationSource.GELBOORU
+            if normalized_site == "gelbooru"
+            else ObservationSource.E621
+        )
+        source_tags = tuple(SourceTag(tag, source) for tag in clean_original)
+        if item is None:
+            kind = (
+                InputKind.GELBOORU_POST
+                if normalized_site == "gelbooru"
+                else InputKind.E621_POST
+            )
+            item_id = self.add_item(
+                AnalysisItem(
+                    SourceReference(kind, site=normalized_site, post_id=normalized_post_id),
+                    state=AnalysisState.REVIEWED,
+                ),
+                source_tags,
+                request_analysis=False,
+            )
+        else:
+            item_id = int(item.id)
+            kind = (
+                InputKind.GELBOORU_POST
+                if normalized_site == "gelbooru"
+                else InputKind.E621_POST
+            )
+            self.reuse_item(
+                item_id,
+                SourceReference(kind, site=normalized_site, post_id=normalized_post_id),
+                source_tags,
+                queue_visible=None,
+            )
+        existing = self.batch_entry(item_id)
+        baseline = self._stable_tags(
+            existing["original_tags"] if existing is not None else clean_original
+        )
+        desired = set(
+            existing["reviewed_final_tags"] if existing is not None else clean_original
+        )
+        desired.update(clean_additions)
+        desired.difference_update(clean_removals)
+        final_tags = self._stable_tags(tuple(desired))
+        self.save_review_batch_entry(
+            item_id,
+            original_tags=baseline,
+            additions=sorted(set(final_tags) - set(baseline)),
+            removals=sorted(set(baseline) - set(final_tags)),
+            reviewed_final_tags=final_tags,
+        )
+        result = self.batch_entry(item_id)
+        assert result is not None
+        return result
+
+    def stage_manual_remote_deltas(
+        self, changes: list[dict[str, object]] | tuple[dict[str, object], ...]
+    ) -> list[dict[str, object]]:
+        """Stage multiple manual edits atomically using the single-item merge rules."""
+        if not changes:
+            return []
+        results: list[dict[str, object]] = []
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            for change in changes:
+                results.append(
+                    self.stage_manual_remote_delta(
+                        str(change["site"]),
+                        str(change["post_id"]),
+                        tuple(change.get("original_tags", ())),
+                        tuple(change.get("additions", ())),
+                        tuple(change.get("removals", ())),
+                    )
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return results
+
     def batch_entry(self, item_id: int) -> dict[str, object] | None:
         row = self.connection.execute(
             "SELECT * FROM tagging_review_batch_entries WHERE item_id=?", (item_id,)
         ).fetchone()
         if row is None:
             return None
+        return self._batch_entry_from_row(row)
+
+    @staticmethod
+    def _batch_entry_from_row(row: sqlite3.Row) -> dict[str, object]:
         return {
             "item_id": int(row["item_id"]),
             "site": row["site"],
@@ -1282,6 +1459,11 @@ class ImageAnalysisRepository:
             "publish_state": PublishState(str(row["publish_state"])),
             "publish_attempts": int(row["publish_attempts"]),
             "last_error": row["last_error"],
+            "failure_reason": row["failure_reason"],
+            "failure_retryable": (
+                bool(row["failure_retryable"])
+                if row["failure_retryable"] is not None else None
+            ),
             "last_attempt_at": row["last_attempt_at"],
             "published_at": row["published_at"],
             "published_verified_at": row["published_verified_at"],
@@ -1300,16 +1482,24 @@ class ImageAnalysisRepository:
             condition += " AND publish_state=?"
         parameters = (publish_state.value,) if publish_state is not None else ()
         rows = self.connection.execute(
-            f"SELECT item_id FROM tagging_review_batch_entries{condition} "
+            f"SELECT * FROM tagging_review_batch_entries{condition} "
             "ORDER BY CASE publish_state "
             "WHEN 'pending_publish' THEN 0 WHEN 'failed' THEN 1 "
             "WHEN 'reviewed' THEN 2 WHEN 'published' THEN 3 ELSE 4 END, "
             "reviewed_at DESC,item_id DESC",
             parameters,
         )
-        return [
-            entry for row in rows if (entry := self.batch_entry(int(row["item_id"]))) is not None
-        ]
+        return [self._batch_entry_from_row(row) for row in rows]
+
+    def pending_change_count(self) -> int:
+        """Count publishable review rows that contain an actual tag delta."""
+        return int(
+            self.connection.execute(
+                """SELECT COUNT(*) FROM tagging_review_batch_entries
+                   WHERE batch_visible=1 AND publish_state='pending_publish'
+                     AND (additions_json<>'[]' OR removals_json<>'[]')"""
+            ).fetchone()[0]
+        )
 
     def remove_batch_entry(self, item_id: int) -> bool:
         with self.connection:
@@ -1365,7 +1555,8 @@ class ImageAnalysisRepository:
             changed = self.connection.execute(
                 """UPDATE tagging_review_batch_entries
                    SET publish_state=?, publish_attempts=publish_attempts+1,
-                       last_attempt_at=?, last_error=NULL
+                       last_attempt_at=?, last_error=NULL,
+                       failure_reason=NULL, failure_retryable=NULL
                    WHERE item_id=? AND publish_state=?""",
                 (
                     PublishState.PUBLISHING.value,
@@ -1386,6 +1577,7 @@ class ImageAnalysisRepository:
             changed = self.connection.execute(
                 """UPDATE tagging_review_batch_entries
                    SET publish_state=?, published_at=?, last_error=NULL,
+                       failure_reason=NULL, failure_retryable=NULL,
                        published_final_tags_json=reviewed_final_tags_json,
                        published_verified_at=?
                    WHERE item_id=? AND publish_state=?""",
@@ -1400,14 +1592,20 @@ class ImageAnalysisRepository:
         if not changed:
             raise ValueError(f"batch entry {item_id} is not publishing")
 
-    def publish_failed(self, item_id: int, error: str) -> None:
+    def publish_failed(
+        self, item_id: int, error: str, *, reason: str = "publish_error",
+        retryable: bool = True,
+    ) -> None:
         with self.connection:
             changed = self.connection.execute(
-                """UPDATE tagging_review_batch_entries SET publish_state=?, last_error=?
+                """UPDATE tagging_review_batch_entries SET publish_state=?, last_error=?,
+                       failure_reason=?, failure_retryable=?
                    WHERE item_id=? AND publish_state=?""",
                 (
                     PublishState.FAILED.value,
                     str(error)[:2000],
+                    str(reason)[:100],
+                    int(retryable),
                     item_id,
                     PublishState.PUBLISHING.value,
                 ),
@@ -1441,15 +1639,20 @@ class ImageAnalysisRepository:
                 (PublishState.PENDING_PUBLISH.value, PublishState.PUBLISHING.value),
             ).rowcount
 
-    def retry_failed_publishes(self, item_ids: object) -> int:
+    def retry_failed_publishes(self, item_ids: object, max_attempts: int = 3) -> int:
         values = tuple(dict.fromkeys(int(item_id) for item_id in item_ids))
         if not values:
             return 0
         placeholders = ",".join("?" for _ in values)
         with self.connection:
             return self.connection.execute(
-                f"UPDATE tagging_review_batch_entries SET publish_state=? WHERE publish_state=? AND item_id IN ({placeholders})",
-                (PublishState.PENDING_PUBLISH.value, PublishState.FAILED.value, *values),
+                f"""UPDATE tagging_review_batch_entries SET publish_state=?
+                    WHERE publish_state=? AND COALESCE(failure_retryable,1)=1
+                    AND publish_attempts<? AND item_id IN ({placeholders})""",
+                (
+                    PublishState.PENDING_PUBLISH.value, PublishState.FAILED.value,
+                    int(max_attempts), *values,
+                ),
             ).rowcount
 
     def next_tagging_pool_item(
@@ -2139,6 +2342,86 @@ class ImageAnalysisRepository:
                 (now, run_id),
             )
         return len(rows)
+
+    def save_wd14_score_vector(
+        self, run_id: int, scores: dict[str, float]
+    ) -> None:
+        """Persist one complete WD14 output vector against its versioned model run."""
+        payload = json.dumps(scores, ensure_ascii=False, separators=(",", ":"))
+        with self.connection:
+            self.connection.execute(
+                """INSERT INTO wd14_score_vectors(model_run_id,scores_json,created_at)
+                   VALUES(?,?,?) ON CONFLICT(model_run_id) DO UPDATE SET
+                   scores_json=excluded.scores_json,created_at=excluded.created_at""",
+                (run_id, payload, utc_now()),
+            )
+
+    def model_run_id_for_identity(
+        self,
+        item_id: int,
+        backend: str,
+        model_name: str,
+        model_version: str,
+        configuration_hash: str,
+    ) -> int | None:
+        row = self.connection.execute(
+            """SELECT id FROM model_runs WHERE item_id=? AND backend=?
+               AND model_name=? AND model_version=? AND configuration_hash=?
+               ORDER BY id DESC LIMIT 1""",
+            (item_id, backend, model_name, model_version, configuration_hash),
+        ).fetchone()
+        return int(row[0]) if row else None
+
+    def wd14_scores_for_remote_posts(
+        self,
+        site: str,
+        post_ids: list[str],
+        model_name: str,
+        model_version: str,
+        configuration_hash: str,
+        target_names: tuple[str, ...],
+    ) -> dict[str, float]:
+        """Load compatible targeted scores for many remote posts in one query."""
+        if not post_ids or not target_names:
+            return {}
+        result: dict[str, float] = {}
+        names = {value.casefold() for value in target_names}
+        for offset in range(0, len(post_ids), 800):
+            chunk = post_ids[offset:offset + 800]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.connection.execute(
+                f"""WITH remote_items(item_id,post_id) AS (
+                        SELECT item_id,post_id FROM image_provenances
+                        WHERE site=? AND post_id IN ({placeholders})
+                        UNION
+                        SELECT id,source_post_id FROM analysis_items
+                        WHERE source_site=? AND source_post_id IN ({placeholders})
+                    )
+                    SELECT p.post_id,v.scores_json
+                    FROM remote_items p
+                    JOIN model_runs r ON r.item_id=p.item_id
+                    JOIN wd14_score_vectors v ON v.model_run_id=r.id
+                    WHERE r.backend='wd14' AND r.model_name=? AND r.model_version=?
+                      AND r.configuration_hash=? AND r.state='completed'
+                    ORDER BY r.finished_at DESC,r.id DESC""",
+                (
+                    site, *chunk, site, *chunk,
+                    model_name, model_version, configuration_hash,
+                ),
+            )
+            for row in rows:
+                post_id = str(row["post_id"])
+                if post_id in result:
+                    continue
+                scores = json.loads(str(row["scores_json"]))
+                match = next(
+                    (float(score) for name, score in scores.items()
+                     if name.casefold() in names),
+                    None,
+                )
+                if match is not None:
+                    result[post_id] = match
+        return result
 
     def statistics(self, item_id: int) -> ColorStatistics | None:
         row = self.connection.execute(

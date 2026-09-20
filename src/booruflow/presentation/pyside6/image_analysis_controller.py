@@ -13,6 +13,8 @@ from uuid import uuid4
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QThread, QTimer, Signal
 from PySide6.QtWidgets import QMessageBox
 
+from booruflow import startup_profile
+from booruflow.application.analysis_installation import wd14_directory
 from booruflow.application.database_paths import gelbooru_alias_database, gelbooru_tag_database
 from booruflow.application.hydra_model_manager import hydra_directory
 from booruflow.application.image_analysis import ImageAnalysisWorkflow, QueuePolicy
@@ -271,6 +273,9 @@ class ImageAnalysisController(QObject):
         self._restart_reason = ""
         self._launcher_pid = 0
         self._worker_pid = 0
+        self._exclusive_database_operation = None
+        self._restart_after_exclusive_operation = False
+        self._exclusive_requested_ns = 0
         self.worker_startup_state = "stopped"
         self.worker_startup_detail = ""
         self.worker_startup_timer = QTimer(self)
@@ -292,6 +297,7 @@ class ImageAnalysisController(QObject):
         self.model_process.readyReadStandardOutput.connect(self._model_output)
         self.model_process.finished.connect(self._model_finished)
         self._install_operation = ""
+        self.installation_page = None
         self.timer = QTimer(self)
         self.timer.setInterval(3000)
         self.timer.timeout.connect(self.refresh)
@@ -320,6 +326,11 @@ class ImageAnalysisController(QObject):
         else:
             self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_stopped"))
         self.refresh()
+
+    def bind_installation_page(self, page) -> None:
+        """Expose the existing installer through Options without duplicating it."""
+        self.installation_page = page
+        page.refresh_analysis_status()
 
     def apply_settings(self, settings: dict[str, object]) -> None:
         """Apply saved analysis settings to this live controller and worker."""
@@ -569,6 +580,51 @@ class ImageAnalysisController(QObject):
         )
         self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_starting"))
 
+    def run_exclusive_database_operation(self, operation, completed, failed) -> None:
+        """Run GUI-side maintenance only while the analysis process is stopped."""
+        if self._exclusive_database_operation is not None:
+            failed(RuntimeError("an exclusive image-analysis database operation is already pending"))
+            return
+        self._exclusive_database_operation = (operation, completed, failed)
+        self._exclusive_requested_ns = startup_profile.now_ns()
+        startup_profile.event("Similar one-shot: STOP requested")
+        running = self.process.state() != QProcess.ProcessState.NotRunning
+        self._restart_after_exclusive_operation = running
+        if not running:
+            QTimer.singleShot(0, self._run_exclusive_database_operation)
+            return
+        self.worker_restart_timer.stop()
+        self._set_worker_state("stopping", "ImageAnalysis stopping for database maintenance")
+        self.process.write(b"STOP\n")
+
+    def _run_exclusive_database_operation(self) -> None:
+        pending = self._exclusive_database_operation
+        if pending is None:
+            return
+        operation, completed, failed = pending
+        self._exclusive_database_operation = None
+        restart = self._restart_after_exclusive_operation
+        self._restart_after_exclusive_operation = False
+        if self._exclusive_requested_ns:
+            startup_profile.duration(
+                "Similar one-shot: worker stop wait", self._exclusive_requested_ns
+            )
+        operation_started = startup_profile.now_ns()
+        try:
+            operation()
+        except Exception as exc:  # noqa: BLE001 - maintenance boundary
+            failed(exc)
+        else:
+            completed()
+        finally:
+            startup_profile.duration(
+                "Similar one-shot: exclusive SQL maintenance", operation_started
+            )
+            self._exclusive_requested_ns = 0
+            if restart and not self._shutting_down:
+                startup_profile.event("Similar one-shot: worker restart requested")
+                self.start_worker()
+
     def _worker_started(self) -> None:
         self._launcher_pid = int(self.process.processId())
         timeout_ms = max(
@@ -613,6 +669,8 @@ class ImageAnalysisController(QObject):
             self.page.wd14_state.setText(clean.removeprefix("WD14_RUNTIME "))
         elif clean.startswith(("WD14_READY ", "WD14_UNAVAILABLE ", "WD14_OOM ")):
             self.page.wd14_state.setText(clean)
+            if clean.startswith("WD14_READY "):
+                startup_profile.event("WD14 READY")
         protocol_prefixes = (
             "READY ",
             "WD14_RUNTIME ",
@@ -649,6 +707,9 @@ class ImageAnalysisController(QObject):
                 level=level,
             )
         )
+        if self._exclusive_database_operation is not None:
+            QTimer.singleShot(0, self._run_exclusive_database_operation)
+            return
         restart = self._restart_worker_on_exit
         self._restart_worker_on_exit = False
         if restart and not self._shutting_down:
@@ -699,6 +760,7 @@ class ImageAnalysisController(QObject):
             return
         self.worker_startup_state = state
         self.worker_startup_detail = detail
+        startup_profile.event(f"Image Analysis worker: {state}")
         self.worker_state_changed.emit(state, detail)
 
     def _worker_error(self, _error) -> None:
@@ -737,21 +799,14 @@ class ImageAnalysisController(QObject):
             )
             self.process.terminate()
 
-    def install_wd14(self) -> None:
+    def install_wd14(self, parent=None) -> None:
         if self.model_process.state() != QProcess.ProcessState.NotRunning:
             return
-        directory = Path(
-            str(
-                self.settings.get(
-                    "image_analysis_wd14_model_directory",
-                    self.project_root / "var" / "models" / "image_analysis" / "wd-vit-tagger-v3",
-                )
-            )
-        )
+        directory = wd14_directory(self.project_root, self.settings)
         answer = QMessageBox.question(
-            self.page,
-            "Installer WD14",
-            f"Télécharger environ 380 Mo depuis SmilingWolf vers :\n{directory}\n\nContinuer ?",
+            parent or self.page,
+            self.page.catalog.text("options.wd14_install_title"),
+            self.page.catalog.text("options.wd14_install_confirm", path=directory),
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -759,6 +814,8 @@ class ImageAnalysisController(QObject):
         self.page.gpu_runtime_install.setEnabled(False)
         self._install_operation = "model"
         self.page.wd14_state.setText("WD14 : téléchargement…")
+        if self.installation_page is not None:
+            self.installation_page.set_analysis_install_running(True, "model")
         self.model_process.setWorkingDirectory(str(self.project_root))
         self.model_process.start(
             self.python_executable,
@@ -778,14 +835,13 @@ class ImageAnalysisController(QObject):
             ],
         )
 
-    def install_gpu_runtime(self) -> None:
+    def install_gpu_runtime(self, parent=None) -> None:
         if self.model_process.state() != QProcess.ProcessState.NotRunning:
             return
         answer = QMessageBox.question(
-            self.page,
-            "Installer le runtime GPU",
-            "Installer CUDA 13 et cuDNN 9 dans l’environnement Python isolé de BooruFlow ?\n\n"
-            "Aucune modification du PATH Windows ne sera effectuée.",
+            parent or self.page,
+            self.page.catalog.text("options.gpu_install_title"),
+            self.page.catalog.text("options.gpu_install_confirm"),
         )
         if answer != QMessageBox.StandardButton.Yes:
             return
@@ -793,6 +849,8 @@ class ImageAnalysisController(QObject):
         self.page.gpu_runtime_install.setEnabled(False)
         self.page.wd14_state.setText("Runtime GPU : installation…")
         self._install_operation = "runtime"
+        if self.installation_page is not None:
+            self.installation_page.set_analysis_install_running(True, "runtime")
         if self.process.state() != QProcess.ProcessState.NotRunning:
             self.process.terminate()
             self.process.waitForFinished(3000)
@@ -830,9 +888,25 @@ class ImageAnalysisController(QObject):
             QTimer.singleShot(500, self.start_worker)
         else:
             self.page.wd14_state.setText("Installation WD14/runtime GPU : échec")
+        if self.installation_page is not None:
+            operation = self._install_operation
+            self.installation_page.set_analysis_install_running(False)
+            self.installation_page.refresh_analysis_status()
+            key = "options.install_complete" if code == 0 else "options.install_failed"
+            message = self.page.catalog.text(key)
+            self.installation_page.page_status.show_message(
+                message, timeout_ms=5_000 if code == 0 else 6_000, log=code != 0
+            )
+            if code != 0:
+                self.log(
+                    f"[ERROR] [Image Analysis] {operation or 'unknown'} install failed "
+                    f"with exit code {code}"
+                )
         self._install_operation = ""
 
     def refresh(self) -> None:
+        if self._shutting_down:
+            return
         started = time.perf_counter()
         if not self._page_active:
             self._page_dirty = True

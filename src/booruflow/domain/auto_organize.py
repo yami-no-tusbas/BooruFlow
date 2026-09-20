@@ -9,6 +9,8 @@ from pathlib import Path
 
 from booruflow.domain.image_analysis import ParsedBooruFilename
 
+YOUNG_ROUTING_TAGS = frozenset({"adolescent", "child", "cub", "loli", "shota", "young"})
+
 
 class OrganizeMode(StrEnum):
     ORGANIZE = "organize"
@@ -21,6 +23,8 @@ class PlanStatus(StrEnum):
     MOVE = "move"
     RENAME_MOVE = "rename_move"
     AMBIGUOUS = "ambiguous"
+    UNRESOLVED = "unresolved"
+    DESTINATION_CONFLICT = "destination_conflict"
     NOT_FOUND = "not_found"
     UNRECOGNIZED = "unrecognized"
     ERROR = "error"
@@ -67,6 +71,7 @@ class RuleNode:
     special: str = ""
     ordered: bool = True
     children: tuple[RuleNode, ...] = ()
+    semantic_id: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -99,6 +104,7 @@ class FilePlan:
     remote_artist: str = ""
     future_name: str = ""
     destination: Path | None = None
+    destination_relative: Path | None = None
     winner: str = ""
     candidates: tuple[str, ...] = ()
     winner_path: tuple[str, ...] = ()
@@ -141,9 +147,10 @@ class RuleEngine:
             self.rules = rules
 
     def decide(self, metadata: PostMetadata) -> RuleDecision:
-        matches: list[tuple[tuple[int, ...], tuple[str, ...], RuleNode, str]] = []
+        matches: list[tuple[tuple[int, ...], tuple[str, ...], RuleNode, str, str]] = []
         unordered_conflict = False
         route_node: RuleNode | None = None
+        is_young = bool(set(metadata.tags).intersection(YOUNG_ROUTING_TAGS))
 
         def matches_tag_rule(node: RuleNode) -> bool:
             return (
@@ -154,7 +161,11 @@ class RuleEngine:
 
         def find_route(nodes: tuple[RuleNode, ...]) -> RuleNode | None:
             for node in nodes:
-                if node.kind == "route" and matches_tag_rule(node):
+                if (
+                    node.kind == "route"
+                    and node.special not in {"young_root", "normal_root", "site_root"}
+                    and matches_tag_rule(node)
+                ):
                     return node
                 found = find_route(node.children)
                 if found is not None:
@@ -175,18 +186,48 @@ class RuleEngine:
                 route_node.label,
             )
 
-        def walk(nodes: tuple[RuleNode, ...], indices: tuple[int, ...], labels: tuple[str, ...], ordered: bool) -> int:
+        def walk(
+            nodes: tuple[RuleNode, ...],
+            indices: tuple[int, ...],
+            labels: tuple[str, ...],
+            ordered: bool,
+            active_route: str = "",
+        ) -> int:
             nonlocal unordered_conflict
             matched_children = 0
             for index, node in enumerate(nodes):
                 if not node.active:
                     continue
+                node_indices = indices + (index,)
+                node_labels = labels + (node.label,)
+                if node.kind == "route" and node.special in {
+                    "young_root",
+                    "normal_root",
+                    "site_root",
+                }:
+                    applicable = metadata.site in node.sites and (
+                        node.special == "site_root"
+                        or (node.special == "young_root" and is_young)
+                        or (node.special == "normal_root" and not is_young)
+                    )
+                    if applicable:
+                        before = len(matches)
+                        walk(
+                            node.children,
+                            node_indices,
+                            node_labels,
+                            node.ordered,
+                            node.label,
+                        )
+                        if len(matches) > before:
+                            matched_children += 1
+                    continue
                 if node.kind == "route" or node.node_id == "dedicated":
                     continue
-                before = len(matches); node_indices = indices + (index,); node_labels = labels + (node.label,)
+                before = len(matches)
                 if node.kind == "dynamic":
                     values = tuple(getattr(metadata, node.source, ()))
-                    if values:
+                    if values and metadata.site in node.sites:
                         if node.special == "copyright_character":
                             copyrights = tuple(dict.fromkeys(values))
                             characters = tuple(dict.fromkeys(metadata.characters))
@@ -195,25 +236,43 @@ class RuleEngine:
                                 destination_parts.append(safe_filename_part(" ".join(characters)))
                             destination = "/".join(destination_parts)
                             labels_for_value = node_labels + copyrights + characters
-                            matches.append((node_indices, labels_for_value, node, destination))
+                            matches.append(
+                                (node_indices, labels_for_value, node, destination, active_route)
+                            )
                         else:
-                            matches.append((node_indices, node_labels + values, node, "\0".join(values)))
+                            matches.append(
+                                (
+                                    node_indices,
+                                    node_labels + values,
+                                    node,
+                                    "\0".join(values),
+                                    active_route,
+                                )
+                            )
                 elif node.kind == "rule" and metadata.site in node.sites and set(metadata.tags).intersection(node.tags):
-                    matches.append((node_indices, node_labels, node, ""))
-                if node.children: walk(node.children, node_indices, node_labels, node.ordered)
+                    matches.append((node_indices, node_labels, node, "", active_route))
+                if node.children:
+                    walk(
+                        node.children,
+                        node_indices,
+                        node_labels,
+                        node.ordered,
+                        active_route,
+                    )
                 if len(matches) > before: matched_children += 1
             if not ordered and matched_children > 1: unordered_conflict = True
             return matched_children
 
         walk(self.rules, (), (), True)
         if matches:
-            paths = tuple(" / ".join(labels) for _, labels, _, _ in sorted(matches))
-            has_tag_match = any(labels and labels[0] == "Tags" for _, labels, _, _ in matches)
+            paths = tuple(" / ".join(labels) for _, labels, _, _, _ in sorted(matches))
+            has_tag_match = any(node.kind == "rule" for _, _, node, _, _ in matches)
             if unordered_conflict:
                 return RuleDecision(None, candidates=paths, ambiguous=True,
                     reason="Plusieurs règles correspondent dans un niveau non ordonné", matched_paths=paths,
                     route=route_node.label if route_node else "normal", has_tag_match=has_tag_match)
-            matches.sort(key=lambda item: item[0]); _, labels, node, value = matches[0]
+            matches.sort(key=lambda item: item[0])
+            _, labels, node, value, selected_route = matches[0]
             if node.special == "ambiguous":
                 return RuleDecision(
                     None, node.node_id, paths, True,
@@ -233,13 +292,22 @@ class RuleEngine:
                 if node.special == "copyright_character"
                 else node.destination.replace("{value}", safe_filename_part(value))
             )
-            if route_node is not None:
+            if route_node is not None and route_node.destination:
                 relative = destination.removeprefix("Tags/")
                 destination = f"{route_node.destination.rstrip('/')}/{relative}"
             loser = paths[1] if len(paths) > 1 else "aucune autre règle"
-            classification = labels[0].casefold() if labels else ""
+            root_label = labels[0].casefold() if labels else ""
+            classification = (
+                "tags"
+                if node.kind == "rule"
+                else {
+                    "artists": "artist",
+                    "copyrights": "copyright",
+                    "species": "species",
+                }.get(node.source.casefold(), node.source.casefold() or root_label)
+            )
             fallback = " / ".join(labels) if classification != "tags" else ""
-            route_text = route_node.label if route_node else "normal"
+            route_text = selected_route or (route_node.label if route_node else "normal")
             return RuleDecision(
                 destination, node.node_id, paths, False,
                 f"Route {route_text}; {' / '.join(labels)} est placé avant {loser}.", labels, paths,

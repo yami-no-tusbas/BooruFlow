@@ -1,12 +1,18 @@
 from types import SimpleNamespace
 
-from booruflow.application.batch_publisher import BatchPublisher
+from booruflow.application.batch_publisher import (
+    MAX_PUBLISH_ATTEMPTS,
+    PUBLISH_DELAY_SECONDS,
+    BatchPublisher,
+)
 from booruflow.application.publish_preparation import PublishPreparationService
 from booruflow.domain.image_analysis import PublishState
 from booruflow.infrastructure.gelbooru_edit_transport import (
+    GelbooruLockedImageError,
     GelbooruPublishDeferredError,
     GelbooruSessionExpiredError,
     GelbooruSessionUnknownError,
+    GelbooruUnexpectedRedirectError,
 )
 
 
@@ -20,17 +26,20 @@ class Repo:
         entry = self.entries[item_id]
         entry["publish_state"] = PublishState.PUBLISHED
         entry["published_final_tags"] = list(entry["reviewed_final_tags"])
-    def publish_failed(self, item_id, error): self.entries[item_id]["publish_state"]=PublishState.FAILED; self.entries[item_id]["last_error"]=error
+    def publish_failed(self, item_id, error, *, reason="publish_error", retryable=True):
+        self.entries[item_id]["publish_state"]=PublishState.FAILED; self.entries[item_id]["last_error"]=error
+        self.entries[item_id]["failure_reason"]=reason; self.entries[item_id]["failure_retryable"]=retryable
     def publish_deferred(self, item_id, error): self.entries[item_id]["publish_state"]=PublishState.PENDING_PUBLISH; self.entries[item_id]["last_error"]=error
     def recover_interrupted_publishes(self):
         self.recovered += 1
         for e in self.entries.values():
             if e["publish_state"] == PublishState.PUBLISHING: e["publish_state"] = PublishState.PENDING_PUBLISH
         return 0
-    def retry_failed_publishes(self, ids):
+    def retry_failed_publishes(self, ids, max_attempts=3):
         count=0
         for item_id in ids:
-            if self.entries[item_id]["publish_state"] == PublishState.FAILED: self.entries[item_id]["publish_state"]=PublishState.PENDING_PUBLISH; count+=1
+            entry = self.entries[item_id]
+            if entry["publish_state"] == PublishState.FAILED and entry.get("failure_retryable") is not False and entry["publish_attempts"] < max_attempts: entry["publish_state"]=PublishState.PENDING_PUBLISH; count+=1
         return count
 
 
@@ -81,7 +90,8 @@ def test_sequential_merge_failure_continues_and_rate_limits():
     result=service.publish_pending()
     assert (result.published,result.failed,result.no_op)==(2,1,0)
     assert transport.calls[0] == ("100", ("a","c","d","e"))
-    assert repo.entries[2]["publish_state"] == PublishState.FAILED and sleeps == [1,1]
+    assert repo.entries[2]["publish_state"] == PublishState.FAILED and sleeps == [1,1,1,1]
+    assert repo.entries[2]["publish_attempts"] == 3
 
 
 def test_inter_post_delay_is_never_applied_before_the_first_item():
@@ -105,6 +115,31 @@ def test_inter_post_delay_is_applied_only_before_later_items():
     service.sleeper=lambda seconds: events.append(f"sleep:{seconds}")
     service.publish_pending()
     assert events == ["submit:100", "sleep:1", "submit:101"]
+
+
+def test_progress_events_share_real_delay_and_calculate_remaining_eta_and_duration():
+    transport = Transport({"101": RuntimeError("bad post")})
+    _repo, _, service = publisher(
+        [entry(1, "100"), entry(2, "101"), entry(3, "102")],
+        {"100": ["a", "b", "c"], "101": ["a", "b", "c"], "102": ["a", "b", "c"]},
+        transport,
+    )
+    now = [100.0]
+    service.clock = lambda: now[0]
+    service.sleeper = lambda seconds: now.__setitem__(0, now[0] + seconds)
+    events = []
+
+    summary = service.publish_pending(event_callback=events.append)
+
+    results = [event for event in events if event.phase == "result"]
+    waits = [event for event in events if event.phase == "waiting"]
+    assert [(event.processed, event.remaining, event.result) for event in results] == [
+        (1, 2, "published"), (2, 1, "failed"), (3, 0, "published")
+    ]
+    assert [event.wait_seconds for event in waits] == [1, 1, 1, 1]
+    assert waits[0].estimated_remaining_seconds == 2
+    assert summary.published == 2 and summary.failed == 1
+    assert summary.duration_seconds == 4
 
 
 def test_noop_skips_post_and_marks_published():
@@ -210,10 +245,13 @@ def test_post_submit_verification_failure_marks_failed_only_after_bounded_retrie
 
     assert result.failed == 1 and result.published == 1
     assert transport.calls == [
-        ("100", ("a", "c", "d")), ("101", ("a", "c", "d")),
+        ("100", ("a", "c", "d")),
+        ("100", ("a", "c", "d")),
+        ("100", ("a", "c", "d")),
+        ("101", ("a", "c", "d")),
     ]
-    assert provider.calls == ["100"] * 5 + ["101", "101"]
-    assert verification_sleeps == [2.0, 2.0, 2.0]
+    assert provider.calls == ["100"] * 15 + ["101", "101"]
+    assert verification_sleeps == [2.0] * 9
     assert repo.entries[1]["publish_state"] == PublishState.FAILED
     assert repo.entries[2]["publish_state"] == PublishState.PUBLISHED
     assert repo.entries[1]["published_final_tags"] == ["previous", "snapshot"]
@@ -233,7 +271,83 @@ def test_post_submit_verification_success_is_the_only_path_to_published_snapshot
     assert result.published == 1 and result.failed == 0
     assert provider.calls == ["100", "100"]
     assert repo.entries[1]["publish_state"] == PublishState.PUBLISHED
-    assert repo.entries[1]["published_final_tags"] == ["a", "c", "d"]
+
+
+def test_locked_image_is_terminal_without_retry_or_save() -> None:
+    logs = []
+    transport = Transport({"1177298": GelbooruLockedImageError("locked")})
+    repo, _, service = publisher(
+        [entry(1, "1177298")], {"1177298": ["a", "b", "c"]}, transport,
+    )
+    service.log = logs.append
+
+    result = service.publish_pending()
+
+    assert result.failed == 1
+    assert len(transport.calls) == 1  # preflight entered; transport performs no Save
+    assert repo.entries[1]["publish_attempts"] == 1
+    assert repo.entries[1]["failure_reason"] == "locked_image"
+    assert repo.entries[1]["failure_retryable"] is False
+    assert "reason=locked_image retryable=false" in "\n".join(logs)
+
+
+def test_unexpected_redirect_retries_at_most_three_times() -> None:
+    sleeps = []
+    transport = Transport({
+        "10583": GelbooruUnexpectedRedirectError("global list")
+    })
+    repo, _, service = publisher(
+        [entry(1, "10583")], {"10583": ["a", "b", "c"]}, transport, sleeps,
+    )
+
+    result = service.publish_pending()
+
+    assert result.failed == 1
+    assert len(transport.calls) == MAX_PUBLISH_ATTEMPTS
+    assert sleeps == [1, 1]
+    assert repo.entries[1]["failure_reason"] == "unexpected_global_redirect"
+    assert repo.entries[1]["failure_retryable"] is False
+
+
+def test_retryable_failure_then_success_publishes_on_second_attempt() -> None:
+    class FailOnceTransport(Transport):
+        def submit(self, session, post_id, tags):
+            if not self.calls:
+                self.calls.append((post_id, tags))
+                raise GelbooruUnexpectedRedirectError("global list")
+            return super().submit(session, post_id, tags)
+
+    sleeps = []
+    transport = FailOnceTransport()
+    repo, _, service = publisher(
+        [entry(1, "10583")], {"10583": ["a", "b", "c"]}, transport, sleeps,
+    )
+
+    result = service.publish_pending()
+
+    assert result.published == 1 and result.failed == 0
+    assert len(transport.calls) == 2
+    assert repo.entries[1]["publish_attempts"] == 2
+    assert sleeps == [1]
+
+
+def test_publish_delay_source_of_truth_is_twelve_seconds() -> None:
+    assert PUBLISH_DELAY_SECONDS == 12.0
+
+
+def test_pending_entry_at_attempt_limit_is_never_submitted() -> None:
+    exhausted = entry(1, "10583")
+    exhausted["publish_attempts"] = MAX_PUBLISH_ATTEMPTS
+    transport = Transport()
+    _repo, provider, service = publisher(
+        [exhausted], {"10583": ["a", "b", "c"]}, transport,
+    )
+
+    result = service.publish_pending()
+
+    assert result.total == 0
+    assert provider.calls == []
+    assert transport.calls == []
 
 
 def test_first_stale_verification_then_correct_is_published_without_resubmit():

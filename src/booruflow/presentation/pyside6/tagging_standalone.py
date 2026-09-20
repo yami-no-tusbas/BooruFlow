@@ -102,6 +102,11 @@ class StandaloneTaggingWindow(QMainWindow):
         layout.addWidget(self.log_view)
         footer = QHBoxLayout()
         self.status = QLabel(self.catalog.text("standalone.ready"))
+        self.page.page_status.state_changed.connect(self._page_status_state)
+        self.page.page_status.message_changed.connect(self._page_status_message)
+        self.page.page_status.message_cleared.connect(
+            lambda _page: self.status.setText(self.catalog.text("standalone.ready"))
+        )
         self.log_button = QPushButton(self.catalog.text("log.show"))
         self.log_button.clicked.connect(self.toggle_log)
         self.clear_button = QPushButton(self.catalog.text("log.clear"))
@@ -121,6 +126,27 @@ class StandaloneTaggingWindow(QMainWindow):
         )
         self.page.start_requested.connect(self.start)
         self.page.stop_requested.connect(self.controller.stop)
+
+    def _page_status_state(self, _page: str, state: str) -> None:
+        self.status.setText(
+            self.catalog.text(
+                "status.page_state",
+                page=self.catalog.text("nav.tagging"),
+                state=self.catalog.text(f"status.state.{state}"),
+            )
+        )
+
+    def _page_status_message(
+        self,
+        _page: str,
+        message: str,
+        _timeout_ms: int,
+        log_message: bool,
+        _global_message: bool,
+    ) -> None:
+        self.status.setText(message)
+        if log_message:
+            self.log(message)
 
     def retranslate(self) -> None:
         """Refresh standalone chrome and the embedded Tagging page in place."""
@@ -169,8 +195,7 @@ class StandaloneTaggingWindow(QMainWindow):
                 "tagging_start": request.start_page,
                 "tagging_minimum": request.minimum_tags,
                 "tagging_maximum": request.maximum_tags,
-                "tagging_critical": request.critical_maximum,
-                "tagging_high": request.high_maximum,
+                "tagging_site": request.site,
             }
         )
         self.settings_repository.save(settings)
@@ -180,6 +205,7 @@ class StandaloneTaggingWindow(QMainWindow):
         settings.update(
             {
                 "tagging_query": self.page.query.text().strip(),
+                "tagging_site": self.page.active_site,
                 **{
                     f"tagging_{key}": spin.value()
                     for key, spin in self.page.spins.items()

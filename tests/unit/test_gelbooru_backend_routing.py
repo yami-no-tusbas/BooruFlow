@@ -61,8 +61,15 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
             settings_repository=settings_repository,
         )
 
+    def open_feature(self, window, key: str) -> None:
+        window.navigate_to_key(key)
+        for _ in range(8):
+            self.app.processEvents()
+
     def test_backend_selection_routes_options_and_tagging_to_the_same_factory(self) -> None:
         window = self.window()
+        self.open_feature(window, "tagging")
+        self.open_feature(window, "options")
         embedded = object()
         cdp = SimpleNamespace(open=lambda: None)
         window.embedded_gelbooru_session_factory = embedded
@@ -103,7 +110,7 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
         self.assertNotEqual(publisher.preparation.log, window.log)
         window.close()
 
-    def test_tagging_query_is_persisted_and_restored_with_default_only_when_missing(self) -> None:
+    def test_tagging_search_settings_are_persisted_restored_and_safely_clamped(self) -> None:
         class Settings:
             def __init__(self) -> None:
                 self.values = {}
@@ -116,18 +123,68 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
 
         settings = Settings()
         first = self.window(settings)
+        self.open_feature(first, "tagging")
         self.assertEqual(first.tagging_page.query.text(), "rating:general")
 
-        first.tagging_page.query_saved.emit("artist_name landscape")
+        page = first.tagging_page
+        page.site_selector.setCurrentIndex(page.site_selector.findData("e621"))
+        page.query.setText("artist_name landscape")
+        page.spins["pages"].setValue(14)
+        page.spins["start"].setValue(3)
+        page.spins["minimum"].setValue(2)
+        page.spins["maximum"].setValue(80)
+        page.start_button.click()
         first.close()
         second = self.window(settings)
+        self.open_feature(second, "tagging")
 
-        self.assertEqual(second.tagging_page.query.text(), "artist_name landscape")
-        self.assertNotEqual(second.tagging_page.query.text(), "rating:general")
+        restored = second.tagging_page
+        self.assertEqual(restored.active_site, "e621")
+        self.assertEqual(restored.query.text(), "artist_name landscape")
+        self.assertEqual(
+            {key: restored.spins[key].value() for key in restored.spins},
+            {"pages": 14, "start": 3, "minimum": 2, "maximum": 80},
+        )
         second.close()
+
+        settings.values.update({
+            "tagging_site": "unsupported",
+            "tagging_pages": "not-a-number",
+            "tagging_start": -4,
+            "tagging_minimum": -2,
+            "tagging_maximum": 4_000,
+        })
+        invalid = self.window(settings)
+        self.open_feature(invalid, "tagging")
+        safe = invalid.tagging_page
+        self.assertEqual(safe.active_site, "gelbooru")
+        self.assertEqual(safe.spins["pages"].value(), 10)
+        self.assertEqual(safe.spins["start"].value(), 1)
+        self.assertEqual(safe.spins["minimum"].value(), 0)
+        self.assertEqual(safe.spins["maximum"].value(), 1_000)
+        invalid.close()
+
+    def test_alias_database_actions_live_only_in_options_and_keep_existing_routing(self) -> None:
+        window = self.window()
+        self.open_feature(window, "tagging")
+        self.open_feature(window, "options")
+
+        self.assertFalse(hasattr(window.tagging_page, "alias_update_requested"))
+        self.assertFalse(hasattr(window.tagging_page, "alias_group"))
+        self.assertIs(window.database_controller.alias_page, window.options_page)
+        self.assertFalse(window.options_page.alias_actions.isHidden())
+
+        window.options_page.alias_update_requested.emit("pending", "")
+        self.assertEqual(
+            window.options_page.database_status.text(),
+            window.catalog.text("options.alias_database_path_required"),
+        )
+        window.close()
 
     def test_embedded_dialog_diagnostic_toggle_updates_future_publishers(self) -> None:
         window = self.window()
+        self.open_feature(window, "tagging")
+        self.open_feature(window, "options")
 
         window._open_gelbooru_session()
         dialog = window.gelbooru_session_dialog
@@ -241,6 +298,8 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
 
     def test_cdp_open_and_session_test_never_call_embedded_backend(self) -> None:
         window = self.window()
+        self.open_feature(window, "tagging")
+        self.open_feature(window, "options")
         calls = []
         cdp = SimpleNamespace(
             open=lambda: calls.append("cdp-open"),
@@ -269,7 +328,6 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
         combo = window.options_page.publish_backend
         combo.setCurrentIndex(combo.findData("cdp"))
         with (
-            patch("booruflow.presentation.pyside6.main_window.SessionTestWorker", Worker),
             patch("booruflow.presentation.pyside6.tagging_controller.SessionTestWorker", Worker),
         ):
             window._open_gelbooru_session()
@@ -283,6 +341,7 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
 
     def test_embedded_open_remains_embedded_and_disabled_is_inert(self) -> None:
         window = self.window()
+        self.open_feature(window, "options")
         calls = []
         window.embedded_gelbooru_session_factory = SimpleNamespace(
             validate=lambda: calls.append("embedded-validate")
@@ -311,7 +370,7 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
                 self.completed.callback("valid")
 
         window._open_gelbooru_session()
-        with patch("booruflow.presentation.pyside6.main_window.SessionTestWorker", Worker):
+        with patch("booruflow.presentation.pyside6.tagging_controller.SessionTestWorker", Worker):
             window._test_gelbooru_session()
         self.assertEqual(calls, ["account", "show", "raise", "activate", "embedded-validate"])
 
@@ -336,6 +395,8 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
 
         repository = Repository()
         window = self.window(repository)
+        self.open_feature(window, "tagging")
+        self.open_feature(window, "options")
         cdp = object()
         window.gelbooru_session_factory = cdp
 

@@ -86,6 +86,15 @@ class GrabberPage(QWidget):
             button.setEnabled(available)
         self.retranslate()
 
+    def set_available(self, available: bool) -> None:
+        """Apply a freshly saved Grabber capability without rebuilding the page."""
+        self.available = available
+        for button in (self.create_button, self.load_button, self.import_button):
+            button.setEnabled(available)
+        self.previous_button.setEnabled(False)
+        self.launch_button.setEnabled(False)
+        self.retranslate()
+
     def _import(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, self.catalog.text("grabber.choose_list"), "", "Text (*.txt *.tsv);;All files (*)")
         if path:
@@ -116,7 +125,7 @@ class GrabberPage(QWidget):
 
     def retranslate(self) -> None:
         text = self.catalog.text
-        self.title.setText(text("nav.grabber")); self.group.setTitle(text("grabber.group"))
+        self.title.setText(text("grabber_tools.launcher")); self.group.setTitle(text("grabber.group"))
         self.site_label.setText(text("options.site"))
         for key, label in self.labels.items(): label.setText(text(f"grabber.{key}"))
         self.import_button.setText(text("grabber.import")); self.create_button.setText(text("grabber.create"))

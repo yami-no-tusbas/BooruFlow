@@ -8,6 +8,7 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment
 
+from booruflow.application.database_paths import gelbooru_alias_database
 from booruflow.infrastructure.localization import LanguageCatalog, translate_legacy_log
 from booruflow.presentation.pyside6.task_manager import TaskManager
 
@@ -146,7 +147,8 @@ class DatabaseUpdateController(QObject):
             if line.strip():
                 if line.startswith("ALIAS_SUMMARY "):
                     values = dict(re.findall(r"(\w+)=([^ ]+)", line))
-                    self.alias_page.set_alias_summary(values)
+                    if hasattr(self.alias_page, "set_alias_summary"):
+                        self.alias_page.set_alias_summary(values)
                 self.log(translate_legacy_log(line, self.catalog.code))
 
     def finished(self, code: int, _status: QProcess.ExitStatus) -> None:
@@ -171,9 +173,14 @@ class DatabaseUpdateController(QObject):
             self.task_id = None
 
     def _refresh_database_paths(self) -> None:
+        if self.tag_browser_page is None:
+            return
         self.tag_browser_page.set_databases(
             {
                 "gelbooru": Path(self.options_page.gelbooru_database.edit.text()),
                 "e621": Path(self.options_page.e621_database.edit.text()),
             }
+        )
+        self.tag_browser_page.set_alias_databases(
+            {"gelbooru": gelbooru_alias_database(self.options_page._settings), "e621": None}
         )

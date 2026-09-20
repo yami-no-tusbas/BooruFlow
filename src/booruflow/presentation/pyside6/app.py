@@ -2,22 +2,21 @@
 
 from __future__ import annotations
 
-import shutil
+import os
 import sys
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtCore import QCoreApplication, QTimer
 from PySide6.QtWidgets import QApplication
 
-from booruflow.application import resolve_capabilities
+from booruflow import startup_profile
+from booruflow.application.capabilities import ApplicationCapabilities
 from booruflow.application.database_paths import (
     gelbooru_alias_database,
     gelbooru_tag_database,
     migrate_database_settings,
 )
 from booruflow.application.hydra_model_manager import hydra_directory, migrated_hydra_settings
-from booruflow.infrastructure.gelbooru_aliases import migrate_alias_catalog
-from booruflow.infrastructure.grabber import GrabberInstallation
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.settings import JsonSettingsRepository, migrate_blacklist_setting
 from booruflow.infrastructure.task_repository import JsonTaskRepository
@@ -25,6 +24,10 @@ from booruflow.presentation.pyside6.main_window import MainWindow
 
 
 def project_root() -> Path:
+    if startup_profile.enabled():
+        isolated = os.environ.get("BOORUFLOW_STARTUP_PROFILE_ROOT", "").strip()
+        if isolated:
+            return Path(isolated).resolve()
     return Path(__file__).resolve().parents[4]
 
 
@@ -36,6 +39,8 @@ def initial_settings(root: Path) -> dict[str, object]:
         "e621_database": str(root / "data" / "databases" / "e621_tags.db"),
         "blacklist_file": "",
         "output_root": str(root / "var" / "results"),
+        "folder_artists_directory": "",
+        "everything_executable": "",
         "gelbooru_browser_mode": "system",
         "gelbooru_browser_custom_command": "",
         "gelbooru_browser_clear_profile_on_close": False,
@@ -62,7 +67,11 @@ def initial_settings(root: Path) -> dict[str, object]:
 
 
 def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple[QApplication, MainWindow]:
+    startup_profile.checkpoint("Bootstrap/imports")
+    started = startup_profile.now_ns()
     app = QApplication.instance() or QApplication(argv if argv is not None else sys.argv)
+    startup_profile.duration("QApplication creation", started)
+    startup_profile.checkpoint("QApplication creation + diagnostics")
     if diagnostics is not None:
         diagnostics.install_qt_message_handler()
     QCoreApplication.setOrganizationName("BooruFlow")
@@ -83,18 +92,25 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
         migrated = migrated or database_migrated or hydra_migrated
         if migrated:
             settings_repository.save(settings)
+    startup_profile.checkpoint("Configuration loading/migration")
     alias_database = gelbooru_alias_database(settings)
     if alias_database is not None and not alias_database.exists():
+        from booruflow.infrastructure.gelbooru_aliases import migrate_alias_catalog
+
         migrate_alias_catalog(gelbooru_tag_database(settings), alias_database)
-    grabber_executable = str(settings.get("grabber_executable", "")).strip() or shutil.which(
-        "Grabber.exe"
+    startup_profile.checkpoint("Database paths/alias migration")
+    from booruflow.infrastructure.grabber import grabber_availability
+
+    capabilities = ApplicationCapabilities(
+        grabber=grabber_availability(settings.get("grabber_executable", ""))
     )
-    grabber = Path(grabber_executable).parent if grabber_executable else None
-    capabilities = resolve_capabilities(GrabberInstallation(grabber))
+    startup_profile.checkpoint("Capabilities/services bootstrap")
     catalog = LanguageCatalog(
         root / "resources" / "i18n",
         str(settings.get("language", "en")),
     )
+    startup_profile.checkpoint("i18n catalog loading")
+    window_started = startup_profile.now_ns()
     window = MainWindow(
         capabilities,
         catalog,
@@ -103,7 +119,9 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
         task_repository=task_repository,
         project_root=root,
         python_executable=sys.executable,
+        start_image_worker=False,
     )
+    startup_profile.duration("MainWindow total", window_started)
     if diagnostics is not None:
         diagnostics.set_logger(window.log_threadsafe)
     return app, window
@@ -111,5 +129,89 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
 
 def run(argv: list[str] | None = None, diagnostics=None) -> int:
     app, window = create_application(argv, diagnostics)
+    wait_for_worker = os.environ.get("BOORUFLOW_STARTUP_PROFILE_WAIT_WORKER", "") == "1"
+    profile_feature = os.environ.get("BOORUFLOW_STARTUP_PROFILE_FEATURE", "").strip()
+    feature_started = False
+    feature_started_ns = 0
+
+    if startup_profile.enabled() and wait_for_worker:
+        def worker_profile_state(key: str, state: str, _detail: str) -> None:
+            nonlocal feature_started, feature_started_ns
+            if key != "image_analysis":
+                return
+            startup_profile.write(visible=window.isVisible())
+            if state in {"ready", "failed"}:
+                if state == "ready" and profile_feature and not feature_started:
+                    feature_started = True
+                    feature_started_ns = startup_profile.now_ns()
+                    if profile_feature in window.NAVIGATION_KEYS:
+                        window.navigate_to_key(profile_feature)
+                    else:
+                        window.feature_lifecycle.request(profile_feature)
+                    return
+                window.close()
+
+        window.feature_lifecycle.state_changed.connect(worker_profile_state)
+
+    if startup_profile.enabled() and profile_feature:
+        def profiled_feature_state(key: str, state: str, _detail: str) -> None:
+            if key != profile_feature or not feature_started:
+                return
+            if state == "ready":
+                startup_profile.duration(
+                    f"Feature first access: {profile_feature}", feature_started_ns
+                )
+                second_started = startup_profile.now_ns()
+                if profile_feature in window.NAVIGATION_KEYS:
+                    window.navigate_to_key("home")
+                    window.navigate_to_key(profile_feature)
+                else:
+                    window.feature_lifecycle.request(profile_feature)
+                startup_profile.duration(
+                    f"Feature second access: {profile_feature}", second_started
+                )
+                startup_profile.write(visible=window.isVisible())
+                window.close()
+            elif state == "failed":
+                startup_profile.write(visible=window.isVisible())
+                window.close()
+
+        window.feature_lifecycle.state_changed.connect(profiled_feature_state)
+
+    show_started = startup_profile.now_ns()
     window.show()
+    startup_profile.duration("show()", show_started)
+    startup_profile.checkpoint("show()")
+    def startup_visible_probe() -> None:
+        startup_profile.event("First event-loop callback")
+
+        def await_exposed() -> None:
+            nonlocal feature_started, feature_started_ns
+            handle = window.windowHandle()
+            exposed = bool(window.isVisible() and handle is not None and handle.isExposed())
+            if not exposed:
+                QTimer.singleShot(10, await_exposed)
+                return
+            startup_profile.event("Window visible/exposed")
+            startup_profile.event("Dashboard interactive")
+            window.complete_deferred_startup()
+            if profile_feature and not wait_for_worker and not feature_started:
+                feature_started = True
+                feature_started_ns = startup_profile.now_ns()
+                if profile_feature in window.NAVIGATION_KEYS:
+                    window.navigate_to_key(profile_feature)
+                else:
+                    window.feature_lifecycle.request(profile_feature)
+            if startup_profile.enabled():
+                startup_profile.write(visible=True)
+                if (
+                    os.environ.get("BOORUFLOW_STARTUP_PROFILE_EXIT", "") == "1"
+                    and not wait_for_worker
+                    and not profile_feature
+                ):
+                    window.close()
+
+        await_exposed()
+
+    QTimer.singleShot(0, startup_visible_probe)
     return app.exec()

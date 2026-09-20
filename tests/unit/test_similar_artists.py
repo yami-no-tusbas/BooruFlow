@@ -155,6 +155,44 @@ class SimilarArtistsTests(unittest.TestCase):
         self.assertEqual(report["gelbooru"],1);self.assertEqual(self.repository.artist_tags(remote),("artist_a",));self.assertEqual(self.repository.artist_tags(local),())
         diagnostics=ArtistProfileService(self.repository).unassigned_artist_report();row=next(value for value in diagnostics["items"] if value["item_id"]==local);self.assertEqual(row["reason"],"local_only_no_artist_metadata")
 
+    def test_gelbooru_category_repair_batches_lookup_and_writes(self):
+        item_ids = []
+        for index in range(2):
+            item_ids.append(self.repository.add_item(
+                AnalysisItem(
+                    SourceReference(
+                        InputKind.GELBOORU_POST, site="gelbooru", post_id=str(100 + index)
+                    ),
+                    cached_path=self.root / f"{index}.png",
+                    content_sha256=f"{index + 1:064x}",
+                    mime_type="image/png",
+                    width=1,
+                    height=1,
+                ),
+                (
+                    SourceTag("artist_a", ObservationSource.GELBOORU, None),
+                    SourceTag(f"general_{index}", ObservationSource.GELBOORU, None),
+                ),
+            ))
+        calls = []
+
+        def lookup(names):
+            calls.append(names)
+            return {
+                name: "artist" if name == "artist_a" else "general"
+                for name in names
+            }
+
+        repaired = self.repository.repair_gelbooru_tag_categories(lookup)
+
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(set(calls[0]), {"artist_a", "general_0", "general_1"})
+        self.assertEqual(repaired, 2)
+        self.assertEqual(
+            [self.repository.artist_tags(item_id) for item_id in item_ids],
+            [("artist_a",), ("artist_a",)],
+        )
+
     def test_historical_filename_repair_reuses_embeddings_and_builds_profile(self):
         md5="9fed177a4599ae9acba6bc6ba6423c1a";ids=[]
         for index in range(10):

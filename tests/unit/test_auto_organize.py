@@ -10,6 +10,7 @@ from booruflow.application.auto_organize import (
     load_rules,
     rule_inventory,
     rule_node_to_dict,
+    scan_classification_model,
     validate_batch,
     validation_summary,
 )
@@ -102,7 +103,7 @@ def test_collision_real_apply_and_continue_after_error(tmp_path):
     target=tmp_path/"out"/"same.jpg"
     p1=FilePlan(source1,destination=target,status=PlanStatus.MOVE,source_size=1,source_mtime_ns=source1.stat().st_mtime_ns)
     p2=FilePlan(source2,destination=target,status=PlanStatus.MOVE,source_size=1,source_mtime_ns=source2.stat().st_mtime_ns)
-    validate_batch([p1,p2]); assert p1.status is PlanStatus.AMBIGUOUS and source1.exists()
+    validate_batch([p1,p2]); assert p1.status is PlanStatus.DESTINATION_CONFLICT and source1.exists()
     good=FilePlan(source1,destination=tmp_path/"out"/"one.jpg",status=PlanStatus.MOVE,source_size=1,source_mtime_ns=source1.stat().st_mtime_ns)
     bad=FilePlan(source2,destination=tmp_path/"out"/"two.jpg",status=PlanStatus.MOVE,source_size=999,source_mtime_ns=source2.stat().st_mtime_ns)
     result=apply_plans([bad,good]); assert result=={"applied":1,"unchanged":0,"failed":1,"skipped":0}
@@ -313,3 +314,241 @@ def test_ten_identical_infrastructure_errors_stop_analysis_early(tmp_path):
     except SystemicApiError as exc: assert len(exc.plans)==10
     else: raise AssertionError("systemic failure was not detected")
     assert len(calls)==10 and len(reports)==10 and all(path.exists() for path in folder.glob("*.jpg")); cache.close()
+
+
+def _find_node(nodes, node_id):
+    for node in nodes:
+        if node.node_id == node_id:
+            return node
+        if found := _find_node(node.children, node_id):
+            return found
+    return None
+
+
+def _find_semantic(nodes, semantic_id):
+    for node in nodes:
+        if node.semantic_id == semantic_id:
+            return node
+        if found := _find_semantic(node.children, semantic_id):
+            return found
+    return None
+
+
+def test_model_scan_uses_filesystem_shape_but_existing_rule_semantics(tmp_path):
+    model = tmp_path / "Model"
+    (model / "Professions" / "office_lady").mkdir(parents=True)
+    (model / "Styles vestimentaires" / "Skirts" / "pencil_skirt").mkdir(parents=True)
+    (model / "Unknown container" / "unknown_leaf").mkdir(parents=True)
+
+    rules = scan_classification_model(model, load_rules(DEFAULT_RULES))
+    office = _find_semantic(rules, "office_lady")
+    skirt = _find_semantic(rules, "pencil_skirt")
+    unknown_root = next(node for node in rules if node.label == "Unknown container")
+    unknown = next(node for node in unknown_root.children if node.label == "unknown_leaf")
+
+    assert office and office.kind == "rule" and office.destination == "Professions/office_lady"
+    assert skirt and skirt.kind == "rule"
+    assert skirt.destination == "Styles vestimentaires/Skirts/pencil_skirt"
+    assert unknown and unknown.kind == "branch" and not unknown.tags and not unknown.destination
+    assert {node.label for node in rules} == {
+        "Professions",
+        "Styles vestimentaires",
+        "Unknown container",
+    }
+    assert not list(model.rglob("*.*"))
+
+
+def test_model_rescan_reflects_directory_changes(tmp_path):
+    model = tmp_path / "Model"
+    (model / "Professions" / "office_lady").mkdir(parents=True)
+    first = scan_classification_model(model, load_rules(DEFAULT_RULES))
+    assert _find_semantic(first, "office_lady") and not _find_semantic(first, "maid")
+
+    (model / "Professions" / "maid").mkdir()
+    second = scan_classification_model(model, load_rules(DEFAULT_RULES))
+    assert _find_semantic(second, "office_lady") and _find_semantic(second, "maid")
+
+
+def test_model_priority_prefers_profession_over_clothing(tmp_path):
+    model = tmp_path / "Model"
+    (model / "Professions" / "office_lady").mkdir(parents=True)
+    (model / "Styles vestimentaires" / "Skirts" / "pencil_skirt").mkdir(parents=True)
+    decision = RuleEngine(scan_classification_model(model, load_rules(DEFAULT_RULES))).decide(
+        meta(tags=("office_lady", "pencil_skirt"))
+    )
+    assert _find_semantic(scan_classification_model(model, load_rules(DEFAULT_RULES)), "office_lady")
+    assert decision.winner == _find_semantic(
+        scan_classification_model(model, load_rules(DEFAULT_RULES)), "office_lady"
+    ).node_id
+    assert decision.destination == "Professions/office_lady"
+
+
+def test_model_scan_reuses_saved_order_and_activation_by_stable_id(tmp_path):
+    import json
+
+    model = tmp_path / "Model"
+    (model / "Professions" / "office_lady").mkdir(parents=True)
+    (model / "Styles vestimentaires" / "Skirts" / "pencil_skirt").mkdir(parents=True)
+    override = tmp_path / "override.json"
+    override.write_text(
+        json.dumps(
+            {
+                "version": 2,
+                "roots": [
+                    {
+                        "id": "tags",
+                        "children": [
+                            {"id": "clothing_styles"},
+                            {"id": "professions", "active": False},
+                        ],
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+    saved = load_rules(DEFAULT_RULES, override)
+    rules = scan_classification_model(model, load_rules(DEFAULT_RULES), saved)
+    assert [node.semantic_id for node in rules[:2]] == [
+        "clothing_styles",
+        "professions",
+    ]
+    assert not _find_semantic(rules, "professions").active
+
+
+def test_scanned_y_roots_are_conditional_routes_not_priority_competitors(tmp_path):
+    model = tmp_path / "Model"
+    for root_name in (
+        "Tags (Gelbooru)",
+        "Tags (Gelbooru) y",
+        "Tags (e621)",
+        "Tags (e621) y",
+    ):
+        (model / root_name / "blindfold").mkdir(parents=True)
+    rules = scan_classification_model(model, load_rules(DEFAULT_RULES))
+    assert {node.kind for node in rules} == {"route"}
+    assert {node.special for node in rules} == {"normal_root", "young_root"}
+
+    for ordered in (rules, tuple(reversed(rules))):
+        engine = RuleEngine(ordered)
+        gelbooru_normal = engine.decide(meta(tags=("blindfold",)))
+        gelbooru_young = engine.decide(meta(tags=("blindfold", "young")))
+        e621_normal = engine.decide(meta(site="e621", tags=("blindfold",)))
+        e621_young = engine.decide(meta(site="e621", tags=("blindfold", "cub")))
+        assert gelbooru_normal.destination == "Tags (Gelbooru)/blindfold"
+        assert gelbooru_young.destination == "Tags (Gelbooru) y/blindfold"
+        assert e621_normal.destination == "Tags (e621)/blindfold"
+        assert e621_young.destination == "Tags (e621) y/blindfold"
+        assert engine.decide(meta(tags=("young",))).destination is None
+
+
+def test_obsolete_saved_nodes_never_recreate_absent_model_branches(tmp_path):
+    model = tmp_path / "Model"
+    (model / "Tags (Gelbooru)" / "office_lady").mkdir(parents=True)
+    legacy = load_rules(DEFAULT_RULES)
+    rules = scan_classification_model(model, load_rules(DEFAULT_RULES), legacy)
+    assert [node.label for node in rules] == ["Tags (Gelbooru)"]
+    assert _find_node(rules, "dedicated") is None
+    assert _find_node(rules, "species") is None
+    assert _find_node(rules, "copyright") is None
+    assert _find_node(rules, "artist") is None
+
+
+def test_current_model_node_ids_preserve_saved_root_order(tmp_path):
+    model = tmp_path / "Model"
+    (model / "Professions" / "office_lady").mkdir(parents=True)
+    (model / "Styles vestimentaires" / "pencil_skirt").mkdir(parents=True)
+    initial = scan_classification_model(model, load_rules(DEFAULT_RULES))
+    saved = tuple(reversed(initial))
+    rescanned = scan_classification_model(model, load_rules(DEFAULT_RULES), saved)
+    assert [node.node_id for node in rescanned] == [node.node_id for node in saved]
+
+
+def test_arbitrary_source_uses_cached_identity_and_output_not_model(tmp_path):
+    model = tmp_path / "Model"
+    output = tmp_path / "Output"
+    source_folder = tmp_path / "Artists" / "foo"
+    (model / "Professions" / "office_lady").mkdir(parents=True)
+    output.mkdir()
+    source_folder.mkdir(parents=True)
+    source = source_folder / NAME
+    source.write_bytes(b"x")
+    cache = PostMetadataCache(tmp_path / "identity.sqlite")
+    cache.put(meta(tags=("office_lady",)))
+    organizer = AutoOrganizer(
+        cache,
+        lambda *_: (_ for _ in ()).throw(AssertionError("cache should resolve identity")),
+        RuleEngine(scan_classification_model(model, load_rules(DEFAULT_RULES))),
+        output,
+    )
+
+    plan = organizer.plan_file(source, OrganizeMode.ORGANIZE)
+
+    assert plan.site == "gelbooru" and plan.cache_hit
+    assert plan.destination_relative == Path("Professions/office_lady") / plan.future_name
+    assert plan.destination == output / plan.destination_relative
+    assert model not in plan.destination.parents
+    assert source.exists() and not list(output.rglob("*.jpg"))
+    cache.close()
+
+
+def test_arbitrary_source_can_resolve_unique_remote_site_by_md5(tmp_path):
+    folder = tmp_path / "Imported" / "artist"
+    folder.mkdir(parents=True)
+    source = folder / NAME
+    source.write_bytes(b"x")
+    cache = PostMetadataCache(tmp_path / "remote-identity.sqlite")
+    rules = RuleEngine(
+        (RuleNode("office_lady", "office_lady", "rule", "Professions/office_lady", ("office_lady",)),)
+    )
+    calls = []
+
+    def fetch(site, post_id):
+        calls.append((site, post_id))
+        if site == "gelbooru":
+            raise PostNotFoundError(post_id)
+        return meta(site="e621", tags=("office_lady",))
+
+    plan = AutoOrganizer(cache, fetch, rules, tmp_path / "Output").plan_file(
+        source, OrganizeMode.ORGANIZE, use_cache=False
+    )
+
+    assert calls == [("gelbooru", "9490613"), ("e621", "9490613")]
+    assert plan.site == "e621" and plan.status is PlanStatus.RENAME_MOVE
+    assert plan.destination.parent == tmp_path / "Output" / "Professions" / "office_lady"
+    assert source.exists()
+    cache.close()
+
+
+def test_organize_without_matching_model_rule_is_unresolved(tmp_path):
+    folder = tmp_path / "Tags (gelbooru)"
+    folder.mkdir()
+    source = folder / NAME
+    source.write_bytes(b"x")
+    organizer, cache = _organizer(tmp_path)
+    plan = organizer.plan_file(source, OrganizeMode.ORGANIZE, use_cache=False)
+    assert plan.status is PlanStatus.UNRESOLVED
+    assert plan.destination is None and source.exists()
+    cache.close()
+
+
+def test_only_valid_rows_execute_and_each_operation_is_reported(tmp_path):
+    source = tmp_path / "source.jpg"
+    source.write_bytes(b"x")
+    valid = FilePlan(
+        source,
+        destination=tmp_path / "out" / "source.jpg",
+        status=PlanStatus.MOVE,
+        source_size=1,
+        source_mtime_ns=source.stat().st_mtime_ns,
+    )
+    blocked = FilePlan(
+        tmp_path / "blocked.jpg",
+        destination=tmp_path / "out" / "blocked.jpg",
+        status=PlanStatus.AMBIGUOUS,
+    )
+    events = []
+    result = apply_plans([blocked, valid], events.append)
+    assert result == {"applied": 1, "unchanged": 0, "failed": 0, "skipped": 1}
+    assert [event["state"] for event in events] == ["skipped", "applied"]
+    assert valid.destination.exists()

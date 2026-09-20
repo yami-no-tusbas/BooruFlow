@@ -25,6 +25,23 @@ class GelbooruTransportError(RuntimeError):
     """A Gelbooru edit was not confirmed."""
 
 
+class GelbooruPublishFailure(GelbooruTransportError):
+    """Classified per-post failure safe to persist without sensitive details."""
+
+    reason = "publish_error"
+    retryable = True
+
+
+class GelbooruLockedImageError(GelbooruPublishFailure):
+    reason = "locked_image"
+    retryable = False
+
+
+class GelbooruUnexpectedRedirectError(GelbooruPublishFailure):
+    reason = "unexpected_global_redirect"
+    retryable = True
+
+
 class GelbooruPublishDeferredError(GelbooruTransportError):
     """A safe preflight deliberately stopped before any remote submission."""
 
@@ -54,6 +71,7 @@ class GelbooruAuthenticatedSession(Protocol):
 class _EditFormParser(HTMLParser):
     def __init__(self) -> None:
         super().__init__(); self.fields: dict[str, str] = {}; self._textarea: str | None = None; self._chunks: list[str] = []
+        self._anchor_href = ""; self._anchor_chunks: list[str] = []; self.lock_links: list[tuple[str, str]] = []
 
     def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
         values = dict(attrs)
@@ -63,14 +81,28 @@ class _EditFormParser(HTMLParser):
             kind = values.get("type", "text").casefold()
             if kind not in {"submit", "button", "image", "reset"} and (kind not in {"checkbox", "radio"} or "checked" in values):
                 self.fields[values["name"]] = values.get("value", "")
+        elif tag == "a":
+            self._anchor_href = values.get("href", "")
+            self._anchor_chunks = []
 
     def handle_data(self, data: str) -> None:
         if self._textarea is not None: self._chunks.append(data)
+        if self._anchor_href: self._anchor_chunks.append(data)
 
     def handle_endtag(self, tag: str) -> None:
         if tag == "textarea" and self._textarea is not None:
             self.fields[self._textarea] = "".join(self._chunks)
             self._textarea = None; self._chunks = []
+        elif tag == "a" and self._anchor_href:
+            self.lock_links.append((self._anchor_href, "".join(self._anchor_chunks)))
+            self._anchor_href = ""; self._anchor_chunks = []
+
+
+def is_locked_image_link(href: str, text: str, post_id: str) -> bool:
+    if " ".join(str(text).split()).casefold() != "unlock image":
+        return False
+    parsed = urlparse(str(href))
+    return parsed.path.endswith("/public/lock.php") and parse_qs(parsed.query).get("id") == [str(post_id)]
 
 
 class _NoRedirect(HTTPRedirectHandler):
@@ -92,6 +124,8 @@ class UrllibGelbooruAuthenticatedSession:
         url = f"https://gelbooru.com/index.php?page=post&s=edit&id={post_id}"
         response = self.opener.open(Request(url, method="GET"))
         parser = _EditFormParser(); parser.feed(response.read().decode("utf-8", errors="replace"))
+        if any(is_locked_image_link(href, text, post_id) for href, text in parser.lock_links):
+            raise GelbooruLockedImageError(f"Gelbooru image #{post_id} is locked")
         return parser.fields
 
     def validate_authenticated(self) -> None:
@@ -156,6 +190,12 @@ class GelbooruEditTransport:
         if not self._is_expected_location(location, post_id):
             if "login" in location.casefold() or not location:
                 raise GelbooruSessionExpiredError("Gelbooru session is not authenticated or expired")
+            parsed = urlparse(location)
+            query = parse_qs(parsed.query)
+            if query.get("page") == ["post"] and query.get("s") == ["list"]:
+                raise GelbooruUnexpectedRedirectError(
+                    "Gelbooru redirected Save to the global post list"
+                )
             raise GelbooruTransportError(f"unexpected Gelbooru edit redirect: {location!r}")
 
     @staticmethod

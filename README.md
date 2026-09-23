@@ -1,56 +1,150 @@
 # BooruFlow
 
-BooruFlow is a desktop workflow toolkit for Booru search, review, tagging,
-taxonomy maintenance, local databases and recoverable cleanup.
+BooruFlow is a Windows desktop toolkit for Gelbooru tagging, image analysis,
+batch review and publishing, taxonomy maintenance, wiki auditing, and related
+Booru workflows.
 
-Imgbrd-Grabber integration is optional. Search, tagging, taxonomy, database
-maintenance and cleanup must remain usable when Grabber is not installed.
+> **Current status: Alpha**
+>
+> BooruFlow is under active development. Bugs, incomplete behavior and rough
+> edges are expected.
 
-## Current application
+## Download
 
-The first PySide6 shell is available:
+The latest Windows x64 portable Alpha build is available here:
 
-```powershell
-.\Lancer-BooruFlow.bat
-```
+**[Download BooruFlow Alpha](https://github.com/yami-no-tusbas/BooruFlow/releases/tag/v0.1.0-alpha.1)**
 
-The `src/booruflow` package now contains the shared application services,
-infrastructure, CLI engines and the PySide6 interface. PySide6 is the sole GUI;
-the removed Tkinter implementation remains available through Git history.
-The task center records long-running review, tagging, taxonomy, database,
-cleanup and Grabber operations in `var/state/task_history.json`; unfinished
-entries are reported as interrupted on the next launch.
+Current release: **v0.1.0-alpha.1**
 
-A shareable Gelbooru-only tagging edition is available through
-`Lancer-Gelbooru-Tagging.bat`. See
-[docs/gelbooru-tagging-helper.md](docs/gelbooru-tagging-helper.md).
+No installer is required. Extract the archive and run `BooruFlow.exe`.
 
-The opt-in, localhost-only QtWebEngine Network diagnostic is documented in
-[docs/gelbooru-embedded-cdp-diagnostic.md](docs/gelbooru-embedded-cdp-diagnostic.md).
+The first-run wizard can configure Gelbooru access, local databases and the
+optional WD14 image-analysis model.
 
-## Repository layout
+## Main features
 
-- `legacy`: thin compatibility wrappers for historical CLI imports.
-- `src/booruflow`: layered application, shared services and packaged CLI engines.
-- `data`: local databases, imported source data and tracked taxonomy.
-- `config`: machine-local settings and credentials; ignored by Git.
-- `var`: generated results, lists and benchmarks; ignored by Git.
-- `tools`: standalone gallery, maintenance and benchmark commands.
+### Tagging
 
-## Safety rules
+- Search Gelbooru directly from the application.
+- Thumbnail grid with multi-selection and checkbox selection modes.
+- Add and remove tags from multiple posts at once.
+- Canonical tag and alias autocomplete.
+- Existing tags available directly from image tooltips.
+- Batch review before anything is published.
+- No-op changes are detected and skipped automatically.
 
-Before every migration batch:
+### WD14 image analysis
 
-1. Start from a clean Git state.
-2. Create a dated local backup of every existing file in scope.
-3. Keep one behavioral change per commit.
-4. Run characterization and unit tests.
-5. Verify the GUI visually before replacing the legacy entry point.
+WD14 can be installed from inside BooruFlow and is used as a Gelbooru tagging
+assistant.
 
-Secrets, machine-local settings, databases, caches and generated results are
-excluded from Git.
+- Analyze individual images.
+- Search for a specific tag across the visible result set.
+- Sort images by WD14 confidence.
+- Cache completed analyses locally.
+- Cancel long targeted scans.
 
-## Architecture
+WD14 suggestions do not automatically publish tags.
 
-See [docs/architecture/overview.md](docs/architecture/overview.md) and
-[docs/architecture/migration-plan.md](docs/architecture/migration-plan.md).
+### Batch publishing
+
+Changes prepared from the tagging grid are sent to a review queue before
+publication.
+
+Batch entries can be:
+
+- Pending
+- Skipped
+- Failed
+- Completed
+
+Gelbooru authentication is handled through the embedded browser when required.
+
+Tag changes remain under user control. BooruFlow is not intended to operate as
+an autonomous tagging bot.
+
+### Tag Browser
+
+Browse the local Gelbooru tag database with categories, aliases and deprecated
+tag information.
+
+### Wiki Audit
+
+Inspect the tags used by a Gelbooru post and check their wiki status, age,
+version and related metadata.
+
+### Artists of Folder
+
+Scan a local image collection by artist and open matching files directly in
+Everything when available.
+
+### Image Finder
+
+Search external artwork sources from inside BooruFlow.
+
+Pixiv support currently includes artwork and artist search, pagination,
+metadata, thumbnails and original-image downloads.
+
+### Database maintenance
+
+BooruFlow maintains local Gelbooru tag and alias databases and can update or
+rebuild them from inside the application.
+
+## Optional integrations
+
+### Imgbrd-Grabber
+
+Grabber integration is optional.
+
+BooruFlow's main search, tagging, image-analysis, database and review workflows
+remain usable without Grabber installed.
+
+### Everything
+
+Voidtools Everything can optionally be used by local collection tools such as
+Artists of Folder.
+
+## Reporting bugs
+
+This is an Alpha release, so bug reports are particularly useful.
+
+Please use **GitHub Issues** for bugs and reproducible problems:
+
+**https://github.com/yami-no-tusbas/BooruFlow/issues**
+
+Using Issues makes reports easier to track, discuss and close once fixed.
+
+When possible, include:
+
+- what you were trying to do;
+- what happened;
+- what you expected;
+- steps to reproduce the problem;
+- relevant logs or screenshots.
+
+Please avoid including passwords, API keys or other credentials in reports.
+
+## Development
+
+BooruFlow is written in Python with PySide6.
+
+The main application lives under:
+
+`src/booruflow/`
+
+Additional architecture and migration documentation is available under:
+
+`docs/`
+
+## Privacy and local data
+
+Machine-local settings, credentials, databases, caches, logs and generated
+results are excluded from the Git repository.
+
+The portable release does not ship with user credentials or authenticated
+sessions.
+
+## License
+
+See the repository license for details.

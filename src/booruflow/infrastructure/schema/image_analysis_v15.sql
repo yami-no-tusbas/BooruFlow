@@ -8,7 +8,7 @@ CREATE TABLE tagging_review_batch_entries (
     reviewed_final_tags_json TEXT NOT NULL,
     reviewed_at TEXT NOT NULL,
     publish_state TEXT NOT NULL CHECK (publish_state IN (
-        'reviewed', 'pending_publish', 'publishing', 'published', 'failed'
+        'reviewed', 'pending_publish', 'publishing', 'published', 'failed', 'skipped'
     )),
     CHECK ((site IS NULL AND post_id IS NULL) OR (site IS NOT NULL AND post_id IS NOT NULL))
 );

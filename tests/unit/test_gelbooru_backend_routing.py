@@ -134,6 +134,9 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
         page.spins["minimum"].setValue(2)
         page.spins["maximum"].setValue(80)
         page.start_button.click()
+        self.assertEqual(page.spins["start"].value(), 1)
+        page.spins["start"].setValue(3)
+        page.start_button.click()  # Refreshing the same query keeps the chosen page.
         first.close()
         second = self.window(settings)
         self.open_feature(second, "tagging")
@@ -256,7 +259,7 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
         self.app.processEvents()
         window.close()
 
-    def test_http_diagnostic_refuses_a_multi_entry_real_batch(self) -> None:
+    def test_http_diagnostic_refuses_a_multi_entry_real_batch_after_preflight(self) -> None:
         from booruflow.presentation.pyside6.tagging_controller import TaggingController
 
         state = SimpleNamespace(value="pending_publish")
@@ -286,6 +289,10 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
             show_batch_publish_summary=messages.append
         )
         controller._publisher_factory = object()
+        controller._session_factory_provider = lambda: object()
+        controller._session_factory = None
+        controller.publish_preflight_worker = None
+        controller._publish_preflight_authenticated = True
         controller._diagnostic_mode_provider = lambda: False
         controller._http_diagnostic_mode_provider = lambda: True
 

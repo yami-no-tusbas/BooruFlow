@@ -38,7 +38,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
-            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 23)
+            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 25)
             self.assertIn("wd14_score_vectors", tables)
             self.assertEqual(repository.connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
             self.assertEqual(repository.connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
@@ -59,7 +59,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 ).fetchone()
             )
         with ImageAnalysisRepository(self.database) as reopened:
-            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 23)
+            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 25)
 
     def test_feature_maintenance_marker_is_database_local_and_persistent(self) -> None:
         with ImageAnalysisRepository(self.database) as repository:
@@ -169,6 +169,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
             self.assertEqual(repository.batch_entry(item_id), {
                 "item_id": item_id, "site": "gelbooru", "post_id": "42",
                 "original_tags": ["a", "c"], "additions": ["d"], "removals": ["b"],
+                "requested_additions": [], "requested_removals": [],
                 "reviewed_final_tags": ["a", "c", "d"],
                 "reviewed_at": repository.batch_entry(item_id)["reviewed_at"],
                 "publish_state": PublishState.PENDING_PUBLISH,
@@ -745,6 +746,38 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 sum(statement == "BEGIN IMMEDIATE" for statement in statements), 1
             )
             self.assertEqual(sum(statement == "COMMIT" for statement in statements), 1)
+
+    def test_skipped_requested_intent_survives_restart_without_effective_delta(self) -> None:
+        from booruflow.domain.image_analysis import PublishState
+
+        with ImageAnalysisRepository(self.database) as repository:
+            entries = repository.stage_manual_remote_skips([{
+                "site": "gelbooru", "post_id": "42", "original_tags": ["android_18"],
+                "requested_additions": ["android_18"], "requested_removals": [],
+            }])
+            self.assertEqual(entries[0]["publish_state"], PublishState.SKIPPED)
+            self.assertEqual(entries[0]["additions"], [])
+            self.assertEqual(entries[0]["requested_additions"], ["android_18"])
+            self.assertEqual(repository.pending_change_count(), 0)
+            self.assertEqual(repository.remove_completed_batch_entries(), 0)
+        with ImageAnalysisRepository(self.database) as repository:
+            entry = repository.list_batch_entries()[0]
+            self.assertEqual(entry["requested_additions"], ["android_18"])
+            self.assertEqual(entry["additions"], [])
+            self.assertEqual(entry["publish_state"], PublishState.SKIPPED)
+
+    def test_redundant_request_does_not_discard_existing_pending_delta(self) -> None:
+        from booruflow.domain.image_analysis import PublishState
+
+        with ImageAnalysisRepository(self.database) as repository:
+            repository.stage_manual_remote_delta("gelbooru", "42", ["solo"], ["1girl"], [])
+            repository.stage_manual_remote_skips([{
+                "site": "gelbooru", "post_id": "42", "original_tags": ["solo"],
+                "requested_additions": ["solo"], "requested_removals": [],
+            }])
+            entry = repository.list_batch_entries()[0]
+            self.assertEqual(entry["publish_state"], PublishState.PENDING_PUBLISH)
+            self.assertEqual(entry["additions"], ["1girl"])
 
 
 if __name__ == "__main__":

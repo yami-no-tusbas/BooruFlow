@@ -128,6 +128,31 @@ def test_initial_import_checkpoints_each_page_and_resumes(tmp_path: Path) -> Non
     assert (summary.active, summary.pending, summary.missing) == (2, 1, 0)
 
 
+def test_initial_import_stops_cooperatively_between_pages(tmp_path: Path) -> None:
+    database = tmp_path / "tags.db"
+    make_database(database)
+    pages = {
+        0: alias_html([("a", "b", "active")], pids=(2,)),
+        2: alias_html([("c", "d", "active")], pids=(2,)),
+    }
+    stopped = False
+    calls: list[int] = []
+
+    def fetcher(pid: int, _search: str) -> str:
+        nonlocal stopped
+        calls.append(pid)
+        if pid == 0:
+            stopped = True
+        return pages[pid]
+
+    with pytest.raises(InterruptedError):
+        GelbooruAliasSynchronizer(
+            database, fetcher, delay=0, stopped=lambda: stopped
+        ).initial_import()
+    assert calls == [0]
+    assert GelbooruAliasRepository(database).state()["initial_next_pid"] == 2
+
+
 def _seed_checkpoint(repository: GelbooruAliasRepository, relations: list[AliasRelation]) -> None:
     for relation in relations:
         repository.upsert(relation)

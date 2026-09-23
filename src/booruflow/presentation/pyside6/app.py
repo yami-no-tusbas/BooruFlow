@@ -17,23 +17,22 @@ from booruflow.application.database_paths import (
     migrate_database_settings,
 )
 from booruflow.application.hydra_model_manager import hydra_directory, migrated_hydra_settings
+from booruflow.application.portable_settings import PortableSettingsRepository
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.settings import JsonSettingsRepository, migrate_blacklist_setting
 from booruflow.infrastructure.task_repository import JsonTaskRepository
 from booruflow.presentation.pyside6.main_window import MainWindow
+from booruflow.runtime import application_root, bundled_bootstrap_root, resource_root
 
 
 def project_root() -> Path:
-    if startup_profile.enabled():
-        isolated = os.environ.get("BOORUFLOW_STARTUP_PROFILE_ROOT", "").strip()
-        if isolated:
-            return Path(isolated).resolve()
-    return Path(__file__).resolve().parents[4]
+    return application_root()
 
 
 def initial_settings(root: Path) -> dict[str, object]:
     return {
         "language": "en",
+        "first_run_wizard_completed": False,
         "gelbooru_tag_database": str(root / "data" / "databases" / "gelbooru_tags.db"),
         "gelbooru_alias_database": str(root / "data" / "databases" / "gelbooru_aliases.db"),
         "e621_database": str(root / "data" / "databases" / "e621_tags.db"),
@@ -78,7 +77,11 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
     QCoreApplication.setApplicationName("BooruFlow")
     root = project_root()
     config = root / "config"
-    settings_repository = JsonSettingsRepository(config / "booruflow_settings.json")
+    settings_repository = (
+        PortableSettingsRepository(config / "booruflow_settings.json", root)
+        if getattr(sys, "frozen", False)
+        else JsonSettingsRepository(config / "booruflow_settings.json")
+    )
     credentials_repository = JsonSettingsRepository(config / "booruflow_credentials.json")
     task_repository = JsonTaskRepository(root / "var" / "state" / "task_history.json")
     settings = settings_repository.load()
@@ -94,7 +97,10 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
             settings_repository.save(settings)
     startup_profile.checkpoint("Configuration loading/migration")
     alias_database = gelbooru_alias_database(settings)
-    if alias_database is not None and not alias_database.exists():
+    bundled = bundled_bootstrap_root()
+    alias_archive = bundled / "bootstrap" / "gelbooru-aliases.zip" if bundled else None
+    if (alias_database is not None and not alias_database.exists()
+            and not (alias_archive and alias_archive.is_file())):
         from booruflow.infrastructure.gelbooru_aliases import migrate_alias_catalog
 
         migrate_alias_catalog(gelbooru_tag_database(settings), alias_database)
@@ -106,7 +112,7 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
     )
     startup_profile.checkpoint("Capabilities/services bootstrap")
     catalog = LanguageCatalog(
-        root / "resources" / "i18n",
+        resource_root() / "resources" / "i18n",
         str(settings.get("language", "en")),
     )
     startup_profile.checkpoint("i18n catalog loading")
@@ -118,6 +124,7 @@ def create_application(argv: list[str] | None = None, diagnostics=None) -> tuple
         credentials_repository=credentials_repository,
         task_repository=task_repository,
         project_root=root,
+        resource_root=resource_root(),
         python_executable=sys.executable,
         start_image_worker=False,
     )
@@ -194,7 +201,13 @@ def run(argv: list[str] | None = None, diagnostics=None) -> int:
                 return
             startup_profile.event("Window visible/exposed")
             startup_profile.event("Dashboard interactive")
-            window.complete_deferred_startup()
+            if not window._settings.get("first_run_wizard_completed") and not startup_profile.enabled():
+                window.open_first_run_wizard()
+            if not (startup_profile.enabled() and os.environ.get("BOORUFLOW_STARTUP_PROFILE_EXIT") == "1"):
+                if not window.start_bundled_bootstrap(window.complete_deferred_startup):
+                    window.complete_deferred_startup()
+            else:
+                window.complete_deferred_startup()
             if profile_feature and not wait_for_worker and not feature_started:
                 feature_started = True
                 feature_started_ns = startup_profile.now_ns()

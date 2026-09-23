@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import IntEnum
 
 from PySide6.QtCore import QObject, QTimer, Signal
 from PySide6.QtWidgets import QLabel, QProgressBar, QSizePolicy, QStatusBar
@@ -11,11 +12,20 @@ from PySide6.QtWidgets import QLabel, QProgressBar, QSizePolicy, QStatusBar
 from booruflow.infrastructure.localization import LanguageCatalog
 
 
+class StatusPriority(IntEnum):
+    NORMAL = 0
+    PROGRESS = 1
+    WARNING = 2
+    ERROR = 3
+    CRITICAL = 4
+
+
 class PageStatus(QObject):
     """Small page-facing API; it never exposes MainWindow widgets."""
 
     state_changed = Signal(str, str)
     message_changed = Signal(str, str, int, bool, bool)
+    priority_message_changed = Signal(str, str, int, bool, bool, str)
     message_cleared = Signal(str)
     progress_changed = Signal(str, int, int, str, bool)
     progress_cleared = Signal(str, bool)
@@ -34,9 +44,13 @@ class PageStatus(QObject):
         timeout_ms: int = 5_000,
         log: bool = False,
         global_message: bool = False,
+        level: str = "NORMAL",
     ) -> None:
         self.message_changed.emit(
             self.page_key, message, max(0, timeout_ms), log, global_message
+        )
+        self.priority_message_changed.emit(
+            self.page_key, message, max(0, timeout_ms), log, global_message, level.upper()
         )
 
     def clear_message(self) -> None:
@@ -87,6 +101,7 @@ class StatusBarController(QObject):
         self.global_progress: _Progress | None = None
         self.message_owner: str | None = None
         self.message_is_global = False
+        self.message_priority = StatusPriority.NORMAL
 
         self.page_label = QLabel()
         self.page_label.setMinimumWidth(150)
@@ -110,7 +125,7 @@ class StatusBarController(QObject):
 
     def bind(self, channel: PageStatus) -> None:
         channel.state_changed.connect(self.set_page_state)
-        channel.message_changed.connect(self.show_message)
+        channel.priority_message_changed.connect(self.show_priority_message)
         channel.message_cleared.connect(self.clear_page_message)
         channel.progress_changed.connect(self.set_progress)
         channel.progress_cleared.connect(self.clear_progress)
@@ -134,7 +149,15 @@ class StatusBarController(QObject):
         timeout_ms: int = 5_000,
         log_message: bool = False,
         global_message: bool = False,
+        level: str = "NORMAL",
     ) -> None:
+        priority = StatusPriority.__members__.get(level.upper(), StatusPriority.NORMAL)
+        if (
+            priority < self.message_priority
+            and self.message_priority >= StatusPriority.WARNING
+            and self.message_owner is not None
+        ):
+            return
         if log_message:
             self.log(message)
         if page_key != self.active_page and not global_message:
@@ -142,11 +165,24 @@ class StatusBarController(QObject):
         self.message_timer.stop()
         self.message_owner = page_key
         self.message_is_global = global_message
+        self.message_priority = priority
         self.message_label.setText(message)
         self.message_label.setToolTip(message)
         self.message_label.setAccessibleName(message)
-        if timeout_ms > 0:
+        if timeout_ms > 0 and priority < StatusPriority.ERROR:
             self.message_timer.start(timeout_ms)
+
+    def show_priority_message(
+        self,
+        page_key: str,
+        message: str,
+        timeout_ms: int = 5_000,
+        log_message: bool = False,
+        global_message: bool = False,
+        level: str = "NORMAL",
+    ) -> None:
+        priority = StatusPriority.__members__.get(level.upper(), StatusPriority.NORMAL)
+        self.show_message(page_key, message, timeout_ms, log_message, global_message, level)
 
     def clear_page_message(self, page_key: str) -> None:
         if self.message_owner == page_key and not self.message_is_global:
@@ -159,6 +195,7 @@ class StatusBarController(QObject):
         self.message_label.clear()
         self.message_label.setToolTip("")
         self.message_label.setAccessibleName("")
+        self.message_priority = StatusPriority.NORMAL
 
     def set_progress(
         self,

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QAbstractTableModel, QEvent, Qt, Signal
@@ -235,7 +236,8 @@ class ImageAnalysisPage(QWidget):
         self.drop_banner = QLabel("Déposer les images pour les ajouter")
         self.drop_banner.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.drop_banner.setStyleSheet(
-            "padding:12px;border:2px dashed #55aaff;background:#20364a;color:white;"
+            "padding:12px;border:2px dashed palette(highlight);"
+            "background:palette(alternate-base);color:palette(text);"
             "font-size:16px;font-weight:600"
         )
         self.drop_banner.hide(); root.addWidget(self.drop_banner)
@@ -364,6 +366,9 @@ class ImageAnalysisPage(QWidget):
         self.wd14_state = QLabel("WD14 : diagnostic en attente")
         self.wd14_install = QPushButton("Installer / réinstaller WD14…")
         self.gpu_runtime_install = QPushButton("Installer le runtime GPU…")
+        if getattr(sys, "frozen", False):
+            self.gpu_runtime_install.setEnabled(False)
+            self.gpu_runtime_install.setToolTip(self.catalog.text("options.runtime_frozen_cpu"))
         wd14_row.addWidget(self.wd14_state, 1)
         wd14_row.addWidget(self.gpu_runtime_install); wd14_row.addWidget(self.wd14_install)
         root.addLayout(wd14_row)

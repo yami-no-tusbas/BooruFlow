@@ -65,6 +65,11 @@ def normalize_booru_tag(value: str) -> str:
     return "_".join(value.strip().casefold().split())
 
 
+def canonical_tag_value(value: str) -> str:
+    """Remove autocomplete-only presentation decoration at a trust boundary."""
+    return str(value).split("←", 1)[0].strip()
+
+
 def match_local_tag(
     suggestion: str,
     local_names: set[str],

@@ -101,7 +101,7 @@ class WikiPage(QWidget):
 
     def _ribbon_group(self, key: str) -> tuple[QFrame, QHBoxLayout]:
         frame = QFrame(); frame.setFrameShape(QFrame.Shape.StyledPanel); outer = QVBoxLayout(frame); outer.setContentsMargins(6, 4, 6, 3); outer.setSpacing(2)
-        row = QHBoxLayout(); row.setSpacing(3); label = QLabel(); label.setAlignment(Qt.AlignmentFlag.AlignCenter); label.setStyleSheet("color:#6B7280;font-size:10px;")
+        row = QHBoxLayout(); row.setSpacing(3); label = QLabel(); label.setAlignment(Qt.AlignmentFlag.AlignCenter); label.setStyleSheet("color:palette(placeholder-text);font-size:10px;")
         self.ribbon_labels[key] = label; outer.addLayout(row); outer.addWidget(label); return frame, row
 
     def _tool_button(self, key: str) -> QToolButton:
@@ -139,10 +139,10 @@ class WikiPage(QWidget):
         issues = validate_wiki_source(source)
         issues.extend(("missing", tag) for tag in missing_local_tags(self.tag_database_path, referenced_tags(source)))
         if not issues:
-            self.validation.setText(self.catalog.text("wiki.validation_ok")); self.validation.setStyleSheet("color:#16803b;")
+            self.validation.setText(self.catalog.text("wiki.validation_ok")); self.validation.setStyleSheet("color:palette(text);")
             return
         messages = [self.catalog.text(f"wiki.issue_{code}", value=value) for code, value in issues]
-        self.validation.setText("\n".join(f"• {message}" for message in messages)); self.validation.setStyleSheet("color:#b42318;")
+        self.validation.setText("\n".join(f"• {message}" for message in messages)); self.validation.setStyleSheet("color:palette(text);")
 
     def _wrap(self, before: str, after: str, placeholder: str = "text") -> None:
         cursor = self.source.textCursor(); selected = cursor.selectedText() or placeholder

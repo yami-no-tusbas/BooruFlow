@@ -88,7 +88,10 @@ class SimilarArtistsPage(QWidget):
         self.drop_zone = QPushButton()
         self.drop_zone.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
         self.drop_zone.setMinimumHeight(105)
-        self.drop_zone.setStyleSheet("border:2px dashed #55aaff;padding:20px;font-size:16px")
+        self.drop_zone.setStyleSheet(
+            "border:2px dashed palette(highlight);padding:20px;font-size:16px;"
+            "color:palette(text);background:palette(alternate-base)"
+        )
         self.drop_zone.clicked.connect(self._choose_many)
         root.addWidget(self.drop_zone)
         remote_row = QHBoxLayout()

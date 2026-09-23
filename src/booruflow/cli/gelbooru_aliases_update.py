@@ -3,6 +3,9 @@
 from __future__ import annotations
 
 import argparse
+import sys
+import threading
+from contextlib import suppress
 from pathlib import Path
 
 from booruflow.infrastructure.gelbooru_aliases import GelbooruAliasSynchronizer
@@ -20,7 +23,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    synchronizer = GelbooruAliasSynchronizer(args.db)
+    cancelled = threading.Event()
+
+    def watch_cancel() -> None:
+        with suppress(OSError, ValueError):
+            for line in sys.stdin or ():
+                if line.strip().upper() == "STOP":
+                    cancelled.set()
+                    return
+
+    threading.Thread(target=watch_cancel, name="booruflow-cancel", daemon=True).start()
+    synchronizer = GelbooruAliasSynchronizer(args.db, stopped=cancelled.is_set)
     def update():
         result = synchronizer.incremental()
         return synchronizer.initial_import() if result.state == "initial_import_required" else result
@@ -33,6 +46,9 @@ def main() -> int:
     }[args.mode]
     try:
         summary = operation()
+    except InterruptedError as exc:
+        print(f"ALIAS_CANCEL_ACK {exc}", flush=True)
+        return 2
     except Exception as exc:  # noqa: BLE001 - CLI boundary reports safe failure
         print(f"ERROR: {exc}", flush=True)
         return 1

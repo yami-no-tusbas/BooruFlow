@@ -71,7 +71,7 @@ class FolderArtistsPage(QWidget):
         self.count_filter.setMaximumWidth(190)
         self.count_filter.textChanged.connect(self._count_filter_changed)
         self.count_filter_error = QLabel()
-        self.count_filter_error.setStyleSheet("color:#B91C1C;")
+        self.count_filter_error.setStyleSheet("color:palette(text);")
         filter_row.addWidget(self.count_filter_label)
         filter_row.addWidget(self.count_filter)
         filter_row.addWidget(self.count_filter_error)
@@ -173,7 +173,7 @@ class FolderArtistsPage(QWidget):
         try:
             parsed = parse_image_count_filter(expression)
         except ValueError:
-            self.count_filter.setStyleSheet("border:1px solid #B91C1C;")
+            self.count_filter.setStyleSheet("border:1px solid palette(highlight);")
             self.count_filter_error.setText(self.catalog.text("folder_artists.filter_invalid"))
             return
         self.count_filter.setStyleSheet("")

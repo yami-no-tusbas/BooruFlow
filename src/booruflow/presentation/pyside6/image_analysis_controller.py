@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import sys
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -27,6 +28,7 @@ from booruflow.infrastructure.image_sources import (
 )
 from booruflow.infrastructure.tag_category_lookup import LocalTagCategoryLookup
 from booruflow.presentation.pyside6.ui_logging import StreamingLogSanitizer, log_event
+from booruflow.runtime import frozen_module_command
 
 WORKER_RESTART_DELAYS_MS = (250, 1_000, 5_000)
 WORKER_DETERMINISTIC_FAILURE_CODES = frozenset({2})
@@ -222,6 +224,7 @@ class DroppedSourceScanWorker(QThread):
 
 class ImageAnalysisController(QObject):
     worker_state_changed = Signal(str, str)
+    activity_changed = Signal(str, str, str, int, int)
 
     def __init__(
         self,
@@ -292,10 +295,14 @@ class ImageAnalysisController(QObject):
         self._slow_refresh_samples: list[float] = []
         self.worker_sanitizer = StreamingLogSanitizer()
         self.worker_text_buffer = ""
+        self._worker_unavailable_reason = ""
         self.model_process = QProcess(self)
         self.model_process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
         self.model_process.readyReadStandardOutput.connect(self._model_output)
         self.model_process.finished.connect(self._model_finished)
+        self.model_process.errorOccurred.connect(self._model_process_error)
+        self._model_output_buffer = ""
+        self._model_last_error = ""
         self._install_operation = ""
         self.installation_page = None
         self.timer = QTimer(self)
@@ -388,6 +395,7 @@ class ImageAnalysisController(QObject):
                 f"{len(paths)} images détectées.\nLes ajouter à Image Analysis ?",
             )
             if answer != QMessageBox.StandardButton.Yes:
+                self.log(log_event("ImageAnalysis", "Dropped-image import cancelled by user"))
                 self.page.drop_status.setText("Import annulé")
                 return
         self.drop_ignored = ignored
@@ -506,7 +514,20 @@ class ImageAnalysisController(QObject):
     def start_worker(self) -> None:
         if self._shutting_down or self.process.state() != QProcess.ProcessState.NotRunning:
             return
+        if bool(self.settings.get("image_analysis_wd14_enabled", True)):
+            from booruflow.application.analysis_installation import wd14_directory
+
+            directory = wd14_directory(self.project_root, self.settings)
+            missing = [name for name in ("model.onnx", "selected_tags.csv", "metadata.json")
+                       if not (directory / name).is_file()]
+            if missing:
+                detail = f"WD14 model_missing: {', '.join(missing)}; path={directory}"
+                self._set_worker_state("model_missing", detail)
+                self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_unavailable"))
+                self.log(log_event("Worker", detail, level="WARNING"))
+                return
         self._worker_session_id = uuid4().hex
+        self._worker_unavailable_reason = ""
         environment = QProcessEnvironment.systemEnvironment()
         environment.insert("PYTHONIOENCODING", "utf-8")
         environment.insert("NO_COLOR", "1")
@@ -514,10 +535,9 @@ class ImageAnalysisController(QObject):
         environment.insert("TERM", "dumb")
         self.process.setProcessEnvironment(environment)
         self.process.setWorkingDirectory(str(self.project_root))
-        arguments = [
-            "-u",
-            "-m",
+        arguments = frozen_module_command(
             "booruflow.worker.image_analysis_bootstrap",
+            [
             "--database",
             str(self.database),
             "--analysis-prefetch",
@@ -532,15 +552,15 @@ class ImageAnalysisController(QObject):
             str(os.getpid()),
             "--session-id",
             self._worker_session_id,
-        ]
+            ],
+        )
         alias_database = gelbooru_alias_database(self.settings)
         if alias_database:
             arguments.extend(["--gelbooru-alias-database", str(alias_database)])
         if bool(self.settings.get("image_analysis_wd14_enabled", True)):
-            model_directory = self.settings.get(
-                "image_analysis_wd14_model_directory",
-                self.project_root / "var" / "models" / "image_analysis" / "wd-vit-tagger-v3",
-            )
+            from booruflow.application.analysis_installation import wd14_directory
+
+            model_directory = wd14_directory(self.project_root, self.settings)
             arguments.extend(
                 [
                     "--wd14-enabled",
@@ -669,6 +689,8 @@ class ImageAnalysisController(QObject):
             self.page.wd14_state.setText(clean.removeprefix("WD14_RUNTIME "))
         elif clean.startswith(("WD14_READY ", "WD14_UNAVAILABLE ", "WD14_OOM ")):
             self.page.wd14_state.setText(clean)
+            if clean.startswith("WD14_UNAVAILABLE "):
+                self._worker_unavailable_reason = clean.removeprefix("WD14_UNAVAILABLE ")
             if clean.startswith("WD14_READY "):
                 startup_profile.event("WD14 READY")
         protocol_prefixes = (
@@ -718,7 +740,9 @@ class ImageAnalysisController(QObject):
             self.log(log_event("Worker", f"Old worker pid={old_pid} confirmed terminated"))
             self._schedule_worker_restart("normal recycle", immediate=True)
         elif not expected_stop and not self._shutting_down and code in WORKER_DETERMINISTIC_FAILURE_CODES:
-            detail = f"ImageAnalysis unavailable (exit code {code})"
+            reason = self._worker_unavailable_reason
+            detail = (f"ImageAnalysis unavailable (exit code {code}): {reason}"
+                      if reason else f"ImageAnalysis unavailable (exit code {code})")
             self._set_worker_state("unavailable", detail)
             self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_unavailable"))
             self.log(log_event("Worker", f"Deterministic startup failure; no retry: {detail}", level="ERROR"))
@@ -800,6 +824,7 @@ class ImageAnalysisController(QObject):
             self.process.terminate()
 
     def install_wd14(self, parent=None) -> None:
+        self.log(log_event("ImageAnalysis", "WD14 installation requested"))
         if self.model_process.state() != QProcess.ProcessState.NotRunning:
             return
         directory = wd14_directory(self.project_root, self.settings)
@@ -809,20 +834,23 @@ class ImageAnalysisController(QObject):
             self.page.catalog.text("options.wd14_install_confirm", path=directory),
         )
         if answer != QMessageBox.StandardButton.Yes:
+            self.log(log_event("ImageAnalysis", "WD14 installation cancelled by user"))
+            self.activity_changed.emit("wd14", "cancelled", "", -1, -1)
             return
+        self.log(log_event("ImageAnalysis", "WD14 installation confirmed by user"))
         self.page.wd14_install.setEnabled(False)
         self.page.gpu_runtime_install.setEnabled(False)
         self._install_operation = "model"
-        self.page.wd14_state.setText("WD14 : téléchargement…")
+        self._model_output_buffer = ""
+        self._model_last_error = ""
+        self.page.wd14_state.setText(self.page.catalog.text("options.wd14_downloading"))
         if self.installation_page is not None:
             self.installation_page.set_analysis_install_running(True, "model")
+        self.activity_changed.emit("wd14", "starting", self.page.catalog.text("wizard.activity_starting"), -1, -1)
         self.model_process.setWorkingDirectory(str(self.project_root))
         self.model_process.start(
             self.python_executable,
-            [
-                "-u",
-                "-m",
-                "booruflow.cli.wd14_model",
+            frozen_module_command("booruflow.cli.wd14_model", [
                 "install",
                 "--directory",
                 str(directory),
@@ -832,11 +860,19 @@ class ImageAnalysisController(QObject):
                         "image_analysis_wd14_model_id", "SmilingWolf/wd-vit-tagger-v3"
                     )
                 ),
-            ],
+            ]),
         )
 
     def install_gpu_runtime(self, parent=None) -> None:
+        self.log(log_event("ImageAnalysis", "GPU runtime installation requested"))
         if self.model_process.state() != QProcess.ProcessState.NotRunning:
+            return
+        if getattr(sys, "frozen", False):
+            message = self.page.catalog.text("options.runtime_frozen_cpu")
+            self.page.wd14_state.setText(message)
+            self.log(log_event("ImageAnalysis", message, level="WARNING"))
+            if self.installation_page is not None:
+                self.installation_page.set_analysis_install_running(False, "runtime")
             return
         answer = QMessageBox.question(
             parent or self.page,
@@ -844,13 +880,18 @@ class ImageAnalysisController(QObject):
             self.page.catalog.text("options.gpu_install_confirm"),
         )
         if answer != QMessageBox.StandardButton.Yes:
+            self.log(log_event("ImageAnalysis", "GPU runtime installation cancelled by user"))
             return
+        self.log(log_event("ImageAnalysis", "GPU runtime installation confirmed by user"))
         self.page.wd14_install.setEnabled(False)
         self.page.gpu_runtime_install.setEnabled(False)
-        self.page.wd14_state.setText("Runtime GPU : installation…")
+        self.page.wd14_state.setText(self.page.catalog.text("options.runtime_installing"))
         self._install_operation = "runtime"
+        self._model_output_buffer = ""
+        self._model_last_error = ""
         if self.installation_page is not None:
             self.installation_page.set_analysis_install_running(True, "runtime")
+        self.activity_changed.emit("runtime", "starting", self.page.catalog.text("wizard.activity_starting"), -1, -1)
         if self.process.state() != QProcess.ProcessState.NotRunning:
             self.process.terminate()
             self.process.waitForFinished(3000)
@@ -867,27 +908,84 @@ class ImageAnalysisController(QObject):
         )
 
     def _model_output(self) -> None:
-        output = (
-            bytes(self.model_process.readAllStandardOutput())
-            .decode("utf-8", errors="replace")
-            .strip()
+        output = bytes(self.model_process.readAllStandardOutput()).decode(
+            "utf-8", errors="replace"
         )
-        if output:
-            self.page.wd14_state.setText(output.splitlines()[-1])
+        self._model_output_buffer += output
+        lines = self._model_output_buffer.split("\n")
+        self._model_output_buffer = lines.pop()
+        if lines:
+            from booruflow.application.download_progress import (
+                DownloadProgress,
+                parse_download_line,
+            )
+            tracker = getattr(self, "_model_download_progress", None)
+            if tracker is None:
+                tracker = self._model_download_progress = DownloadProgress()
+            for line in lines:
+                line = line.strip()
+                if not line:
+                    continue
+                parsed = parse_download_line(line)
+                message = tracker.update(*parsed) if parsed else line
+                if line.startswith(("ERROR", "Traceback")):
+                    self._model_last_error = line
+                self.page.wd14_state.setText(message)
+                self.log(message)
+                operation = "runtime" if self._install_operation == "runtime" else "wd14"
+                self.activity_changed.emit(
+                    operation, "running", message,
+                    int(parsed[1]) if parsed else -1,
+                    int(parsed[2]) if parsed else -1,
+                )
+                if self.installation_page is not None:
+                    self.installation_page.wd14_model_status.setText(message)
+
+    def _model_process_error(self, error) -> None:
+        detail = self.model_process.errorString()
+        self._model_last_error = detail
+        operation = "runtime" if self._install_operation == "runtime" else "wd14"
+        self.activity_changed.emit(operation, "failed", detail, -1, -1)
+        self.page.wd14_state.setText(detail)
+        self.log(log_event("ImageAnalysis", f"Model helper failed to start: {detail}", level="ERROR"))
+        status_page = self.installation_page or self.page
+        if hasattr(status_page, "page_status"):
+            status_page.page_status.show_message(
+                "Image analysis installation failed — see log", timeout_ms=0,
+                global_message=True, level="ERROR"
+            )
+        if error == QProcess.ProcessError.FailedToStart:
+            self.page.wd14_install.setEnabled(True)
+            self.page.gpu_runtime_install.setEnabled(not getattr(sys, "frozen", False))
+            if self.installation_page is not None:
+                self.installation_page.set_analysis_install_running(False)
 
     def _model_finished(self, code: int, _status) -> None:
+        self._model_output()
         self.page.wd14_install.setEnabled(True)
-        self.page.gpu_runtime_install.setEnabled(True)
+        self.page.gpu_runtime_install.setEnabled(not getattr(sys, "frozen", False))
+        if code == 0 and self._install_operation == "model":
+            from booruflow.application.analysis_installation import analysis_installation_status
+
+            if not analysis_installation_status(self.project_root, self.settings).wd14_installed:
+                code = 1
+                self._model_last_error = "WD14 installation completed without model, tags and metadata"
         if code == 0:
-            label = (
-                "Runtime GPU installé" if self._install_operation == "runtime" else "WD14 installé"
-            )
-            self.page.wd14_state.setText(f"{label}, redémarrage du worker…")
+            key = ("options.runtime_installed" if self._install_operation == "runtime"
+                   else "options.wd14_installed")
+            self.page.wd14_state.setText(self.page.catalog.text(key))
+            operation = "runtime" if self._install_operation == "runtime" else "wd14"
+            self.activity_changed.emit(operation, "completed", "", -1, -1)
             if self.process.state() != QProcess.ProcessState.NotRunning:
                 self.process.terminate()
             QTimer.singleShot(500, self.start_worker)
         else:
-            self.page.wd14_state.setText("Installation WD14/runtime GPU : échec")
+            message = self.page.catalog.text("options.analysis_install_failed")
+            if self._model_last_error:
+                message = f"{message}: {self._model_last_error}"
+            self.page.wd14_state.setText(message)
+            operation = "runtime" if self._install_operation == "runtime" else "wd14"
+            self.activity_changed.emit(operation, "failed", message, -1, -1)
         if self.installation_page is not None:
             operation = self._install_operation
             self.installation_page.set_analysis_install_running(False)
@@ -895,7 +993,8 @@ class ImageAnalysisController(QObject):
             key = "options.install_complete" if code == 0 else "options.install_failed"
             message = self.page.catalog.text(key)
             self.installation_page.page_status.show_message(
-                message, timeout_ms=5_000 if code == 0 else 6_000, log=code != 0
+                message, timeout_ms=5_000 if code == 0 else 0, log=code != 0,
+                global_message=code != 0, level="ERROR" if code != 0 else "NORMAL"
             )
             if code != 0:
                 self.log(

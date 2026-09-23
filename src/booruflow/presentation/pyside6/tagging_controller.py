@@ -64,6 +64,19 @@ def _emit_perf(controller, step: str, started: float) -> None:
     )
 
 
+def _effective_manual_delta(
+    original_tags: list[str] | tuple[str, ...],
+    additions: list[str] | tuple[str, ...],
+    removals: list[str] | tuple[str, ...],
+) -> tuple[list[str], list[str]]:
+    """Return only changes that alter this post's current tag set."""
+    original = {normalize_booru_tag(tag) for tag in original_tags if str(tag).strip()}
+    requested_add = {normalize_booru_tag(tag) for tag in additions if str(tag).strip()}
+    requested_remove = {normalize_booru_tag(tag) for tag in removals if str(tag).strip()}
+    desired = (original | requested_add) - requested_remove
+    return sorted(desired - original), sorted(original - desired)
+
+
 class BatchPublishWorker(QThread):
     progress = Signal(int, int, str)
     status = Signal(object)
@@ -113,6 +126,31 @@ class SessionTestWorker(QThread):
             self.completed.emit("unknown")
         except Exception as exc:  # noqa: BLE001 - session boundary
             self.completed.emit(f"error:{exc}")
+
+
+class PublishSessionPreflightWorker(QThread):
+    completed = Signal(str, str)
+
+    def __init__(self, factory) -> None:
+        super().__init__()
+        self.factory = factory
+
+    def run(self) -> None:
+        try:
+            validate = getattr(self.factory, "validate", None)
+            if not callable(validate):
+                validate = getattr(self.factory, "validate_authenticated", None)
+            if not callable(validate):
+                raise GelbooruSessionUnknownError("session validation unavailable")
+            validate()
+        except GelbooruSessionExpiredError as exc:
+            self.completed.emit("unauthenticated", str(exc))
+        except GelbooruSessionUnknownError as exc:
+            self.completed.emit("unauthenticated", str(exc))
+        except Exception as exc:  # noqa: BLE001 - preflight boundary
+            self.completed.emit("check_failed", str(exc))
+        else:
+            self.completed.emit("authenticated", "")
 
 
 class TagSuggestionWorker(QThread):
@@ -242,6 +280,7 @@ class TaggingController(TaggingLegacyController):
         self._session_factory_provider = kwargs.pop("session_factory_provider", None)
         self._e621_validation_factory = kwargs.pop("e621_validation_factory", None)
         self._publication_backend_provider = kwargs.pop("publication_backend_provider", None)
+        self._embedded_login_opener = kwargs.pop("embedded_login_opener", None)
         self._diagnostic_mode_provider = kwargs.pop("diagnostic_mode_provider", None)
         self._http_diagnostic_mode_provider = kwargs.pop("http_diagnostic_mode_provider", None)
         self._project_root = Path(kwargs.pop("project_root", Path.cwd()))
@@ -258,6 +297,7 @@ class TaggingController(TaggingLegacyController):
         self.page.batch_refresh_requested.connect(self.refresh_batch)
         self.page.batch_review_requested.connect(self.review_batch_item)
         self.page.batch_remove_requested.connect(self.remove_batch_items)
+        self.page.batch_remove_completed_requested.connect(self.remove_completed_batch)
         self.page.batch_open_requested.connect(self.open_batch_post)
         self.page.batch_publish_requested.connect(self.publish_batch)
         self.page.batch_retry_requested.connect(self.retry_failed_batch)
@@ -271,6 +311,9 @@ class TaggingController(TaggingLegacyController):
         self.page.targeted_wd14_cancel_requested.connect(self.cancel_targeted_wd14)
         self.publish_worker: BatchPublishWorker | None = None
         self.session_test_worker: SessionTestWorker | None = None
+        self.publish_preflight_worker: PublishSessionPreflightWorker | None = None
+        self._publish_preflight_retry_ids: list[int] | None = None
+        self._publish_preflight_login_opened = False
         self.targeted_wd14_worker: TargetedWD14Worker | None = None
         self.bulk_lookup_workers: dict[str, TagSuggestionWorker] = {}
         self._bulk_lookup_pending: dict[str, str] = {}
@@ -280,7 +323,6 @@ class TaggingController(TaggingLegacyController):
 
     def start_targeted_wd14(self, tag: str, posts: list[dict]) -> None:
         if self.targeted_wd14_worker and self.targeted_wd14_worker.isRunning():
-            self.targeted_wd14_worker.requestInterruption()
             self.page.show_targeted_wd14_unavailable(
                 tag, self.catalog.text("tagging.wd14.busy")
             )
@@ -336,6 +378,14 @@ class TaggingController(TaggingLegacyController):
         )
 
     def _targeted_wd14_completed(self, result) -> None:
+        if getattr(result, "cancelled", False):
+            self.page.show_targeted_wd14_cancelled(result)
+            self._log(
+                f"Targeted WD14 analysis cancelled tag={result.tag} "
+                f"completed={result.progress.completed}/{result.progress.total}",
+                level="INFO",
+            )
+            return
         self.page.show_targeted_wd14_result(result)
         counts = {}
         from booruflow.application.targeted_wd14 import confidence_bucket
@@ -382,31 +432,58 @@ class TaggingController(TaggingLegacyController):
             return
         total_started = perf_counter()
         repository = self.image_analysis.repository
-        changes = [
-            {
-                "site": _active_site(self), "post_id": str(post.get("id", "")).strip(),
-                "original_tags": str(post.get("tags", "")).split(),
-                "additions": additions, "removals": removals,
-            }
-            for post in posts if str(post.get("id", "")).strip()
-        ]
+        changes = []
+        skipped_changes = []
+        skipped_noop = 0
+        for post in posts:
+            post_id = str(post.get("id", "")).strip()
+            if not post_id:
+                continue
+            original_tags = str(post.get("tags", "")).split()
+            effective_additions, effective_removals = _effective_manual_delta(
+                original_tags, additions, removals
+            )
+            if not effective_additions and not effective_removals:
+                skipped_noop += 1
+                skipped_changes.append({
+                    "site": _active_site(self), "post_id": post_id,
+                    "original_tags": original_tags,
+                    "requested_additions": additions, "requested_removals": removals,
+                })
+                continue
+            changes.append({
+                "site": _active_site(self), "post_id": post_id,
+                "original_tags": original_tags,
+                "additions": effective_additions, "removals": effective_removals,
+                "requested_additions": additions, "requested_removals": removals,
+            })
         publisher_active = bool(self.publish_worker and self.publish_worker.isRunning())
         self._log(
-            f"Bulk apply started selected={len(changes)} additions={len(additions)} "
-            f"removals={len(removals)} publisher_active={str(publisher_active).lower()}"
+            f"Bulk apply started selected={len(posts)} effective={len(changes)} "
+            f"skipped_noop={skipped_noop} additions={len(additions)} removals={len(removals)} "
+            f"publisher_active={str(publisher_active).lower()}"
         )
         repository_started = perf_counter()
         entries = repository.stage_manual_remote_deltas(changes)
+        skipped_entries = repository.stage_manual_remote_skips(skipped_changes)
         repository_ms = (perf_counter() - repository_started) * 1000
         self._log(
-            f"Bulk repository staging posts={len(entries)} elapsed_ms={repository_ms:.1f}"
+            f"Bulk repository staging posts={len(entries)} skipped={len(skipped_entries)} elapsed_ms={repository_ms:.1f}"
         )
         self._log(
-            f"Manual bulk delta staged locally: posts={len(entries)} "
+            f"Manual bulk delta staged locally: posts={len(entries)} skipped={len(skipped_entries)} "
             f"additions={len(additions)} removals={len(removals)}"
         )
         refresh_started = perf_counter()
         refresh_stats = self.refresh_batch() or {}
+        if entries or skipped_entries:
+            self.page.mark_batch_added()
+            message = self.catalog.text(
+                "tagging.bulk.summary", queued=len(entries), skipped=len(skipped_entries)
+            )
+            if not entries and skipped_entries:
+                message += " — " + self.catalog.text("tagging.bulk.no_changes")
+            self.page.page_status.show_message(message, timeout_ms=7_000)
         refresh_ms = (perf_counter() - refresh_started) * 1000
         self._log(
             f"Bulk batch/grid refresh elapsed_ms={refresh_ms:.1f} "
@@ -415,7 +492,7 @@ class TaggingController(TaggingLegacyController):
             f"removed={int(refresh_stats.get('removed', 0))}"
         )
         self._log(
-            f"Bulk apply completed posts={len(entries)} "
+            f"Bulk apply completed posts={len(entries)} skipped={len(skipped_entries)} "
             f"total_ms={(perf_counter() - total_started) * 1000:.1f}"
         )
 
@@ -436,6 +513,17 @@ class TaggingController(TaggingLegacyController):
             )
             self.refresh_batch()
         self._log(f"site={site} context selected")
+
+    def notify_tag_database_ready(self) -> None:
+        """Refresh visible autocomplete fields after bootstrap becomes usable."""
+        self._bulk_suggestion_cache.clear()
+        manual = getattr(self.page, "manual_tag", None)
+        if manual is not None and len(manual.text().strip()) >= 2:
+            self.lookup_manual_tags(manual.text())
+        for target in ("add", "remove"):
+            value = self.page.bulk_lookup_text(target)
+            if len(value) >= 2:
+                self.lookup_bulk_tags(target, value)
 
     def finished(self, *args) -> None:
         super().finished(*args)
@@ -562,6 +650,24 @@ class TaggingController(TaggingLegacyController):
         if not self._page_available():
             self.current_post_id = None
             return
+        if self.current_post_id is None or not self.image_analysis:
+            return
+        if not self._review_matches_current_post():
+            try:
+                item = self.image_analysis.repository.item_by_remote_source(
+                    _active_site(self), str(self.current_post_id)
+                )
+                signature = None if item is None else (
+                    item.id, item.state.value, str(item.cached_path or "")
+                )
+                if signature == self._last_polled_state:
+                    return
+                self._last_polled_state = signature
+                if item is not None:
+                    self._update_analysis_status(item)
+            except Exception as exc:  # noqa: BLE001 - timer boundary
+                self._log(f"Could not follow analysis state: {exc}", level="ERROR")
+            return
         previous = self._last_polled_state
         super()._poll_current()
         if self._last_polled_state == previous or not self.image_analysis:
@@ -571,6 +677,9 @@ class TaggingController(TaggingLegacyController):
         )
         if item is None:
             return
+        self._update_analysis_status(item)
+
+    def _update_analysis_status(self, item) -> None:
         if item.state in {AnalysisState.PENDING, AnalysisState.PROCESSING}:
             self._analysis_pending_status()
         elif item.state in {AnalysisState.READY_FOR_REVIEW, AnalysisState.REVIEWED}:
@@ -579,14 +688,22 @@ class TaggingController(TaggingLegacyController):
             self._analysis_failed_status(item.last_error or "analysis failed")
 
     def _image_analysis_state_changed(self, state: str, detail: str) -> None:
-        if self.current_post_id is None or not self._page_available():
+        if not self._page_available() or not self._review_matches_current_post():
             return
-        if state in {"failed", "startup_timeout", "unavailable"}:
+        if state in {"failed", "startup_timeout", "unavailable", "model_missing"}:
             self._analysis_failed_status(detail or f"ImageAnalysis {state}")
         elif state in {"starting", "initializing", "restarting"}:
             self._log(detail or f"ImageAnalysis {state}")
             self._analysis_pending_status()
         self.refresh_local_review()
+
+    def _review_matches_current_post(self) -> bool:
+        """Ignore async review callbacks after navigation or post replacement."""
+        return bool(
+            self.current_post_id is not None
+            and self.page.mode_stack.currentWidget() is self.page.review
+            and getattr(self.page, "_displayed_post_id", None) == self.current_post_id
+        )
 
     def _worker_pending_label(self) -> str | None:
         if not self.image_analysis:
@@ -598,6 +715,7 @@ class TaggingController(TaggingLegacyController):
             "initializing": "tagging.analysis.worker_initializing",
             "restarting": "tagging.analysis.worker_restarting",
             "unavailable": "tagging.analysis.unavailable",
+            "model_missing": "tagging.analysis.unavailable",
             "failed": "tagging.analysis.unavailable",
             "startup_timeout": "tagging.analysis.startup_timeout",
         }
@@ -695,6 +813,13 @@ class TaggingController(TaggingLegacyController):
         self._log(f"Batch entries removed: {removed}")
         self.refresh_batch()
 
+    def remove_completed_batch(self) -> None:
+        if not self.image_analysis:
+            return
+        removed = self.image_analysis.repository.remove_completed_batch_entries()
+        self._log(f"Completed batch entries removed: {removed}")
+        self.refresh_batch()
+
     def open_batch_post(self, item_id: int) -> None:
         if not self.image_analysis:
             return
@@ -715,6 +840,11 @@ class TaggingController(TaggingLegacyController):
         self._start_batch_publish(item_ids)
 
     def cancel_batch_publish(self) -> None:
+        if self.publish_preflight_worker is not None and self.publish_preflight_worker.isRunning():
+            self.publish_preflight_worker.requestInterruption()
+            self.page.set_batch_publish_running(False)
+            self.page.show_batch_publish_summary(self.catalog.text("tagging.publish.cancelling"))
+            return
         if self.publish_worker is not None and self.publish_worker.isRunning():
             self.publish_worker.requestInterruption()
             self.page.show_batch_publish_summary(
@@ -837,6 +967,32 @@ class TaggingController(TaggingLegacyController):
         if not pending:
             self.page.show_batch_publish_summary(self.catalog.text("tagging.publish.disabled"))
             return
+        if has_gelbooru and (
+            self._session_factory_provider is not None or self._session_factory is not None
+        ):
+            factory = (
+                self._session_factory_provider()
+                if self._session_factory_provider is not None
+                else self._session_factory
+            )
+            if factory is None:
+                self._show_gelbooru_auth_required()
+                return
+            if (self.publish_preflight_worker is not None
+                    and self.publish_preflight_worker.isRunning()
+                    and not getattr(self, "_publish_preflight_authenticated", False)):
+                return
+            if not getattr(self, "_publish_preflight_authenticated", False):
+                self._publish_preflight_retry_ids = retry_ids
+                self._publish_preflight_login_opened = False
+                self.page.set_batch_publish_running(True)
+                self.page.show_batch_publish_summary(self.catalog.text("tagging.publish.preflight"))
+                self.publish_preflight_worker = PublishSessionPreflightWorker(factory)
+                self.publish_preflight_worker.completed.connect(self._publish_preflight_completed)
+                self.publish_preflight_worker.finished.connect(self._publish_preflight_finished)
+                self.publish_preflight_worker.start()
+                return
+            self._publish_preflight_authenticated = False
         if self._publisher_factory is None:
             self.page.show_batch_publish_summary(
                 self.catalog.text("tagging.publish.session_missing")
@@ -893,10 +1049,50 @@ class TaggingController(TaggingLegacyController):
         self.page.set_batch_publish_running(True)
         self.publish_worker = BatchPublishWorker(self._publisher_factory, retry_ids)
         self.publish_worker.progress.connect(self.page.set_batch_publish_progress)
-        self.publish_worker.status.connect(self.page.show_batch_publish_progress)
+        self.publish_worker.status.connect(self._batch_publish_status)
         self.publish_worker.completed.connect(self._batch_publish_completed)
         self.publish_worker.failed.connect(self._batch_publish_failed)
         self.publish_worker.start()
+        self.page.mark_publish_started()
+
+    def _batch_publish_status(self, event) -> None:
+        self.page.show_batch_publish_progress(event)
+        if getattr(event, "phase", "") == "result" and self.image_analysis:
+            self.page.show_batch_entries(
+                self.image_analysis.repository.list_batch_entries()
+            )
+
+    def _show_gelbooru_auth_required(self, detail: str = "") -> None:
+        message = self.catalog.text("tagging.publish.auth_required")
+        if detail:
+            self._log(f"Gelbooru publish preflight unauthenticated: {detail}", level="INFO")
+        self.page.set_batch_publish_running(False)
+        self.page.show_batch_publish_summary(message)
+        if self._embedded_login_opener is not None and not self._publish_preflight_login_opened:
+            self._publish_preflight_login_opened = True
+            self._embedded_login_opener()
+
+    def _publish_preflight_completed(self, status: str, detail: str) -> None:
+        if status == "authenticated":
+            self._publish_preflight_authenticated = True
+            self.page.set_batch_publish_running(False)
+            self.page.show_batch_publish_summary("")
+            self._start_batch_publish(self._publish_preflight_retry_ids)
+            return
+        if status == "unauthenticated":
+            self._show_gelbooru_auth_required(detail)
+            return
+        self.page.set_batch_publish_running(False)
+        self.page.show_batch_publish_summary(
+            self.catalog.text("tagging.publish.preflight_failed", error=detail)
+        )
+        self._log(f"Gelbooru publish preflight check failed: {detail}", level="ERROR")
+
+    def _publish_preflight_finished(self) -> None:
+        worker = self.publish_preflight_worker
+        self.publish_preflight_worker = None
+        if worker is not None:
+            worker.deleteLater()
 
     def _batch_publish_completed(self, summary: BatchPublishSummary) -> None:
         self.page.set_batch_publish_running(False)
@@ -1008,14 +1204,13 @@ class TaggingController(TaggingLegacyController):
         )
 
     def _tag_database(self) -> Path | None:
-        if not self.image_analysis:
-            return None
+        settings = self.image_analysis.settings if self.image_analysis else self._settings
         site = _active_site(self)
         if site == "gelbooru":
-            database = gelbooru_tag_database(self.image_analysis.settings)
+            database = gelbooru_tag_database(settings)
         else:
             value = str(
-                self.image_analysis.settings.get(site_definition(site).database_setting_key, "")
+                settings.get(site_definition(site).database_setting_key, "")
             ).strip()
             database = Path(value) if value else None
         self._log(
@@ -1025,7 +1220,8 @@ class TaggingController(TaggingLegacyController):
         return database
 
     def _alias_database(self) -> Path | None:
-        return gelbooru_alias_database(self.image_analysis.settings) if self.image_analysis else None
+        settings = self.image_analysis.settings if self.image_analysis else self._settings
+        return gelbooru_alias_database(settings)
 
     def lookup_manual_tags(self, text: str) -> None:
         started = perf_counter()

@@ -41,7 +41,8 @@ from booruflow.presentation.pyside6.icons import navigation_icon
 from booruflow.presentation.pyside6.pages import DashboardPage, ScrollablePageHost
 from booruflow.presentation.pyside6.status_bar import StatusBarController
 from booruflow.presentation.pyside6.task_manager import TaskManager
-from booruflow.presentation.pyside6.ui_logging import RunLog
+from booruflow.presentation.pyside6.ui_logging import RunLog, log_event
+from booruflow.runtime import bundled_bootstrap_root, frozen_module_command
 
 
 class _InternalBooruLauncher:
@@ -103,6 +104,7 @@ class MainWindow(QMainWindow):
         credentials_repository: SettingsRepository | None = None,
         task_repository: TaskRepository | None = None,
         project_root: Path | None = None,
+        resource_root: Path | None = None,
         python_executable: str | None = None,
         start_image_worker: bool = True,
     ) -> None:
@@ -123,11 +125,12 @@ class MainWindow(QMainWindow):
         self.credentials_repository = credentials_repository
         self.task_manager = TaskManager(task_repository or MemoryTaskRepository(), self)
         self.project_root = project_root or Path.cwd()
+        self.resource_root = resource_root or self.project_root
         self._run_log = RunLog.create(self.project_root)
         self.disk_log_path = self._run_log.path
         self.python_executable = python_executable or sys.executable
         self.taxonomy_repository = TaxonomyRepository(
-            self.project_root / "data" / "taxonomy" / "tag_organization.json",
+            self.resource_root / "data" / "taxonomy" / "tag_organization.json",
             self.project_root / "data" / "databases",
         )
         startup_profile.checkpoint("MainWindow base/task/log/taxonomy repositories")
@@ -144,6 +147,7 @@ class MainWindow(QMainWindow):
         self.internal_browser_launcher = _InternalBooruLauncher(self)
         self.publish_backend = str(settings.get("gelbooru_publish_backend", "embedded"))
         self.options_session_test_worker = None
+        self._bootstrap_worker = None
         startup_profile.checkpoint("Embedded bridge/settings/credentials")
         self.resize(1120, 760)
         self.setMinimumSize(860, 600)
@@ -423,6 +427,7 @@ class MainWindow(QMainWindow):
             publisher_factory=self._build_tagging_publisher,
             session_factory_provider=self._active_gelbooru_session_factory,
             publication_backend_provider=lambda: self.publish_backend,
+            embedded_login_opener=self._open_gelbooru_login,
             e621_validation_factory=self._build_e621_validation_client,
             diagnostic_mode_provider=self._embedded_form_diagnostic_enabled,
             http_diagnostic_mode_provider=self._embedded_http_diagnostic_enabled,
@@ -467,6 +472,8 @@ class MainWindow(QMainWindow):
             self._credentials, self.log, False, self,
         )
         controller.worker_state_changed.connect(self._image_analysis_feature_state_changed)
+        if getattr(self, "_setup_wizard", None) is not None:
+            controller.activity_changed.connect(self._setup_wizard.set_activity)
         if self.options_page is not None:
             controller.bind_installation_page(self.options_page)
         if self.tagging_controller is not None:
@@ -476,13 +483,22 @@ class MainWindow(QMainWindow):
         return page
 
     def _install_image_analysis_from_options(self, operation: str) -> None:
-        if self.image_analysis_controller is None or self.options_page is None:
+        if self.options_page is None:
             return
+        if self.image_analysis_controller is None:
+            try:
+                self._build_and_install_feature("image_analysis", self._build_image_analysis)
+            except Exception as exc:  # noqa: BLE001 - existing lazy feature boundary
+                self.log(log_event("ImageAnalysis", f"Installer unavailable: {exc}", level="ERROR"))
+                return
+        assert self.image_analysis_controller is not None
         self.image_analysis_controller.bind_installation_page(self.options_page)
+        wizard = getattr(self, "_setup_wizard", None)
+        parent = wizard if wizard is not None and wizard.isVisible() else self.options_page
         if operation == "runtime":
-            self.image_analysis_controller.install_gpu_runtime(parent=self.options_page)
+            self.image_analysis_controller.install_gpu_runtime(parent=parent)
         else:
-            self.image_analysis_controller.install_wd14(parent=self.options_page)
+            self.image_analysis_controller.install_wd14(parent=parent)
 
     def _build_auto_organize(self):
         from booruflow.presentation.pyside6.auto_organize_controller import (
@@ -640,18 +656,25 @@ class MainWindow(QMainWindow):
         from booruflow.presentation.pyside6.options_page import OptionsPage
 
         page = OptionsPage(
-            self.catalog, self._settings, self._credentials(), self.project_root
+            self.catalog, self._settings, self._credentials(), self.project_root,
+            log=self.log,
         )
         self.status_controller.bind(page.page_status)
         page.save_requested.connect(self._save_options)
+        page.setup_requested.connect(self.open_first_run_wizard)
         page.language_changed.connect(self.change_language)
         database = DatabaseUpdateController(
             self.project_root, self.python_executable, self.catalog, page,
             self.tag_browser_page, self._credentials, self.log, self.task_manager, self,
             alias_page=page,
             database_activated=self._activate_database_path,
+            status=lambda message, level: self.status_controller.show_message(
+                "options", message, timeout_ms=0 if level in {"ERROR", "CRITICAL"} else 5_000,
+                global_message=True, level=level,
+            ),
         )
         page.database_update_requested.connect(database.start)
+        page.database_full_rebuild_requested.connect(database.start_full)
         page.database_stop_requested.connect(database.stop)
         page.alias_update_requested.connect(database.start_aliases)
         credential = CredentialValidationController(page, log=self.log, parent=self)
@@ -663,14 +686,10 @@ class MainWindow(QMainWindow):
         page.embedded_session_test_requested.connect(self._test_gelbooru_session)
         page.embedded_session_reset_requested.connect(self._reset_embedded_session)
         page.gpu_runtime_install_requested.connect(
-            lambda: self._run_when_ready(
-                "image_analysis", lambda: self._install_image_analysis_from_options("runtime")
-            )
+            lambda: self._install_image_analysis_from_options("runtime")
         )
         page.wd14_install_requested.connect(
-            lambda: self._run_when_ready(
-                "image_analysis", lambda: self._install_image_analysis_from_options("model")
-            )
+            lambda: self._install_image_analysis_from_options("model")
         )
         maintenance = OptionsMaintenanceController(
             self.project_root, self.catalog, page, self.log, self
@@ -678,7 +697,11 @@ class MainWindow(QMainWindow):
         page.storage_refresh_requested.connect(maintenance.refresh_storage)
         process = QProcess(self)
         process.setProcessChannelMode(QProcess.ProcessChannelMode.MergedChannels)
+        process.readyReadStandardOutput.connect(self._hydra_output)
+        process.errorOccurred.connect(self._hydra_process_error)
         process.finished.connect(self._hydra_operation_finished)
+        self._hydra_output_text = ""
+        self._hydra_line_buffer = ""
         page.hydra_install_requested.connect(lambda: self._start_hydra_operation("install"))
         page.hydra_migrate_requested.connect(lambda: self._start_hydra_operation("migrate"))
         page.hydra_remove_requested.connect(self._remove_hydra)
@@ -688,6 +711,8 @@ class MainWindow(QMainWindow):
         self.database_controller = database
         self.database_process = database.process
         self.credential_validation_controller = credential
+        if getattr(self, "_setup_wizard", None) is not None:
+            database.activity_changed.connect(self._setup_wizard.set_activity)
         maintenance.refresh_storage()
         if self.image_analysis_controller is not None:
             self.image_analysis_controller.bind_installation_page(page)
@@ -771,6 +796,8 @@ class MainWindow(QMainWindow):
         return -1
 
     def _show_page(self, key: str) -> None:
+        page_name = self.catalog.text(f"nav.{key}")
+        self.log(log_event("UI", f"Page activated: {page_name}", level="DEBUG"))
         lifecycle_state = self.feature_lifecycle.state(key)
         host = self.page_hosts.get(key)
         if host is not None and lifecycle_state is not FeatureState.READY:
@@ -832,6 +859,8 @@ class MainWindow(QMainWindow):
         if self._deferred_startup_complete:
             return
         self._deferred_startup_complete = True
+        if self.tagging_controller is not None:
+            self.tagging_controller.notify_tag_database_ready()
         if (
             self._image_analysis_feature_done is not None
             and self.image_analysis_controller is not None
@@ -902,13 +931,15 @@ class MainWindow(QMainWindow):
 
     def _image_analysis_feature_state_changed(self, state: str, detail: str) -> None:
         if self._image_analysis_feature_done is None:
+            if state == "ready" and self.feature_lifecycle.state("image_analysis") is FeatureState.FAILED:
+                self.feature_lifecycle.retry("image_analysis")
             return
         if state == "ready":
             completed = self._image_analysis_feature_done
             self._image_analysis_feature_done = None
             self._image_analysis_feature_failed = None
             completed()
-        elif state in {"failed", "startup_timeout", "unavailable"}:
+        elif state in {"failed", "startup_timeout", "unavailable", "model_missing"}:
             failed = self._image_analysis_feature_failed
             self._image_analysis_feature_done = None
             self._image_analysis_feature_failed = None
@@ -916,6 +947,15 @@ class MainWindow(QMainWindow):
                 failed(detail or state)
 
     def _feature_state_changed(self, key: str, state: str, error: str) -> None:
+        if key == "image_analysis" and state == FeatureState.FAILED.value:
+            detail = str(error)
+            for credentials in self._credentials().values():
+                if isinstance(credentials, dict):
+                    for name in ("api_key", "password", "access_token", "refresh_token"):
+                        secret = str(credentials.get(name, ""))
+                        if secret:
+                            detail = detail.replace(secret, "[redacted]")
+            self.log(log_event("ImageAnalysis", f"Feature failed: {detail}", level="ERROR"))
         host = self.page_hosts.get(key)
         if host is not None:
             host.set_feature_state(FeatureState(state), error)
@@ -1115,6 +1155,7 @@ class MainWindow(QMainWindow):
         self._settings = dict(settings)
         if self.options_page is not None:
             self.options_page._settings = dict(settings)
+            self.options_page.apply_saved_credentials(credentials)
             self.options_page._update_grabber_status()
         from booruflow.infrastructure.grabber import grabber_availability
 
@@ -1157,6 +1198,139 @@ class MainWindow(QMainWindow):
         )
         self.log(self.catalog.text("log.options_saved"))
 
+    def open_first_run_wizard(self) -> None:
+        from booruflow.presentation.pyside6.credential_validation_controller import (
+            CredentialValidationController,
+        )
+        from booruflow.presentation.pyside6.first_run_wizard import FirstRunWizard
+
+        wizard = FirstRunWizard(
+            self.catalog, self.project_root, dict(self._settings), self._credentials(), self
+        )
+        validator = CredentialValidationController(wizard, log=self.log, parent=wizard)
+        wizard.credentials_test_requested.connect(validator.start)
+        wizard.install_requested.connect(self._wizard_install)
+        wizard.cancel_requested.connect(self._wizard_cancel)
+        if self.database_controller is not None:
+            self.database_controller.activity_changed.connect(wizard.set_activity)
+        wizard.completed.connect(self._wizard_completed)
+        wizard.open()
+        self._setup_wizard = wizard
+
+    def start_bundled_bootstrap(self, when_done) -> bool:
+        """Prepare local ZIPs after the window is visible, before deferred workers."""
+        root = bundled_bootstrap_root()
+        if root is None:
+            return False
+        archive_dir = root / "bootstrap"
+        tags = gelbooru_tag_database(self._settings)
+        aliases = gelbooru_alias_database(self._settings)
+        if tags is None or aliases is None:
+            return False
+        archives = (archive_dir / "gelbooru-tags.zip", archive_dir / "gelbooru-aliases.zip")
+        stale = (Path(str(tags) + ".bootstrap.tmp"),
+                 Path(str(aliases) + ".bootstrap.tmp"))
+        if not any(path.exists() for path in (*archives, *stale)):
+            return False
+        from booruflow.presentation.pyside6.database_bootstrap_worker import (
+            DatabaseBootstrapWorker,
+        )
+
+        worker = DatabaseBootstrapWorker(root, {"gelbooru_tags": tags,
+                                                "gelbooru_aliases": aliases}, self)
+        self._bootstrap_worker = worker
+        worker.started_database.connect(self._bootstrap_started)
+        worker.progress.connect(self._bootstrap_progress)
+        worker.prepared.connect(self._bootstrap_prepared)
+        worker.finished.connect(when_done)
+        worker.finished.connect(lambda: setattr(self, "_bootstrap_worker", None))
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
+        return True
+
+    def _bootstrap_started(self, kind: str) -> None:
+        operation = "database" if kind == "gelbooru_tags" else "aliases"
+        message = self.catalog.text(f"wizard.bootstrap_preparing_{operation}")
+        self.log(message)
+        wizard = getattr(self, "_setup_wizard", None)
+        if wizard is not None:
+            wizard.set_activity(operation, "running", message)
+
+    def _bootstrap_progress(self, kind: str, current: int, total: int) -> None:
+        operation = "database" if kind == "gelbooru_tags" else "aliases"
+        wizard = getattr(self, "_setup_wizard", None)
+        if wizard is not None:
+            wizard.set_activity(
+                operation, "running", f"{current:,}/{total:,} bytes", current, total
+            )
+
+    def _bootstrap_prepared(self, kind: str, result) -> None:
+        operation = "database" if kind == "gelbooru_tags" else "aliases"
+        wizard = getattr(self, "_setup_wizard", None)
+        if result.warning:
+            self.log(f"[WARNING] [Bootstrap] {result.warning}")
+        if result.state in {"ready", "installed"}:
+            message = self.catalog.text("wizard.ready")
+            self.log(f"[INFO] [Bootstrap] {kind}: {message}")
+            if self.tagging_controller is not None:
+                self.tagging_controller.notify_tag_database_ready()
+            if wizard is not None:
+                wizard.set_activity(operation, "completed", message)
+                wizard.page(2).label.setText(wizard.resource_status())
+        elif result.state == "invalid":
+            self.log(f"[ERROR] [Bootstrap] {kind}: {result.detail}")
+            if wizard is not None:
+                wizard.set_activity(operation, "failed", result.detail)
+        elif result.state == "unavailable":
+            self.log(f"[INFO] [Bootstrap] {kind}: {result.detail}")
+
+    def _wizard_install(self, operation: str) -> None:
+        wizard = self._setup_wizard
+        if operation in {"wd14", "hydra", "runtime"}:
+            wizard.set_activity(
+                operation, "starting", self.catalog.text("wizard.activity_starting"),
+                -1, -1, False,
+            )
+        if operation == "tags" and self.credentials_repository is not None:
+            user_id, api_key = wizard.user_id.text().strip(), wizard.api_key.text().strip()
+            if user_id and api_key:
+                credentials = self._credentials()
+                credentials["gelbooru"] = {"user_id": user_id, "api_key": api_key}
+                self.credentials_repository.save(credentials)
+        self.navigate_to_key("options")
+        self._run_when_ready("options", lambda: self._wizard_install_ready(operation))
+
+    def _wizard_cancel(self) -> None:
+        if self.database_controller is not None:
+            self.database_controller.stop()
+
+    def _wizard_install_ready(self, operation: str) -> None:
+        if self.options_page is None:
+            return
+        if operation == "tags":
+            self.options_page.database_update_requested.emit(
+                "gelbooru", str(gelbooru_tag_database(self._settings))
+            )
+        elif operation == "aliases":
+            path = gelbooru_alias_database(self._settings)
+            if path is not None:
+                self.options_page.alias_update_requested.emit("incremental", str(path))
+        elif operation == "wd14":
+            self.options_page.wd14_install_requested.emit()
+        elif operation == "hydra":
+            self.options_page.hydra_install_requested.emit()
+
+    def _wizard_completed(self, language: str, gelbooru: dict[str, str]) -> None:
+        settings = {**self._settings, "language": language, "first_run_wizard_completed": True}
+        credentials = self._credentials()
+        user_id = str(gelbooru.get("user_id", "")).strip()
+        api_key = str(gelbooru.get("api_key", "")).strip()
+        if user_id and api_key:
+            credentials["gelbooru"] = gelbooru
+        self._save_options(settings, credentials)
+        if language != self.catalog.code:
+            self.change_language(language)
+
     def _activate_database_path(self, site: str, path: Path) -> None:
         """Persist a validated updater output, never a staging or failed path."""
         if self.settings_repository is None:
@@ -1166,6 +1340,9 @@ class MainWindow(QMainWindow):
         settings[key] = str(path)
         self.settings_repository.save(settings)
         self._settings = dict(settings)
+        if getattr(self, "tagging_controller", None) is not None:
+            self.tagging_controller._settings = dict(settings)
+            self.tagging_controller.notify_tag_database_ready()
         if self.options_page is not None:
             self.options_page._settings = dict(settings)
         if self.image_analysis_controller is not None:
@@ -1225,6 +1402,9 @@ class MainWindow(QMainWindow):
         self.log_view.clear()
 
     def closeEvent(self, event) -> None:
+        if self._bootstrap_worker is not None and self._bootstrap_worker.isRunning():
+            event.ignore()
+            return
         if self.tagging_controller is not None and not self.tagging_controller.shutdown():
             event.ignore()
             return
@@ -1273,6 +1453,7 @@ class MainWindow(QMainWindow):
         allowed = {
             "tagging_site", "tagging_query", "tagging_pages", "tagging_start",
             "tagging_minimum", "tagging_maximum",
+            "tagging_checkbox_selection", "tagging_first_publish_started",
         }
         settings = self.settings_repository.load()
         settings.update({key: value for key, value in values.items() if key in allowed})
@@ -1290,6 +1471,11 @@ class MainWindow(QMainWindow):
             self.review_page.settings["blacklist_file"] = path
 
     def _start_hydra_operation(self, command: str) -> None:
+        self.log(f"[INFO] [Hydra] {command.capitalize()} requested.")
+        self._hydra_operation = command
+        wizard = getattr(self, "_setup_wizard", None)
+        if wizard is not None:
+            wizard.set_activity("hydra", "starting", self.catalog.text("wizard.activity_starting"))
         if self.hydra_model_process is None or self.options_page is None:
             return
         if self.hydra_model_process.state() != QProcess.ProcessState.NotRunning:
@@ -1297,24 +1483,76 @@ class MainWindow(QMainWindow):
         self.options_page.set_model_operation_running(
             True, self.catalog.text("cleanup.hydra_running")
         )
+        self._hydra_output_text = ""
+        self._hydra_line_buffer = ""
+        from booruflow.application.download_progress import DownloadProgress
+        self._hydra_download_progress = DownloadProgress()
         self.hydra_model_process.setWorkingDirectory(str(self.project_root))
         self.hydra_model_process.start(
             self.python_executable,
-            ["-m", "booruflow.cli.hydra_model", command, "--root", str(self.project_root)],
+            frozen_module_command(
+                "booruflow.cli.hydra_model", [command, "--root", str(self.project_root)]
+            ),
         )
+
+    def _hydra_output(self) -> None:
+        if self.hydra_model_process is None:
+            return
+        from booruflow.application.download_progress import parse_download_line
+        chunk = bytes(self.hydra_model_process.readAllStandardOutput()).decode(
+            "utf-8", errors="replace"
+        )
+        self._hydra_output_text += chunk
+        self._hydra_line_buffer += chunk
+        lines = self._hydra_line_buffer.split("\n")
+        self._hydra_line_buffer = lines.pop()
+        for line in lines:
+            if not line.strip():
+                continue
+            self.log(line)
+            wizard = getattr(self, "_setup_wizard", None)
+            if wizard is not None:
+                wizard.set_activity("hydra", "running", line)
+            parsed = parse_download_line(line)
+            if parsed and self.options_page is not None:
+                self.options_page.hydra_status_label.setText(
+                    self._hydra_download_progress.update(*parsed)
+                )
+
+    def _hydra_process_error(self, error) -> None:
+        if self.hydra_model_process is None or self.options_page is None:
+            return
+        detail = self.hydra_model_process.errorString()
+        wizard = getattr(self, "_setup_wizard", None)
+        if wizard is not None:
+            wizard.set_activity("hydra", "failed", detail)
+        self.log(f"[ERROR] [Hydra] Helper failed to start: {detail}")
+        self.status_controller.show_message(
+            "options", "Hydra operation failed — see log", timeout_ms=0,
+            global_message=True, level="ERROR"
+        )
+        if error == QProcess.ProcessError.FailedToStart:
+            self.options_page.set_model_operation_running(False, detail)
 
     def _hydra_operation_finished(self, code: int, _status) -> None:
         if self.hydra_model_process is None or self.options_page is None:
             return
         from booruflow.application.hydra_model_manager import migrated_hydra_settings
 
-        output = bytes(self.hydra_model_process.readAllStandardOutput()).decode(
-            "utf-8", errors="replace"
-        ).strip()
+        self._hydra_output()
+        output = self._hydra_output_text.strip()
         if code != 0:
             detail = output.splitlines()[-1] if output else f"code {code}"
             self.options_page.set_model_operation_running(
                 False, self.catalog.text("cleanup.hydra_failed", error=detail)
+            )
+            self.log(f"[ERROR] [Hydra] Operation failed with exit code {code}: {detail}")
+            wizard = getattr(self, "_setup_wizard", None)
+            if wizard is not None:
+                wizard.set_activity("hydra", "failed", detail)
+            self.status_controller.show_message(
+                "options", "Hydra operation failed — see log", timeout_ms=0,
+                global_message=True, level="ERROR"
             )
             return
         if self.settings_repository is not None:
@@ -1329,6 +1567,10 @@ class MainWindow(QMainWindow):
                 if self.image_analysis_controller is not None:
                     self.image_analysis_controller.apply_settings(settings)
         self.options_page.set_model_operation_running(False)
+        wizard = getattr(self, "_setup_wizard", None)
+        if wizard is not None:
+            wizard.set_activity("hydra", "completed")
+        self.log(f"[INFO] [Hydra] {getattr(self, '_hydra_operation', 'operation')} completed.")
         if self.options_maintenance_controller is not None:
             self.options_maintenance_controller.refresh_storage()
 
@@ -1357,7 +1599,9 @@ class MainWindow(QMainWindow):
             ),
         )
         if answer != QMessageBox.StandardButton.Yes:
+            self.log(log_event("Hydra", "Hydra removal cancelled by user"))
             return
+        self.log(log_event("Hydra", "Hydra removal confirmed by user"))
         if self.settings_repository is not None:
             settings = self.settings_repository.load()
             settings["image_analysis_hydra_enabled"] = False
@@ -1637,6 +1881,18 @@ class MainWindow(QMainWindow):
         self.gelbooru_session_dialog.show()
         self.gelbooru_session_dialog.raise_()
         self.gelbooru_session_dialog.activateWindow()
+
+    def _open_gelbooru_login(self) -> None:
+        """Open the login form in the shared embedded Gelbooru profile."""
+        if self.publish_backend == "cdp":
+            self._open_gelbooru_session()
+            return
+        self._open_gelbooru_session()
+        if self.gelbooru_session_dialog is None:
+            return
+        self.gelbooru_session_dialog.open_url(
+            "https://gelbooru.com/index.php?page=account&s=login&code=00", new_tab=True
+        )
 
     def _open_internal_booru_url(self, url: str) -> None:
         self._ensure_embedded_gelbooru()

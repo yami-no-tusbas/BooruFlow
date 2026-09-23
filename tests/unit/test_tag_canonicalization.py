@@ -51,3 +51,31 @@ def test_alias_autocomplete_returns_canonical_value_and_ignores_pending(tmp_path
         TagLookupSuggestion("qipao", "china_dress")
     ]
     assert lookup_gelbooru_suggestions(database, alias_database, "rose") == []
+
+
+def test_autocomplete_ranks_canonical_alias_prefix_and_alphabetical(tmp_path: Path) -> None:
+    database = tmp_path / "tags.db"
+    aliases_path = tmp_path / "aliases.db"
+    aliases = _catalog(database, aliases_path)
+    with sqlite3.connect(database) as connection:
+        connection.executemany(
+            "INSERT INTO tags VALUES(?,?,?,0,0)",
+            [
+                (2, "armor", 1),
+                (3, "armor_z", 999),
+                (4, "armor_a", 1),
+                (5, "armored_core", 1000),
+                (6, "artery_gear", 1000),
+                (7, "sword", 1),
+            ],
+        )
+    aliases.upsert(AliasRelation("armor_alias", "artery_gear", "active"))
+    aliases.upsert(AliasRelation("armor", "qipao", "active"))
+    aliases.upsert(AliasRelation("armor_girls", "artery_gear", "active"))
+
+    rows = lookup_gelbooru_suggestions(database, aliases_path, "armor")
+    assert rows[0] == TagLookupSuggestion("armor")
+    assert rows[1] == TagLookupSuggestion("qipao", "armor")
+    assert [row.value for row in rows[2:5]] == ["armor_a", "armor_z", "armored_core"]
+    assert rows[-1] == TagLookupSuggestion("artery_gear", "armor_alias")
+    assert lookup_gelbooru_suggestions(database, aliases_path, "sword")[0].value == "sword"

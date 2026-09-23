@@ -36,6 +36,11 @@ class FakeReply(QObject):
             return self._status
         return None
 
+    def rawHeader(self, name):
+        if not isinstance(name, str):
+            raise TypeError("PySide6 QNetworkReply.rawHeader requires str")
+        return b"image/png" if name == "Content-Type" else b""
+
     def abort(self):
         self.aborted = True
         self._error = QNetworkReply.NetworkError.OperationCanceledError
@@ -158,3 +163,16 @@ def test_permanent_http_error_is_not_retried() -> None:
     assert network.request_count == 1
     assert loader._network_errors == 1
     assert loader._done == 1
+
+
+def test_real_qt_reply_header_signature_keeps_queue_progressing() -> None:
+    replies = [FakeReply(data=png_bytes()) for _ in range(2)]
+    loader = ThumbnailLoader(
+        ThumbnailMemoryCache(), network=FakeNetwork(replies),
+        concurrency=1, max_retries=0,
+    )
+    loader.begin_wave([key(1), key(2)])
+    replies[0].finished.emit()
+    replies[1].finished.emit()
+    assert loader._done == 2
+    assert loader._network_success == 2

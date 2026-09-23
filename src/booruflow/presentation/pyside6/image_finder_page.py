@@ -17,6 +17,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from booruflow.domain.image_finder import RemoteArtwork, RemoteMediaType, SearchMode
 from booruflow.presentation.pyside6.status_bar import PageStatus
@@ -137,8 +138,10 @@ class ImageFinderPage(QWidget):
 
     def _thumbnail_ready(self, key, image) -> None:
         item = self._thumbnail_items.get(key)
-        if item is not None:
-            item.setIcon(QIcon(QPixmap.fromImage(image)))
+        if item is not None and isValid(item) and isValid(image) and not image.isNull():
+            pixmap = QPixmap.fromImage(image)
+            if not pixmap.isNull():
+                item.setIcon(QIcon(pixmap))
 
     def selected(self):
         item = self.results.currentItem()

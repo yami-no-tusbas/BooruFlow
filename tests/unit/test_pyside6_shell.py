@@ -79,6 +79,101 @@ class PySide6ShellTests(unittest.TestCase):
         self.assertIsNone(window.embedded_gelbooru_profile)
         window.close()
 
+    def test_lazily_created_database_controller_updates_open_wizard(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            window = self.window(project_root=Path(directory))
+            window.open_first_run_wizard()
+            wizard = window._setup_wizard
+            self.assertIsNone(window.database_controller)
+            self.open_feature(window, "options")
+            self.assertIsNotNone(window.database_controller)
+            window.database_controller.activity_changed.emit(
+                "aliases", "running", "Aliases pages 2/5", 2, 5
+            )
+            self.assertIn("Aliases pages 2/5", wizard.page(2).activity_message.text())
+            window.database_controller.activity_changed.emit(
+                "aliases", "failed", "Helper exited with code 1", -1, -1
+            )
+            self.assertTrue(wizard.button(wizard.WizardButton.FinishButton).isEnabled())
+            wizard.close()
+            window.close()
+
+    def test_wizard_finish_refreshes_open_options_and_persists_credentials(self) -> None:
+        from booruflow.infrastructure.settings.json_repository import JsonSettingsRepository
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = JsonSettingsRepository(root / "config" / "booruflow_credentials.json")
+            window = self.window(project_root=root, credentials_repository=repository)
+            self.open_feature(window, "options")
+            window.open_first_run_wizard()
+            wizard = window._setup_wizard
+            wizard.user_id.setText("12345")
+            wizard.api_key.setText("test-private-key")
+            with patch(
+                "booruflow.presentation.pyside6.credential_validation_controller.CredentialValidationController.start"
+            ) as validate:
+                wizard.test_credentials()
+                validate.assert_called_once_with(
+                    "gelbooru", {"user_id": "12345", "api_key": "test-private-key"}
+                )
+            wizard.show_credential_test_result("gelbooru", "valid")
+            wizard.accept()
+            self.assertEqual(window.options_page.user_id.text(), "12345")
+            self.assertEqual(window.options_page.api_key.text(), "test-private-key")
+            self.assertEqual(repository.load()["gelbooru"]["api_key"], "test-private-key")
+            self.assertEqual(JsonSettingsRepository(repository.path).load()["gelbooru"]["user_id"], "12345")
+            self.assertEqual(window.options_page._credentials["gelbooru"]["user_id"], "12345")
+            self.assertNotIn("test-private-key", "\n".join(window._log_history))
+            window.close()
+            reopened = self.window(project_root=root, credentials_repository=JsonSettingsRepository(repository.path))
+            self.open_feature(reopened, "options")
+            self.assertEqual(reopened.options_page.user_id.text(), "12345")
+            self.assertEqual(reopened.options_page.api_key.text(), "test-private-key")
+            reopened.close()
+
+    def test_wizard_configure_later_keeps_existing_credentials(self) -> None:
+        from booruflow.infrastructure.settings.json_repository import JsonSettingsRepository
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            repository = JsonSettingsRepository(root / "config" / "booruflow_credentials.json")
+            existing = {"gelbooru": {"user_id": "old", "api_key": "old-secret"}}
+            repository.save(existing)
+            window = self.window(project_root=root, credentials_repository=repository)
+            self.open_feature(window, "options")
+            window.open_first_run_wizard()
+            window._setup_wizard.reject()
+            self.assertEqual(repository.load(), existing)
+            self.assertEqual(window.options_page.api_key.text(), "old-secret")
+            window.close()
+
+    def test_options_wd14_install_does_not_wait_for_worker_readiness(self) -> None:
+        window = self.window()
+        self.open_feature(window, "options")
+        with patch.object(window, "_install_image_analysis_from_options") as install, \
+                patch.object(window, "_run_when_ready") as wait_ready:
+            window.options_page.wd14_install.click()
+            install.assert_called_once_with("model")
+            wait_ready.assert_not_called()
+        window.close()
+
+    def test_missing_wd14_options_click_reaches_installer_without_worker(self) -> None:
+        from PySide6.QtCore import QProcess
+        from PySide6.QtWidgets import QMessageBox
+
+        with tempfile.TemporaryDirectory() as directory:
+            window = self.window(project_root=Path(directory))
+            self.open_feature(window, "options")
+            with patch.object(QMessageBox, "question", return_value=QMessageBox.StandardButton.No) as confirm:
+                window.options_page.wd14_install.click()
+            confirm.assert_called_once()
+            controller = window.image_analysis_controller
+            self.assertIsNotNone(controller)
+            self.assertEqual(controller.process.state(), QProcess.ProcessState.NotRunning)
+            self.assertEqual(controller.model_process.state(), QProcess.ProcessState.NotRunning)
+            window.close()
+
     def test_sidebar_rows_map_to_pages_by_key_and_width_stays_fixed(self) -> None:
         from PySide6.QtWidgets import QHBoxLayout, QSplitter
 
@@ -156,6 +251,36 @@ class PySide6ShellTests(unittest.TestCase):
         self.assertEqual(window.global_progress.value(), 1)
         status.clear_progress("image_finder", True)
         self.assertTrue(window.global_progress.isHidden())
+        window.close()
+
+    def test_status_priority_keeps_errors_until_explicit_clear(self) -> None:
+        window = self.window()
+        status = window.status_controller
+        status.show_message("home", "Database update failed — see log", 0, level="ERROR")
+        status.show_message("home", "Ready", 5_000, level="NORMAL")
+        self.assertEqual(window.status_message_label.text(), "Database update failed — see log")
+        status.show_message("home", "Operation complete", 0, level="NORMAL")
+        self.assertEqual(window.status_message_label.text(), "Database update failed — see log")
+        status.clear_message()
+        status.show_message("home", "Ready", 0, level="NORMAL")
+        self.assertEqual(window.status_message_label.text(), "Ready")
+        window.close()
+
+    def test_status_progress_can_be_replaced_by_success(self) -> None:
+        window = self.window()
+        status = window.status_controller
+        status.show_message("home", "Updating aliases", 0, level="PROGRESS")
+        status.show_message("home", "Aliases updated", 0, level="NORMAL")
+        self.assertEqual(window.status_message_label.text(), "Aliases updated")
+        window.close()
+
+    def test_page_activation_uses_central_debug_log_convention(self) -> None:
+        window = self.window()
+        window.navigate_to_key("options")
+        self.assertTrue(
+            any("[DEBUG] [UI] Page activated: Options" in line for line in window._log_history)
+        )
+        self.assertFalse(any("Page activated: Options" in line for line in window.log_view.toPlainText()))
         window.close()
 
     def test_tagging_and_tag_browser_publish_to_global_status_bar(self) -> None:

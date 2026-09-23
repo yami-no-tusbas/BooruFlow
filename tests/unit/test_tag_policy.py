@@ -25,7 +25,7 @@ def test_shared_lookup_filters_only_confirmed_site_deprecated_rows(tmp_path) -> 
     connection.close()
 
     assert [row.name for row in lookup_tags("gelbooru", database, "tag")] == [
-        "meta_tag", "general_tag"
+        "general_tag", "meta_tag"
     ]
     assert exact_tag("gelbooru", database, "deprecated_tag") is None
     assert exact_tag("e621", database, "deprecated_tag").name == "deprecated_tag"

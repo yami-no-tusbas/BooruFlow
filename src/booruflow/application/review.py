@@ -5,6 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from booruflow.runtime import frozen_module_command
+
 
 @dataclass(frozen=True, slots=True)
 class ReviewRequest:
@@ -92,10 +94,7 @@ def build_review_commands(
                 "GELBOORU_USER_ID": str(site_credentials.get("user_id", "")),
                 "GELBOORU_API_KEY": str(site_credentials.get("api_key", "")),
             }
-            arguments = (
-                "-u",
-                "-m",
-                "booruflow.cli.gelbooru_scan",
+            arguments = tuple(frozen_module_command("booruflow.cli.gelbooru_scan", [
                 str(request.gelbooru_database),
                 *request.queries,
                 *common,
@@ -103,21 +102,18 @@ def build_review_commands(
                 "1",
                 "--sortie",
                 str(output),
-            )
+            ]))
             if request.remember_queries:
                 arguments += ("--memoriser-requetes",)
         else:
             environment = {}
-            arguments = (
-                "-u",
-                "-m",
-                "booruflow.cli.e621_scan",
+            arguments = tuple(frozen_module_command("booruflow.cli.e621_scan", [
                 str(request.e621_database),
                 *request.queries,
                 *common,
                 "--sortie",
                 str(output),
-            )
+            ]))
         commands.append(
             EngineCommand(site, python_executable, arguments, environment, output, project_root)
         )

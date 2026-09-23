@@ -94,6 +94,16 @@ def test_sequential_merge_failure_continues_and_rate_limits():
     assert repo.entries[2]["publish_attempts"] == 3
 
 
+def test_skipped_requested_tags_never_reach_publisher():
+    skipped = entry(1, "100", state=PublishState.SKIPPED, additions=(), removals=())
+    skipped["requested_additions"] = ["android_18"]
+    repo, provider, service = publisher([skipped], {"100": ["android_18"]})
+    result = service.publish_pending()
+    assert result.total == 0
+    assert provider.calls == []
+    assert repo.entries[1]["publish_state"] == PublishState.SKIPPED
+
+
 def test_inter_post_delay_is_never_applied_before_the_first_item():
     sleeps=[]; transport=Transport()
     _repo, _, service=publisher(

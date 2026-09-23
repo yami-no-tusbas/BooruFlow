@@ -11,6 +11,7 @@ from importlib.resources import files
 from pathlib import Path
 from typing import Self
 
+from booruflow.application.tagging import canonical_tag_value
 from booruflow.domain.image_analysis import (
     AnalysisItem,
     AnalysisState,
@@ -25,7 +26,7 @@ from booruflow.domain.image_analysis import (
     validate_transition,
 )
 
-SCHEMA_VERSION = 23
+SCHEMA_VERSION = 25
 
 
 def utc_now() -> str:
@@ -271,6 +272,24 @@ class ImageAnalysisRepository:
             migration = (
                 files("booruflow.infrastructure.schema")
                 .joinpath("image_analysis_v23.sql")
+                .read_text(encoding="utf-8")
+            )
+            with self.connection:
+                self.connection.executescript(migration)
+            version = 23
+        if version == 23:
+            migration = (
+                files("booruflow.infrastructure.schema")
+                .joinpath("image_analysis_v24.sql")
+                .read_text(encoding="utf-8")
+            )
+            with self.connection:
+                self.connection.executescript(migration)
+            version = 24
+        if version == 24:
+            migration = (
+                files("booruflow.infrastructure.schema")
+                .joinpath("image_analysis_v25.sql")
                 .read_text(encoding="utf-8")
             )
             with self.connection:
@@ -1256,7 +1275,7 @@ class ImageAnalysisRepository:
 
     @staticmethod
     def _stable_tags(values: list[str] | tuple[str, ...]) -> list[str]:
-        return sorted({str(value).strip() for value in values if str(value).strip()})
+        return sorted({canonical_tag_value(value) for value in values if canonical_tag_value(value)})
 
     def save_review_batch_entry(
         self,
@@ -1422,20 +1441,82 @@ class ImageAnalysisRepository:
         self.connection.execute("BEGIN IMMEDIATE")
         try:
             for change in changes:
-                results.append(
-                    self.stage_manual_remote_delta(
-                        str(change["site"]),
-                        str(change["post_id"]),
-                        tuple(change.get("original_tags", ())),
-                        tuple(change.get("additions", ())),
-                        tuple(change.get("removals", ())),
-                    )
+                entry = self.stage_manual_remote_delta(
+                    str(change["site"]),
+                    str(change["post_id"]),
+                    tuple(change.get("original_tags", ())),
+                    tuple(change.get("additions", ())),
+                    tuple(change.get("removals", ())),
                 )
+                requested_additions = self._stable_tags(
+                    tuple(change.get("requested_additions", change.get("additions", ())))
+                )
+                requested_removals = self._stable_tags(
+                    tuple(change.get("requested_removals", change.get("removals", ())))
+                )
+                self.connection.execute(
+                    """UPDATE tagging_review_batch_entries
+                       SET requested_additions_json=?, requested_removals_json=?
+                       WHERE item_id=?""",
+                    (json.dumps(requested_additions), json.dumps(requested_removals),
+                     int(entry["item_id"])),
+                )
+                results.append(self.batch_entry(int(entry["item_id"])))
             self.connection.commit()
         except Exception:
             self.connection.rollback()
             raise
         return results
+
+    def stage_manual_remote_skips(
+        self, changes: list[dict[str, object]] | tuple[dict[str, object], ...],
+        *, reason: str = "no_effective_delta",
+    ) -> list[dict[str, object]]:
+        """Persist selected remote posts whose requested edit has no effect."""
+        if not changes:
+            return []
+        results: list[dict[str, object]] = []
+        self.connection.execute("BEGIN IMMEDIATE")
+        try:
+            for change in changes:
+                entry = self.stage_manual_remote_delta(
+                    str(change["site"]), str(change["post_id"]),
+                    tuple(change.get("original_tags", ())), (), (),
+                )
+                item_id = int(entry["item_id"])
+                if entry["additions"] or entry["removals"]:
+                    # A redundant new request must not discard an earlier
+                    # publishable delta already staged for this post.
+                    results.append(entry)
+                    continue
+                self.connection.execute(
+                    """UPDATE tagging_review_batch_entries
+                       SET publish_state=?, last_error=?, failure_reason=?,
+                           failure_retryable=NULL, batch_visible=1,
+                           requested_additions_json=?, requested_removals_json=?
+                       WHERE item_id=?""",
+                    (PublishState.SKIPPED.value, str(reason), str(reason),
+                     json.dumps(self._stable_tags(tuple(change.get("requested_additions", ())))),
+                     json.dumps(self._stable_tags(tuple(change.get("requested_removals", ())))),
+                     item_id),
+                )
+                refreshed = self.batch_entry(item_id)
+                assert refreshed is not None
+                results.append(refreshed)
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return results
+
+    def remove_completed_batch_entries(self) -> int:
+        """Hide only successfully published rows; leave every other state intact."""
+        with self.connection:
+            return int(self.connection.execute(
+                """UPDATE tagging_review_batch_entries SET batch_visible=0
+                   WHERE publish_state=? AND batch_visible=1""",
+                (PublishState.PUBLISHED.value,),
+            ).rowcount)
 
     def batch_entry(self, item_id: int) -> dict[str, object] | None:
         row = self.connection.execute(
@@ -1454,6 +1535,8 @@ class ImageAnalysisRepository:
             "original_tags": json.loads(row["original_tags_json"]),
             "additions": json.loads(row["additions_json"]),
             "removals": json.loads(row["removals_json"]),
+            "requested_additions": json.loads(row["requested_additions_json"]),
+            "requested_removals": json.loads(row["requested_removals_json"]),
             "reviewed_final_tags": json.loads(row["reviewed_final_tags_json"]),
             "reviewed_at": str(row["reviewed_at"]),
             "publish_state": PublishState(str(row["publish_state"])),

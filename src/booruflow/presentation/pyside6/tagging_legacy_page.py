@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QTimer, QUrl, Signal
+from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (
     QDesktopServices,
     QIcon,
@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from shiboken6 import isValid
 
 from booruflow.application.tagging import (
     TaggingRequest,
@@ -79,7 +80,11 @@ class CollapsibleResultGroup(QWidget):
         self.toggle.toggled.connect(self._toggle); self.select_all.clicked.connect(self._group_clicked)
         header.addWidget(self.toggle, 1); header.addWidget(self.select_all); layout.addLayout(header); layout.addWidget(self.content)
         self.update_selection_label()
-    def add_card(self, card) -> None: self.cards.append(card); self.reflow()
+    def add_card(self, card) -> None:
+        # Batch callers reflow once after populating a result group. Reflowing
+        # the grid for every card made a 1000-result response repeatedly move
+        # hundreds of native widgets during construction.
+        self.cards.append(card)
     def reflow(self) -> None:
         columns = max(1, self.width() // (self.thumbnail_size + 35))
         for index, card in enumerate(self.cards): self.grid.addWidget(card, index // columns, index % columns)
@@ -114,7 +119,8 @@ class ResultCard(QToolButton):
         self.selection_checkbox = QCheckBox(self)
         self.selection_checkbox.setStyleSheet(
             "QCheckBox::indicator { width: 19px; height: 19px; }"
-            "QCheckBox { background: rgba(20, 20, 20, 150); border-radius: 4px; padding: 3px; }"
+            "QCheckBox { background: palette(base); color: palette(text); "
+            "border: 1px solid palette(mid); border-radius: 4px; padding: 3px; }"
         )
         self.selection_checkbox.clicked.connect(
             lambda checked: self.checkbox_toggled.emit(self.post, checked)
@@ -166,6 +172,9 @@ class TaggingLegacyPage(QWidget):
         self.search_view = QWidget(); self.review = QWidget(); self.mode_stack.addWidget(self.search_view); self.mode_stack.addWidget(self.review)
         self._build_search(); self._build_review()
         self.thumbnail_loader = ThumbnailLoader(self.thumbnail_cache, self)
+        # ThumbnailLoader and this page are both GUI-thread QObjects. The
+        # default direct connection keeps cached images available immediately;
+        # _thumbnail_image_ready asserts the invariant before touching Qt UI.
         self.thumbnail_loader.image_ready.connect(self._thumbnail_image_ready)
         self.thumbnail_loader.failed.connect(self._thumbnail_failed)
         self.thumbnail_loader.diagnostic.connect(self._thumbnail_diagnostic)
@@ -277,6 +286,7 @@ class TaggingLegacyPage(QWidget):
                     site = str(getattr(self, "active_site", "gelbooru"))
                     cache_key = ThumbnailCacheKey(site, pid, preview)
                     self._thumbnail_targets[cache_key]=(card,generation); thumbnail_keys.append(cache_key)
+            section.reflow()
         self.result_posts=ordered; self.current_result_index=-1
         self.set_thumbnail_size(int(self.settings.get("tagging_thumbnail_size", 150))); self.show_search()
         self.thumbnail_loader.begin_wave(thumbnail_keys)
@@ -336,18 +346,30 @@ class TaggingLegacyPage(QWidget):
     def set_thumbnail_size(self, size: int) -> None:
         for group in self.result_groups: group.set_thumbnail_size(size)
     def _thumbnail_image_ready(self,key:ThumbnailCacheKey,image)->None:
+        if QThread.currentThread() != self.thread():
+            self._thumbnail_diagnostic("ERROR", "Thumbnail pixmap callback arrived off GUI thread")
+            return
         target=self._thumbnail_targets.get(key)
         if target is None:return
         button,generation=target
         try:
-            if generation==self.result_generation:button.setIcon(QIcon(QPixmap.fromImage(image)))
+            if generation==self.result_generation and isValid(button) and isValid(image) and not image.isNull():
+                self._thumbnail_diagnostic("DEBUG", f"Thumbnail widget apply start wave={generation} post_id={key.post_id}")
+                self._thumbnail_diagnostic("DEBUG", f"Thumbnail pixmap conversion start wave={generation} post_id={key.post_id}")
+                pixmap = QPixmap.fromImage(image)
+                if pixmap.isNull():
+                    self._thumbnail_diagnostic("DEBUG", f"Thumbnail pixmap conversion post_id={key.post_id} null=True")
+                    return
+                self._thumbnail_diagnostic("DEBUG", f"Thumbnail pixmap conversion end wave={generation} post_id={key.post_id}")
+                button.setIcon(QIcon(pixmap))
+                self._thumbnail_diagnostic("DEBUG", f"Thumbnail widget apply end wave={generation} post_id={key.post_id}")
         except RuntimeError: pass
 
     def _thumbnail_failed(self,key:ThumbnailCacheKey,reason:str)->None:
         target=self._thumbnail_targets.get(key)
         if target is None:return
         button,generation=target
-        if generation!=self.result_generation:return
+        if generation!=self.result_generation or not isValid(button):return
         from PySide6.QtWidgets import QStyle
         button.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning))
         button.setToolTip(f"{button.toolTip()}\nThumbnail unavailable ({reason})".strip())

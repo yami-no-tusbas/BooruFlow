@@ -136,6 +136,7 @@ def search_tags(
     *,
     site: str = "gelbooru",
     alias_database: Path | None = None,
+    rank_for_autocomplete: bool = False,
 ) -> list[TagRow]:
     """Search the tags table without ever opening the database for writing."""
     if not database.is_file():
@@ -210,9 +211,18 @@ def search_tags(
                 clauses.append(f"NOT {alias_exists}")
         limit = max(1, min(int(request.limit), 25_000))
         where = f" WHERE {' AND '.join(clauses)}" if clauses else ""
+        order = "post_count DESC, name COLLATE NOCASE"
+        if rank_for_autocomplete and request.text:
+            escaped = request.text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            order = (
+                "CASE WHEN name = ? COLLATE NOCASE THEN 0 "
+                "WHEN name LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 1 ELSE 2 END, "
+                "name COLLATE NOCASE, name"
+            )
+            values.extend((request.text, f"{escaped}%"))
         sql = (
             f"SELECT id,name,post_count,category,{ambiguous_column} AS ambiguous FROM tags"
-            f"{where} ORDER BY post_count DESC, name COLLATE NOCASE LIMIT ?"
+            f"{where} ORDER BY {order} LIMIT ?"
         )
         values.append(limit)
         connection.create_function("REGEXP", 2, _regexp)

@@ -451,9 +451,13 @@ class GelbooruAliasRepository:
                 rows = connection.execute(
                     "SELECT source_name FROM gelbooru_aliases "
                     "WHERE status='active' AND source_name LIKE ? ESCAPE '\\' "
-                    "ORDER BY source_name COLLATE NOCASE LIMIT ?",
+                    "ORDER BY CASE WHEN source_name = ? COLLATE NOCASE THEN 0 "
+                    "WHEN source_name LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 1 ELSE 2 END, "
+                    "source_name COLLATE NOCASE, source_name LIMIT ?",
                     (
                         f"%{query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')}%",
+                        query,
+                        f"{query.replace('\\', '\\\\').replace('%', '\\%').replace('_', '\\_')}%",
                         max(1, min(limit, 100)),
                     ),
                 ).fetchall()
@@ -619,6 +623,10 @@ class GelbooruAliasSynchronizer:
                         },
                         connection,
                     )
+                self.progress(
+                    f"Aliases pages {pid // page_size + 1:,}/{page_count:,} | "
+                    f"new {new:,} | modified {modified:,} | checkpoint {pid + page_size:,}"
+                )
             self._finish_sync("last_full_sync", last_pid, page_count, page_size)
             return self._summary("completed", new, modified)
 
@@ -683,6 +691,7 @@ class GelbooruAliasSynchronizer:
                     break
                 if pid == 0:
                     break
+                self.progress(f"Aliases checkpoint search | page {pid // page_size + 1:,}/{page_count:,}")
                 pid = max(0, pid - page_size)
             if overlap_pid is None:
                 return self._summary("overlap_not_found")
@@ -693,6 +702,10 @@ class GelbooruAliasSynchronizer:
                     page = self._page(current)
                     pages[current] = page
                 observed.extend(page.relations)
+                self.progress(
+                    f"Aliases incremental page {current // page_size + 1:,}/{page_count:,} | "
+                    f"observed {len(observed):,}"
+                )
             new = modified = 0
             with closing(sqlite3.connect(self.repository.database)) as connection, connection:
                 for relation in observed:
@@ -711,7 +724,8 @@ class GelbooruAliasSynchronizer:
             if len(pending) >= page_count:
                 return self._summary("full_reconciliation_recommended")
             new = modified = 0
-            for old in pending:
+            for index, old in enumerate(pending, 1):
+                self.progress(f"Aliases pending {index:,}/{len(pending):,}")
                 matches = [
                     row
                     for row in self._page(0, old.source_name).relations
@@ -742,6 +756,10 @@ class GelbooruAliasSynchronizer:
             observed = list(first.relations)
             for pid in range(page_size, last_pid + 1, page_size):
                 observed.extend(self._page(pid).relations)
+                self.progress(
+                    f"Aliases pages {pid // page_size + 1:,}/{page_count:,} | "
+                    f"observed {len(observed):,}"
+                )
             new = modified = 0
             timestamp = now_iso()
             with closing(sqlite3.connect(self.repository.database)) as connection, connection:

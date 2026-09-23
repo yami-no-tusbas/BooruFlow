@@ -33,12 +33,31 @@ CREATE TABLE import_state (key TEXT PRIMARY KEY, value TEXT NOT NULL);
 """
 
 
+class ImportCancelled(RuntimeError):
+    """Raised after a rebuild has checkpointed and observed a stop request."""
+
+
+class DatabaseUpdateUnavailable(RuntimeError):
+    """Raised when the selected final database cannot support an incremental update."""
+
+
+class IncrementalCollisionError(RuntimeError):
+    """Raised when an incremental row cannot be reconciled without data loss."""
+
+
 @dataclass(frozen=True, slots=True)
 class ImportSummary:
     rows: int
     maximum_id: int
     zero_counts: int
     backup: Path | None
+    destination: Path
+
+
+@dataclass(frozen=True, slots=True)
+class UpdateSummary:
+    imported: int
+    last_id: int
     destination: Path
 
 
@@ -237,6 +256,7 @@ def _rebuild_database_unlocked(
     required_tags: tuple[str, ...] = ("office_lady", "military", "teacher", "witch"),
     retries: int = 6,
     maximum_id: int | None = None,
+    cancelled: Callable[[], bool] = lambda: False,
 ) -> ImportSummary:
     """Build beside the destination, validate, back up, then atomically activate."""
     if not user_id.strip() or not api_key.strip():
@@ -276,12 +296,20 @@ def _rebuild_database_unlocked(
         maximum_id = fetch_maximum_id(user_id, api_key)
     if maximum_id:
         progress(
-            f"Progress reference: ID 0/{maximum_id:,}. The exact tag total will be known after import."
+            f"Progress reference: ID {after_id:,}/{maximum_id:,}. The exact tag total will be known after import."
         )
     if after_id:
         progress(f"Resuming staging database at after_id {after_id:,} ({imported:,} tags)")
+    else:
+        progress("New rebuild starting from after_id=0")
     try:
         while True:
+            if cancelled():
+                connection.execute(
+                    "INSERT OR REPLACE INTO import_state VALUES('cancelled','1')"
+                )
+                connection.commit()
+                raise ImportCancelled(f"rebuild cancelled at checkpoint {after_id}")
             error: Exception | None = None
             for attempt in range(retries + 1):
                 try:
@@ -297,6 +325,12 @@ def _rebuild_database_unlocked(
                     time.sleep(delay)
             if error is not None:
                 raise error
+            if cancelled():
+                connection.execute(
+                    "INSERT OR REPLACE INTO import_state VALUES('cancelled','1')"
+                )
+                connection.commit()
+                raise ImportCancelled(f"rebuild cancelled at checkpoint {after_id}")
             rows = prepare_rows(tags)
             if not rows:
                 empty_pages += 1
@@ -316,11 +350,11 @@ def _rebuild_database_unlocked(
             after_id = new_after_id
             pages += 1
             imported += len(rows)
-            if pages % 50 == 0:
-                connection.execute(
-                    "INSERT OR REPLACE INTO import_state VALUES('after_id',?)", (str(after_id),)
-                )
-                connection.commit()
+            connection.execute(
+                "INSERT OR REPLACE INTO import_state VALUES('after_id',?)", (str(after_id),)
+            )
+            connection.execute("DELETE FROM import_state WHERE key='cancelled'")
+            connection.commit()
             if pages == 1 or pages % 10 == 0:
                 if maximum_id:
                     percent = min(after_id / maximum_id * 100, 100.0)
@@ -396,6 +430,7 @@ def rebuild_database(
     required_tags: tuple[str, ...] = ("office_lady", "military", "teacher", "witch"),
     retries: int = 6,
     maximum_id: int | None = None,
+    cancelled: Callable[[], bool] = lambda: False,
 ) -> ImportSummary:
     """Serialize all catalogue writers around the safe atomic rebuild."""
     destination = destination.resolve()
@@ -410,4 +445,169 @@ def rebuild_database(
             required_tags=required_tags,
             retries=retries,
             maximum_id=maximum_id,
+            cancelled=cancelled,
         )
+
+
+def _apply_incremental_row(
+    connection: sqlite3.Connection,
+    row: tuple[int, str, int, int, int],
+    progress: Callable[[str], None],
+) -> None:
+    incoming_id, incoming_name, incoming_count, incoming_category, incoming_ambiguous = row
+    existing_by_id = connection.execute(
+        "SELECT id,name,post_count,category,ambiguous FROM tags WHERE id=?",
+        (incoming_id,),
+    ).fetchone()
+    existing_by_name = connection.execute(
+        "SELECT id,name,post_count,category,ambiguous FROM tags "
+        "WHERE name=? COLLATE NOCASE ORDER BY id LIMIT 1",
+        (incoming_name,),
+    ).fetchone()
+
+    if existing_by_id is not None:
+        if existing_by_name is not None and int(existing_by_name[0]) != incoming_id:
+            raise IncrementalCollisionError(
+                "Incremental tag collision: "
+                f"incoming id={incoming_id} name={incoming_name!r} "
+                f"count={incoming_count} category={incoming_category}; "
+                f"existing id={existing_by_name[0]} name={existing_by_name[1]!r} "
+                f"count={existing_by_name[2]} category={existing_by_name[3]}"
+            )
+        connection.execute(
+            "UPDATE tags SET name=?,post_count=?,category=?,ambiguous=? WHERE id=?",
+            (incoming_name, incoming_count, incoming_category, incoming_ambiguous, incoming_id),
+        )
+        return
+
+    if existing_by_name is not None:
+        progress(
+            "WARNING: Tag name collision during incremental update: "
+            f"incoming id={incoming_id} name={incoming_name!r} count={incoming_count} "
+            f"category={incoming_category}; existing id={existing_by_name[0]} "
+            f"name={existing_by_name[1]!r} count={existing_by_name[2]} "
+            f"category={existing_by_name[3]}; preserving existing id"
+        )
+        connection.execute(
+            "UPDATE tags SET post_count=?,category=?,ambiguous=? WHERE id=?",
+            (incoming_count, incoming_category, incoming_ambiguous, int(existing_by_name[0])),
+        )
+        return
+
+    connection.execute("INSERT INTO tags VALUES(?,?,?,?,?)", row)
+
+
+def update_database(
+    destination: Path,
+    user_id: str,
+    api_key: str,
+    *,
+    fetcher: Callable[[int, str, str], list[dict]] = fetch_page,
+    progress: Callable[[str], None] = print,
+    retries: int = 6,
+    maximum_id: int | None = None,
+    cancelled: Callable[[], bool] = lambda: False,
+) -> UpdateSummary:
+    """Update an existing final database without touching rebuild staging."""
+    if not user_id.strip() or not api_key.strip():
+        raise ValueError("Gelbooru credentials are required")
+    destination = destination.resolve()
+    if not destination.is_file():
+        raise DatabaseUpdateUnavailable(
+            "Final Gelbooru database is missing; run Full rebuild or install a snapshot"
+        )
+
+    with catalog_operation_lock(destination):
+        connection = sqlite3.connect(destination)
+        try:
+            tables = {
+                row[0] for row in connection.execute(
+                    "SELECT name FROM sqlite_master WHERE type='table'"
+                )
+            }
+            if not {"tags", "import_state"} <= tables:
+                raise DatabaseUpdateUnavailable(
+                    "Final Gelbooru database has no incremental checkpoint metadata"
+                )
+            version = connection.execute(
+                "SELECT value FROM import_state WHERE key='import_version'"
+            ).fetchone()
+            if version is None or str(version[0]) != IMPORT_VERSION:
+                raise DatabaseUpdateUnavailable(
+                    "Final Gelbooru database schema is not compatible with incremental update"
+                )
+            checkpoint = connection.execute(
+                "SELECT value FROM import_state WHERE key='after_id'"
+            ).fetchone()
+            if checkpoint is None:
+                raise DatabaseUpdateUnavailable(
+                    "Final Gelbooru database has no usable after_id checkpoint"
+                )
+            try:
+                after_id = int(checkpoint[0])
+            except (TypeError, ValueError) as exc:
+                raise DatabaseUpdateUnavailable(
+                    "Final Gelbooru database has an invalid after_id checkpoint"
+                ) from exc
+            progress(f"Existing database checkpoint: {after_id:,}")
+            progress(f"Incremental update starting after_id={after_id:,}")
+            if maximum_id:
+                progress(f"Progress reference: ID {after_id:,}/{maximum_id:,}")
+            imported = 0
+            pages = 0
+            empty_pages = 0
+            while True:
+                if cancelled():
+                    raise ImportCancelled(f"database update cancelled at checkpoint {after_id}")
+                error: Exception | None = None
+                for attempt in range(retries + 1):
+                    try:
+                        tags = fetcher(after_id, user_id, api_key)
+                        error = None
+                        break
+                    except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
+                        error = exc
+                        if attempt >= retries:
+                            raise
+                        delay = min(30, 2 ** attempt)
+                        progress(f"Retry after_id={after_id} in {delay}s: {exc}")
+                        time.sleep(delay)
+                if error is not None:
+                    raise error
+                if cancelled():
+                    raise ImportCancelled(f"database update cancelled at checkpoint {after_id}")
+                rows = prepare_rows(tags)
+                if not rows:
+                    empty_pages += 1
+                    if empty_pages >= 2:
+                        break
+                    progress(f"Empty page after_id={after_id}; confirming end of collection")
+                    continue
+                empty_pages = 0
+                new_after_id = max(row[0] for row in rows)
+                if new_after_id <= after_id:
+                    raise RuntimeError(f"API cursor did not advance after id {after_id}")
+                connection.execute("BEGIN")
+                try:
+                    for row in rows:
+                        _apply_incremental_row(connection, row, progress)
+                    connection.execute(
+                        "INSERT OR REPLACE INTO import_state VALUES('after_id',?)",
+                        (str(new_after_id),),
+                    )
+                    connection.execute("DELETE FROM import_state WHERE key='completed'")
+                    connection.commit()
+                except Exception:
+                    connection.rollback()
+                    raise
+                after_id = new_after_id
+                imported += len(rows)
+                pages += 1
+                progress(f"Update pages {pages:,} | tags {imported:,} | after_id {after_id:,}")
+            connection.execute(
+                "INSERT OR REPLACE INTO import_state VALUES('completed','1')"
+            )
+            connection.commit()
+            return UpdateSummary(imported, after_id, destination)
+        finally:
+            connection.close()

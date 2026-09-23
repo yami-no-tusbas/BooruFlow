@@ -15,7 +15,10 @@ __pycache__/
 venv/
 build/
 dist/
+dist-release/
+dist-smoke/
 *.spec
+!tools/booruflow.spec
 
 # Local databases and SQLite runtime files
 *.db

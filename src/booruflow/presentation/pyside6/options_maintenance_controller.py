@@ -63,7 +63,9 @@ class OptionsMaintenanceController(QObject):
         self.page.set_storage_running(False)
         if error:
             message = self.catalog.text("options.storage_failed")
-            self.page.page_status.show_message(message, timeout_ms=6_000, log=True)
+            self.page.page_status.show_message(
+                message, timeout_ms=0, log=True, global_message=True, level="ERROR"
+            )
             self.log(f"[ERROR] [Options] Storage inventory failed: {error}")
             return
         self.page.show_storage(totals, hydra)

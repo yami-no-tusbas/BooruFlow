@@ -9,6 +9,7 @@ from pathlib import Path
 from time import perf_counter
 
 from booruflow.application.tag_canonicalization import canonicalize_new_gelbooru_tag
+from booruflow.application.tagging import canonical_tag_value
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
 from booruflow.infrastructure.image_sources import (
     GelbooruPostProvider,
@@ -46,7 +47,7 @@ def confidence_bucket(score: float | None, *, failed: bool = False) -> str:
 def resolve_wd14_target(
     target: str, model_directory: Path, alias_database: Path | None = None
 ) -> tuple[str, ...]:
-    normalized = target.strip().replace(" ", "_")
+    normalized = canonical_tag_value(target).replace(" ", "_")
     canonical = canonicalize_new_gelbooru_tag(
         normalized, alias_database
     ).canonical_name
@@ -79,6 +80,7 @@ class TargetedWD14Result:
     failed_post_ids: frozenset[int]
     progress: TargetedWD14Progress
     elapsed_seconds: float
+    cancelled: bool = False
 
 
 class TargetedWD14Analyzer:
@@ -122,6 +124,7 @@ class TargetedWD14Analyzer:
         scores: dict[int, float] = {}
         failed: set[int] = set()
         analyzed = 0
+        was_cancelled = False
         try:
             if self.backend_factory is WD14Backend:
                 identity = wd14_config_identity(config)
@@ -150,7 +153,10 @@ class TargetedWD14Analyzer:
                 sources = ImageSourceService(repository, self.cache_directory)
                 for post in posts:
                     post_id = str(post.get("id", ""))
-                    if not post_id or int(post_id) in scores or is_cancelled():
+                    if is_cancelled():
+                        was_cancelled = True
+                        break
+                    if not post_id or int(post_id) in scores:
                         continue
                     run_id = None
                     try:
@@ -205,4 +211,5 @@ class TargetedWD14Analyzer:
         )
         return TargetedWD14Result(
             tag, scores, frozenset(failed), progress, perf_counter() - started,
+            was_cancelled,
         )

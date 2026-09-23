@@ -42,6 +42,7 @@ class CredentialValidationController(QObject):
         self._workers: set[CredentialValidationWorker] = set()
 
     def start(self, site: str, credentials: dict[str, str]) -> None:
+        self.log(log_event("Credentials", f"{site} validation requested"))
         self.page.set_credential_test_running(site)
         worker = CredentialValidationWorker(site, credentials, self.validator)
         self._workers.add(worker)
@@ -61,3 +62,10 @@ class CredentialValidationController(QObject):
             f"{result.site} validation result={logged_status}",
             level="WARNING" if warning else "INFO",
         ))
+        if result.status.value in {"invalid", "error", "missing"}:
+            page_status = getattr(self.page, "page_status", None)
+            if page_status is not None:
+                page_status.show_message(
+                    "Credentials invalid or unavailable — see log", timeout_ms=0,
+                    global_message=True, level="ERROR"
+                )

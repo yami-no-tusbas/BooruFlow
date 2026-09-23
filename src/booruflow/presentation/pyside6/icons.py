@@ -5,7 +5,10 @@ from __future__ import annotations
 from collections.abc import Callable
 
 from PySide6.QtCore import QPointF, QRectF, Qt
-from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPen, QPixmap, QPolygonF
+from PySide6.QtGui import (
+    QColor, QGuiApplication, QIcon, QPainter, QPainterPath, QPalette,
+    QPen, QPixmap, QPolygonF,
+)
 
 NAVIGATION_COLORS = {
     "home": "#3B82F6",
@@ -169,7 +172,8 @@ def navigation_icon(name: str, size: int = 30) -> QIcon:
 def wiki_tool_icon(name: str, size: int = 24) -> QIcon:
     pixmap = QPixmap(size * 2, size * 2); pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap); painter.setRenderHint(QPainter.RenderHint.Antialiasing); painter.scale(2, 2)
-    color = QColor("#374151"); painter.setPen(QPen(color, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)); painter.setBrush(Qt.BrushStyle.NoBrush)
+    color = QGuiApplication.palette().color(QPalette.ColorRole.Text)
+    painter.setPen(QPen(color, 1.8, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)); painter.setBrush(Qt.BrushStyle.NoBrush)
     if name == "bold":
         path = QPainterPath(); path.moveTo(7, 3); path.lineTo(7, 21); path.moveTo(7, 4); path.cubicTo(19, 2, 20, 11, 8, 12); path.cubicTo(21, 11, 21, 22, 7, 20); painter.drawPath(path)
     elif name == "italic":

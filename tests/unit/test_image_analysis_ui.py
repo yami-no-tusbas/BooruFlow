@@ -584,11 +584,15 @@ class ImageAnalysisUiTests(unittest.TestCase):
 
         settings = {
             "image_analysis_wd14_enabled": True,
-            "image_analysis_wd14_model_directory": "D:/models/wd14-current",
+            "image_analysis_wd14_model_directory": str(self.root / "wd14-current"),
             "image_analysis_wd14_model_id": "current/model",
             "image_analysis_wd14_store_threshold": 0.17,
             "image_analysis_worker_recycle_after": 321,
         }
+        model = self.root / "wd14-current"
+        model.mkdir()
+        for name in ("model.onnx", "selected_tags.csv", "metadata.json"):
+            (model / name).write_text("test", encoding="utf-8")
         page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
         controller = ImageAnalysisController(
             self.root, "python", page, settings, dict, lambda _line: None, auto_start_worker=False
@@ -598,7 +602,7 @@ class ImageAnalysisUiTests(unittest.TestCase):
         controller.process = process
         controller.start_worker()
         arguments = process.start.call_args.args[1]
-        self.assertEqual(arguments[arguments.index("--wd14-model-directory") + 1], "D:/models/wd14-current")
+        self.assertEqual(arguments[arguments.index("--wd14-model-directory") + 1], str(model))
         self.assertEqual(arguments[arguments.index("--wd14-model-id") + 1], "current/model")
         self.assertEqual(arguments[arguments.index("--wd14-store-threshold") + 1], "0.17")
         self.assertEqual(arguments[arguments.index("--worker-recycle-after") + 1], "321")
@@ -629,6 +633,79 @@ class ImageAnalysisUiTests(unittest.TestCase):
         self.assertEqual(controller.worker_startup_state, "unavailable")
         self.assertFalse(controller.worker_restart_timer.isActive())
         self.assertIn("unavailable", page.worker_state.text().casefold())
+        controller.shutdown(); page.close()
+
+    def test_missing_model_does_not_start_worker_even_with_runtime_available(self)->None:
+        from unittest.mock import MagicMock
+
+        from PySide6.QtCore import QProcess
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+
+        page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
+        controller = ImageAnalysisController(
+            self.root, "python", page, {"image_analysis_wd14_enabled": True},
+            dict, lambda _line: None, auto_start_worker=False,
+        )
+        process = MagicMock()
+        process.state.return_value = QProcess.ProcessState.NotRunning
+        controller.process = process
+        controller.start_worker()
+        self.assertEqual(controller.worker_startup_state, "model_missing")
+        self.assertFalse(controller.worker_restart_timer.isActive())
+        process.start.assert_not_called()
+        controller.shutdown(); page.close()
+
+    def test_worker_code_two_preserves_wd14_reason(self)->None:
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+
+        page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
+        controller = ImageAnalysisController(
+            self.root, "python", page, {}, dict, lambda _line: None,
+            auto_start_worker=False,
+        )
+        controller._handle_worker_line("WD14_UNAVAILABLE selected_tags.csv is missing")
+        controller._worker_finished(2, None)
+        self.assertIn("selected_tags.csv is missing", controller.worker_startup_detail)
+        controller.shutdown(); page.close()
+
+    def test_wd14_install_failure_never_starts_worker_and_success_requires_files(self)->None:
+        from unittest.mock import MagicMock, patch
+
+        from PySide6.QtCore import QProcess
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.image_analysis_controller import ImageAnalysisController
+        from booruflow.presentation.pyside6.image_analysis_page import ImageAnalysisPage
+
+        page = ImageAnalysisPage(LanguageCatalog(LANGUAGES, "en"))
+        controller = ImageAnalysisController(
+            self.root, "python", page, {}, dict, lambda _line: None,
+            auto_start_worker=False,
+        )
+        process = MagicMock()
+        process.state.return_value = QProcess.ProcessState.NotRunning
+        controller.process = process
+        controller._install_operation = "model"
+        with patch("booruflow.presentation.pyside6.image_analysis_controller.QTimer.singleShot") as later:
+            controller._model_finished(1, None)
+            later.assert_not_called()
+            controller._install_operation = "model"
+            controller._model_finished(0, None)
+            later.assert_not_called()
+            model = self.root / "var" / "models" / "image_analysis" / "wd-vit-tagger-v3"
+            model.mkdir(parents=True)
+            for name in ("model.onnx", "selected_tags.csv", "metadata.json"):
+                (model / name).write_text("test", encoding="utf-8")
+            controller._install_operation = "model"
+            controller._model_finished(0, None)
+            later.assert_called_once_with(500, controller.start_worker)
+        process.start.assert_not_called()
+        controller.shutdown(); page.close()
         controller.shutdown(); page.close()
 
     def test_unexpected_worker_exit_uses_bounded_restart_backoff(self)->None:
@@ -813,6 +890,8 @@ class ImageAnalysisUiTests(unittest.TestCase):
         ):
             controller.install_wd14(parent=page)
 
+        self.assertTrue(any("WD14 installation confirmed by user" in line for line in logs))
+
         model_process.start.assert_called_once()
         command = model_process.start.call_args.args[1]
         self.assertIn("booruflow.cli.wd14_model", command)
@@ -824,6 +903,30 @@ class ImageAnalysisUiTests(unittest.TestCase):
         options.page_status.show_message.assert_called_once()
         self.assertIn("failed with exit code 1", logs[-1])
 
+        logs.clear()
+        model_process.reset_mock()
+        with patch.object(
+            QMessageBox,
+            "question",
+            return_value=QMessageBox.StandardButton.No,
+        ):
+            controller.install_wd14(parent=page)
+        self.assertTrue(any("WD14 installation cancelled by user" in line for line in logs))
+        model_process.start.assert_not_called()
+
+        model_process.reset_mock()
+        options.set_analysis_install_running.reset_mock()
+        with patch.object(
+            QMessageBox, "question", return_value=QMessageBox.StandardButton.Yes,
+        ), patch("booruflow.runtime.sys.frozen", True, create=True):
+            controller.install_wd14(parent=page)
+        self.assertEqual(
+            model_process.start.call_args.args[1][:2],
+            ["--booruflow-module", "booruflow.cli.wd14_model"],
+        )
+        with patch("booruflow.presentation.pyside6.image_analysis_controller.sys.frozen", True, create=True):
+            controller._model_finished(1, None)
+        self.assertFalse(page.gpu_runtime_install.isEnabled())
         model_process.reset_mock()
         options.set_analysis_install_running.reset_mock()
         with patch.object(

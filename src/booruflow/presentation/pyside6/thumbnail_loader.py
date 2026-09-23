@@ -7,7 +7,7 @@ from math import ceil
 from statistics import mean
 from time import perf_counter
 
-from PySide6.QtCore import QObject, QTimer, QUrl, Signal
+from PySide6.QtCore import QObject, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import QImage
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkReply, QNetworkRequest
 
@@ -31,6 +31,7 @@ class _ThumbnailJob:
     attempts: int = 0
     timed_out: bool = False
     started_at: float = 0.0
+    request_id: int = 0
 
 
 class ThumbnailLoader(QObject):
@@ -49,6 +50,7 @@ class ThumbnailLoader(QObject):
         concurrency: int = THUMBNAIL_CONCURRENCY,
         timeout_ms: int = THUMBNAIL_TIMEOUT_MS,
         max_retries: int = THUMBNAIL_MAX_RETRIES,
+        diagnostic_stage: str = "full",
     ) -> None:
         super().__init__(parent)
         self.cache = cache
@@ -57,8 +59,13 @@ class ThumbnailLoader(QObject):
         self.concurrency = max(1, int(concurrency))
         self.timeout_ms = max(1, int(timeout_ms))
         self.max_retries = max(0, int(max_retries))
+        if diagnostic_stage not in {"full", "network", "decode"}:
+            raise ValueError("Unknown thumbnail diagnostic stage")
+        self.diagnostic_stage = diagnostic_stage
         self._queue: deque[_ThumbnailJob] = deque()
         self._active: dict[QNetworkReply, tuple[_ThumbnailJob, QTimer]] = {}
+        self._retry_timers: dict[QTimer, _ThumbnailJob] = {}
+        self._request_seq = 0
         self._wave = 0
         self._wave_started = 0.0
         self._last_progress = 0.0
@@ -139,10 +146,15 @@ class ThumbnailLoader(QObject):
                 f"cancelled={remaining}",
             )
         self._queue.clear()
+        for timer in self._retry_timers:
+            timer.stop()
+            timer.deleteLater()
+        self._retry_timers.clear()
         active = list(self._active.items())
         self._active.clear()
         for reply, (_job, timer) in active:
             timer.stop()
+            timer.deleteLater()
             reply.abort()
             reply.deleteLater()
         self.stall_timer.stop()
@@ -155,6 +167,8 @@ class ThumbnailLoader(QObject):
 
     def _start(self, job: _ThumbnailJob) -> None:
         job.attempts += 1
+        self._request_seq += 1
+        job.request_id = self._request_seq
         job.timed_out = False
         job.started_at = perf_counter()
         request = QNetworkRequest(QUrl(job.key.url))
@@ -170,33 +184,54 @@ class ThumbnailLoader(QObject):
             QNetworkRequest.CacheLoadControl.AlwaysNetwork,
         )
         request.setAttribute(QNetworkRequest.Attribute.CacheSaveControlAttribute, False)
+        self.diagnostic.emit("DEBUG", f"Thumbnail request created id={job.request_id} wave={job.wave} site={job.key.site} post_id={job.key.post_id}")
         reply = self.network.get(request)
         timer = QTimer(self)
         timer.setSingleShot(True)
-        timer.timeout.connect(lambda current=reply: self._timeout(current))
-        reply.finished.connect(lambda current=reply: self._reply_finished(current))
+        timer.timeout.connect(self._timeout)
+        reply.finished.connect(self._reply_finished)
         self._active[reply] = (job, timer)
+        self.diagnostic.emit("DEBUG", f"Thumbnail request started id={job.request_id} wave={job.wave} post_id={job.key.post_id} attempt={job.attempts}")
         timer.start(self.timeout_ms)
 
-    def _timeout(self, reply: QNetworkReply) -> None:
+    def _timeout(self, reply: QNetworkReply | None = None) -> None:
+        if reply is None:
+            timer = self.sender()
+            reply = next((current for current, (_, active_timer) in self._active.items()
+                          if active_timer is timer), None)
+            if reply is None:
+                return
         active = self._active.get(reply)
         if active is None:
             return
         active[0].timed_out = True
         reply.abort()
 
-    def _reply_finished(self, reply: QNetworkReply) -> None:
+    def _reply_finished(self, reply: QNetworkReply | None = None) -> None:
+        if reply is None:
+            reply = self.sender()
+        if QThread.currentThread() != self.thread():
+            self.diagnostic.emit("ERROR", "Thumbnail reply callback arrived off loader thread")
         active = self._active.pop(reply, None)
         if active is None:
             return
         job, timer = active
+        self.diagnostic.emit("DEBUG", f"Thumbnail reply received id={job.request_id} wave={job.wave} post_id={job.key.post_id}")
         timer.stop()
         timer.deleteLater()
         elapsed_ms = (perf_counter() - job.started_at) * 1000
         status_code = reply.attribute(QNetworkRequest.Attribute.HttpStatusCodeAttribute)
         error = reply.error()
         data = bytes(reply.readAll())
+        raw_header = getattr(reply, "rawHeader", lambda _name: b"")
+        content_type = bytes(raw_header("Content-Type")).decode("latin-1", errors="replace")
+        self.diagnostic.emit(
+            "DEBUG",
+            f"Thumbnail HTTP response id={job.request_id} wave={job.wave} post_id={job.key.post_id} status={status_code} "
+            f"content_type={content_type or 'unknown'} bytes={len(data)}",
+        )
         reply.deleteLater()
+        self.diagnostic.emit("DEBUG", f"Thumbnail reply cleanup id={job.request_id} wave={job.wave} post_id={job.key.post_id}")
         if job.wave != self._wave:
             return
         if job.timed_out:
@@ -207,27 +242,46 @@ class ThumbnailLoader(QObject):
             permanent = isinstance(status_code, int) and 400 <= status_code < 500 and status_code not in {408, 429}
             self._retry_or_finish(job, "network_error", permanent=permanent)
         else:
+            if self.diagnostic_stage == "network":
+                self._network_success += 1
+                self._record_completion()
+                self._pump()
+                return
             decode_started = perf_counter()
             image = QImage()
+            self.diagnostic.emit("DEBUG", f"Thumbnail decode started id={job.request_id} wave={job.wave} post_id={job.key.post_id}")
             if not data or not image.loadFromData(data):
                 self._decode_durations.append((perf_counter() - decode_started) * 1000)
                 self._finish_failure(job, "decode_error")
             else:
+                image = image.convertToFormat(QImage.Format.Format_RGBA8888)
                 self._decode_durations.append((perf_counter() - decode_started) * 1000)
+                self.diagnostic.emit("DEBUG", f"Thumbnail decode completed id={job.request_id} wave={job.wave} post_id={job.key.post_id}")
                 self.cache.put(job.key, image)
                 self._network_success += 1
                 self._network_durations.append(elapsed_ms)
                 self._record_completion()
-                self.image_ready.emit(job.key, image)
+                if self.diagnostic_stage == "full":
+                    self.image_ready.emit(job.key, image)
+                self.diagnostic.emit("DEBUG", f"Thumbnail request completed id={job.request_id} wave={job.wave} post_id={job.key.post_id}")
         self._pump()
 
     def _retry_or_finish(self, job: _ThumbnailJob, reason: str, *, permanent: bool = False) -> None:
         if not permanent and job.attempts <= self.max_retries:
-            QTimer.singleShot(THUMBNAIL_RETRY_BACKOFF_MS, lambda current=job: self._retry(current))
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            self._retry_timers[timer] = job
+            timer.timeout.connect(self._retry_ready)
+            timer.start(THUMBNAIL_RETRY_BACKOFF_MS)
             return
         self._finish_failure(job, reason)
 
-    def _retry(self, job: _ThumbnailJob) -> None:
+    def _retry_ready(self) -> None:
+        timer = self.sender()
+        job = self._retry_timers.pop(timer, None)
+        timer.deleteLater()
+        if job is None:
+            return
         if job.wave != self._wave:
             return
         self._queue.appendleft(job)

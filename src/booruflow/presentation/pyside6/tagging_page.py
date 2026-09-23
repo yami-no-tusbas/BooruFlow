@@ -7,6 +7,7 @@ itself lives in :mod:`tagging_legacy_page` and remains available in navigation.
 
 from __future__ import annotations
 
+from textwrap import wrap
 from time import perf_counter
 
 from PySide6.QtCore import QEvent, QPoint, QRect, QSize, QStringListModel, Qt, QTimer, Signal
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QComboBox,
     QCompleter,
     QFrame,
+    QGraphicsDropShadowEffect,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -24,6 +26,7 @@ from PySide6.QtWidgets import (
     QLayout,
     QLayoutItem,
     QLineEdit,
+    QMessageBox,
     QProgressBar,
     QPushButton,
     QScrollArea,
@@ -36,7 +39,11 @@ from PySide6.QtWidgets import (
 )
 
 from booruflow.application.batch_publisher import MAX_PUBLISH_ATTEMPTS
-from booruflow.application.tagging import TaggingRequest, parse_review_row_token
+from booruflow.application.tagging import (
+    TaggingRequest,
+    canonical_tag_value,
+    parse_review_row_token,
+)
 from booruflow.application.targeted_wd14 import CONFIDENCE_BUCKETS, confidence_bucket
 from booruflow.domain.booru_sites import site_definition
 from booruflow.presentation.pyside6.status_bar import PageStatus
@@ -64,10 +71,23 @@ def compact_result_card_text(
 
 
 def queued_result_entry(entry: dict[str, object]) -> bool:
-    state = getattr(entry.get("publish_state"), "value", entry.get("publish_state"))
-    return bool(entry.get("additions") or entry.get("removals")) and state in {
-        "pending_publish", "publishing", "published",
-    }
+    return bool(entry.get("post_id"))
+
+
+def existing_tags_tooltip(post: dict, *, max_tags: int = 40, max_chars: int = 700) -> str:
+    """Present only tags already included in the search result."""
+    raw = post.get("tags") or ""
+    tags = raw.split() if isinstance(raw, str) else list(raw)
+    shown: list[str] = []
+    for tag in tags:
+        candidate = ", ".join((*shown, str(tag)))
+        if len(shown) >= max_tags or len(candidate) > max_chars:
+            break
+        shown.append(str(tag))
+    content = ", ".join(shown)
+    if len(shown) < len(tags):
+        content += ", …" if content else "…"
+    return "\n".join(wrap(content, width=80, break_long_words=False))
 
 
 def derived_tagging_thresholds(minimum: int, maximum: int) -> tuple[int, int]:
@@ -90,11 +110,17 @@ def _setting_int(
 
 
 class TokenLineEdit(QLineEdit):
-    remove_last_requested = Signal()
+    autocomplete_commit_requested = Signal()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
+        if event.key() in {Qt.Key.Key_Return, Qt.Key.Key_Enter}:
+            completer = self.completer()
+            if completer is not None and completer.popup().isVisible():
+                self.autocomplete_commit_requested.emit()
+                event.accept()
+                return
         if event.key() == Qt.Key.Key_Backspace and not self.text():
-            self.remove_last_requested.emit()
+            # Backspace edits this field only. Chips have explicit remove buttons.
             event.accept()
             return
         super().keyPressEvent(event)
@@ -206,16 +232,15 @@ class TagTokenEditor(QWidget):
         self.lookup_timer.timeout.connect(self._emit_lookup)
         self.input.textEdited.connect(self._schedule_lookup)
         self.input.returnPressed.connect(self.commit_input)
-        self.input.remove_last_requested.connect(self.remove_last)
+        self.input.autocomplete_commit_requested.connect(self._commit_current_suggestion)
         self.completer.activated[str].connect(self._commit_suggestion)
 
     def tags(self) -> list[str]:
         return list(self._tags)
 
     def add_tag(self, value: str) -> bool:
-        normalized = value.strip().replace(" ", "_")
+        normalized = canonical_tag_value(value).replace(" ", "_")
         if not normalized or normalized in self._tags:
-            self.input.clear()
             return False
         self._tags.append(normalized)
         chip = QWidget()
@@ -259,7 +284,7 @@ class TagTokenEditor(QWidget):
         chip = self._chips.get(tag)
         if chip is None or not self.confidence_actions:
             return
-        symbols = {"idle": "?", "running": "⏳", "complete": "✓", "failed": "!"}
+        symbols = {"idle": "?", "running": "⏳", "complete": "✓", "failed": "!", "cancelled": "—"}
         chip.analysis.setText(symbols.get(state, "?"))
         chip.analysis.setEnabled(state != "running")
 
@@ -281,7 +306,15 @@ class TagTokenEditor(QWidget):
             self.remove_tag(self._tags[-1])
 
     def commit_input(self) -> None:
-        self.add_tag(self.input.text())
+        self._commit_suggestion(self.input.text())
+
+    def _commit_current_suggestion(self) -> None:
+        index = self.completer.popup().currentIndex()
+        label = str(index.data()) if index.isValid() else self.completer.currentCompletion()
+        if label:
+            self._commit_suggestion(label)
+        else:
+            self.commit_input()
 
     def set_suggestions(self, suggestions: list[str] | list[tuple[str, str | None]]) -> None:
         labels: list[str] = []
@@ -295,7 +328,10 @@ class TagTokenEditor(QWidget):
             self.completer.complete()
 
     def _commit_suggestion(self, label: str) -> None:
-        self.add_tag(self._suggestion_values.get(label, label))
+        if self.add_tag(self._suggestion_values.get(label, label)):
+            self.completer.popup().hide()
+            # QLineEdit may insert a clicked completion after activated is emitted.
+            QTimer.singleShot(0, self.input.clear)
 
     def _schedule_lookup(self, value: str) -> None:
         self.lookup_timer.stop()
@@ -321,6 +357,7 @@ class TaggingPage(TaggingLegacyPage):
     batch_refresh_requested = Signal()
     batch_review_requested = Signal(int)
     batch_remove_requested = Signal(list)
+    batch_remove_completed_requested = Signal()
     batch_open_requested = Signal(int)
     batch_publish_requested = Signal()
     batch_retry_requested = Signal(list)
@@ -421,6 +458,7 @@ class TaggingPage(TaggingLegacyPage):
         configured_site = str(self.settings.get("tagging_site", "gelbooru"))
         self.active_site = configured_site if configured_site in {"gelbooru", "e621"} else "gelbooru"
         self._all_search_results: list[dict] = []
+        self._last_searched_query = self.query.text().strip()
         self._batch_entries_by_post: dict[int, dict[str, object]] = {}
         self._confidence_tag = ""
         self._confidence_scores: dict[int, float] = {}
@@ -500,6 +538,13 @@ class TaggingPage(TaggingLegacyPage):
         )
         self.result_filter_counts = QLabel()
         self.hide_queued_results.toggled.connect(self._result_filter_toggled)
+        self.checkbox_selection = QCheckBox()
+        self.checkbox_selection.setChecked(bool(self.settings.get("tagging_checkbox_selection", False)))
+        self.checkbox_selection.toggled.connect(self._checkbox_mode_changed)
+
+    def _checkbox_mode_changed(self, checked: bool) -> None:
+        self.settings["tagging_checkbox_selection"] = bool(checked)
+        self.search_settings_saved.emit({"tagging_checkbox_selection": bool(checked)})
 
     def _result_filter_toggled(self, checked: bool) -> None:
         self.settings["tagging_hide_queued_results"] = bool(checked)
@@ -510,6 +555,7 @@ class TaggingPage(TaggingLegacyPage):
         layout = QVBoxLayout(self.bulk_group)
         filter_row = QHBoxLayout()
         filter_row.addWidget(self.hide_queued_results)
+        filter_row.addWidget(self.checkbox_selection)
         filter_row.addStretch(1)
         filter_row.addWidget(self.result_filter_counts)
         layout.addLayout(filter_row)
@@ -525,8 +571,15 @@ class TaggingPage(TaggingLegacyPage):
         remove_row.addWidget(self.bulk_remove, 1)
         remove_row.addWidget(self.bulk_apply, 0, Qt.AlignmentFlag.AlignBottom)
         layout.addLayout(add_row); layout.addLayout(remove_row)
+        self.bulk_intent_help = QLabel()
+        self.bulk_intent_help.setWordWrap(True)
+        layout.addWidget(self.bulk_intent_help)
         self.wd14_progress = QProgressBar(); self.wd14_progress.setVisible(False)
+        self.wd14_cancel_button = QPushButton()
+        self.wd14_cancel_button.setVisible(False)
+        self.wd14_cancel_button.clicked.connect(self.clear_targeted_wd14)
         layout.addWidget(self.wd14_progress)
+        layout.addWidget(self.wd14_cancel_button, 0, Qt.AlignmentFlag.AlignRight)
         self.bulk_apply.clicked.connect(self._emit_bulk_apply)
         self.search_view.layout().insertWidget(self.search_view.layout().count() - 1, self.bulk_group)
         self.bulk_add.tags_changed.connect(self._update_bulk_action)
@@ -551,6 +604,7 @@ class TaggingPage(TaggingLegacyPage):
         self.bulk_add.set_analysis_state(tag, "running")
         self.wd14_progress.setRange(0, len(posts)); self.wd14_progress.setValue(0)
         self.wd14_progress.setVisible(True)
+        self.wd14_cancel_button.setVisible(True)
         self.page_status.set_state("analyzing")
         self.page_status.show_message(
             self.catalog.text("tagging.wd14.starting", tag=tag), timeout_ms=0
@@ -572,6 +626,7 @@ class TaggingPage(TaggingLegacyPage):
         if previous:
             self.bulk_add.set_analysis_state(previous, "idle")
         self.wd14_progress.setVisible(False)
+        self.wd14_cancel_button.setVisible(False)
         self.page_status.clear_progress()
         self.page_status.clear_message()
         self.page_status.set_state("ready")
@@ -582,6 +637,7 @@ class TaggingPage(TaggingLegacyPage):
     def show_targeted_wd14_unavailable(self, tag: str, message: str) -> None:
         self.bulk_add.set_analysis_state(tag, "failed")
         self.wd14_progress.setVisible(False)
+        self.wd14_cancel_button.setVisible(False)
         self.page_status.clear_progress()
         self.page_status.set_state("ready")
         self.page_status.show_message(message, timeout_ms=6_000, log=True)
@@ -617,6 +673,7 @@ class TaggingPage(TaggingLegacyPage):
         self._confidence_scores = dict(result.scores)
         self._confidence_failed = set(result.failed_post_ids)
         self.bulk_add.set_analysis_state(result.tag, "complete")
+        self.wd14_cancel_button.setVisible(False)
         self.set_targeted_wd14_progress(result.progress)
         self.page_status.clear_progress()
         self.page_status.set_state("ready")
@@ -627,6 +684,25 @@ class TaggingPage(TaggingLegacyPage):
                 reused=result.progress.reused,
                 analyzed=result.progress.analyzed,
                 failed=result.progress.failed,
+            ),
+            timeout_ms=8_000,
+            log=True,
+        )
+        self._apply_result_filter()
+
+    def show_targeted_wd14_cancelled(self, result) -> None:
+        if result.tag != self._confidence_tag:
+            return
+        self.set_targeted_wd14_progress(result.progress)
+        self.bulk_add.set_analysis_state(result.tag, "cancelled")
+        self.wd14_cancel_button.setVisible(False)
+        self.page_status.clear_progress()
+        self.page_status.set_state("ready")
+        self.page_status.show_message(
+            self.catalog.text(
+                "tagging.wd14.status.cancelled",
+                completed=result.progress.completed,
+                total=result.progress.total,
             ),
             timeout_ms=8_000,
             log=True,
@@ -659,7 +735,28 @@ class TaggingPage(TaggingLegacyPage):
         posts = self.selected_posts()
         additions = self.bulk_add.tags()
         removals = self.bulk_remove.tags()
-        if posts and (additions or removals): self.bulk_apply_requested.emit(posts, additions, removals)
+        if not posts or not (additions or removals):
+            return
+        sections = [self.catalog.text("tagging.bulk.confirm_title", count=len(posts))]
+        if additions:
+            sections.append(self.catalog.text("tagging.bulk.confirm_add", tags=", ".join(additions)))
+        if removals:
+            sections.append(self.catalog.text("tagging.bulk.confirm_remove", tags=", ".join(removals)))
+        sections.append(self.catalog.text("tagging.bulk.confirm_help"))
+        dialog = QMessageBox(self)
+        dialog.setWindowTitle(self.catalog.text("tagging.bulk.confirm_window"))
+        dialog.setText("\n\n".join(sections))
+        dialog.setStandardButtons(QMessageBox.StandardButton.Cancel | QMessageBox.StandardButton.Ok)
+        dialog.button(QMessageBox.StandardButton.Ok).setText(self.catalog.text("tagging.bulk.confirm_accept"))
+        if dialog.exec() == QMessageBox.StandardButton.Ok:
+            self.bulk_apply_requested.emit(posts, additions, removals)
+
+    def _result_clicked(self, post: dict, checked: bool) -> None:
+        if self.checkbox_selection.isChecked():
+            self._selection_anchor = self.result_posts.index(post)
+            self._selection_changed()
+            return
+        super()._result_clicked(post, checked)
 
     def selection_changed(self) -> None:
         self._update_bulk_action()
@@ -697,6 +794,9 @@ class TaggingPage(TaggingLegacyPage):
             self._render_reviewed_checks()
 
     def eventFilter(self, watched, event) -> bool:
+        if (hasattr(self, "batch_button") and watched is self.batch_button
+                and event.type() == QEvent.Type.PaletteChange):
+            self._batch_glow.setColor(self.batch_button.palette().highlight().color())
         if watched is self.results_scroll.viewport() and event.type() == QEvent.Type.Wheel and event.modifiers() & Qt.KeyboardModifier.ControlModifier:
             direction = 1 if event.angleDelta().y() > 0 else -1
             index = self._thumbnail_levels.index(self._thumbnail_size)
@@ -757,6 +857,9 @@ class TaggingPage(TaggingLegacyPage):
 
     def _start(self) -> None:
         try:
+            query = self.query.text().strip()
+            if query != self._last_searched_query:
+                self.spins["start"].setValue(1)
             critical, high = self._thresholds()
             request = TaggingRequest(
                 self.query.text().strip(), self.spins["pages"].value(),
@@ -767,6 +870,7 @@ class TaggingPage(TaggingLegacyPage):
             self.state.setText(self.catalog.text("tagging.invalid", error=exc))
             return
         self.processed_in_session.clear()
+        self._last_searched_query = query
         if self._confidence_tag:
             self.clear_targeted_wd14()
         saved = self._search_settings()
@@ -915,6 +1019,23 @@ class TaggingPage(TaggingLegacyPage):
         self._all_search_results = list(posts)
         self._apply_result_filter()
 
+    def _set_card_tooltips(self) -> None:
+        for post in self.result_posts:
+            card = self.result_buttons.get(int(post.get("id", 0)))
+            if card is not None:
+                card.setToolTip(existing_tags_tooltip(post))
+
+    def _thumbnail_failed(self, key, reason: str) -> None:
+        super()._thumbnail_failed(key, reason)
+        target = self._thumbnail_targets.get(key)
+        if target is not None:
+            card, generation = target
+            if generation == self.result_generation:
+                try:
+                    card.setToolTip(existing_tags_tooltip(card.post))
+                except RuntimeError:
+                    pass
+
     def set_batch_queue_entries(self, entries: list[dict[str, object]]) -> dict[str, object]:
         started = perf_counter()
         previous_queued = self._queued_result_ids()
@@ -935,7 +1056,8 @@ class TaggingPage(TaggingLegacyPage):
             and newly_hidden and not newly_visible
         )
         rebuilt = bool(
-            self._all_search_results and previous_queued != new_queued and not incremental
+            self._all_search_results and self.hide_queued_results.isChecked()
+            and previous_queued != new_queued and not incremental
         )
         removed = self._remove_result_cards(newly_hidden) if incremental else 0
         if rebuilt:
@@ -993,6 +1115,7 @@ class TaggingPage(TaggingLegacyPage):
             if not self.hide_queued_results.isChecked() or int(post.get("id", 0)) not in queued
         ]
         super().show_results(visible)
+        self._set_card_tooltips()
         if current_view is not self.search_view:
             self.mode_stack.setCurrentWidget(current_view)
         for post_id in selected:
@@ -1052,11 +1175,7 @@ class TaggingPage(TaggingLegacyPage):
                 score = round(self._confidence_scores[post_id] * 100)
                 second += f" · WD14 {score} %"
             button.setText(f"{first}\n{second}")
-            details = [*(f"+ {tag}" for tag in additions), *(f"- {tag}" for tag in removals)]
-            button.setToolTip(
-                self.catalog.text("tagging.bulk.tooltip") + "\n" + "\n".join(details)
-                if details else ""
-            )
+            button.setToolTip(existing_tags_tooltip(button.post))
         self._update_counter()
 
     def mark_reviewed_and_advance(self, post_id: int) -> bool:
@@ -1134,6 +1253,7 @@ class TaggingPage(TaggingLegacyPage):
             (self.catalog.text("tagging.batch.filter.published"), "published"),
             (self.catalog.text("tagging.batch.filter.failed"), "failed"),
             (self.catalog.text("tagging.batch.filter.local"), "local"),
+            (self.catalog.text("tagging.batch.filter.skipped"), "skipped"),
         ):
             self.batch_filter.addItem(label, value)
         self.batch_counts = QLabel()
@@ -1157,6 +1277,7 @@ class TaggingPage(TaggingLegacyPage):
         actions = QHBoxLayout()
         self.batch_review_button = QPushButton()
         self.batch_remove_button = QPushButton()
+        self.batch_remove_completed_button = QPushButton()
         self.batch_open_button = QPushButton()
         self.batch_retry_button = QPushButton()
         self.batch_session_test_button = QPushButton()
@@ -1165,7 +1286,7 @@ class TaggingPage(TaggingLegacyPage):
         self.batch_cancel_button = QPushButton()
         self.batch_cancel_button.setVisible(False)
         self.batch_publish_button.setEnabled(False)
-        for button in (self.batch_review_button, self.batch_remove_button, self.batch_open_button):
+        for button in (self.batch_review_button, self.batch_remove_button, self.batch_remove_completed_button, self.batch_open_button):
             actions.addWidget(button)
         actions.addStretch(1)
         actions.addWidget(self.batch_retry_button)
@@ -1193,6 +1314,7 @@ class TaggingPage(TaggingLegacyPage):
         self.batch_table.itemSelectionChanged.connect(self._update_batch_actions)
         self.batch_review_button.clicked.connect(self._request_batch_review)
         self.batch_remove_button.clicked.connect(self._request_batch_remove)
+        self.batch_remove_completed_button.clicked.connect(self.batch_remove_completed_requested)
         self.batch_open_button.clicked.connect(self._request_batch_open)
         self.batch_publish_button.clicked.connect(self.batch_publish_requested)
         self.batch_retry_button.clicked.connect(self._request_batch_retry)
@@ -1202,6 +1324,18 @@ class TaggingPage(TaggingLegacyPage):
         self.batch_button.setCheckable(True)
         self.batch_button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon)
         self.batch_button.setArrowType(Qt.ArrowType.RightArrow)
+        self._batch_glow = QGraphicsDropShadowEffect(self.batch_button)
+        self._batch_glow.setBlurRadius(24)
+        self._batch_glow.setOffset(0, 0)
+        self._batch_glow.setEnabled(False)
+        self.batch_button.setGraphicsEffect(self._batch_glow)
+        self.batch_button.installEventFilter(self)
+        self._batch_attention = False
+        self._first_publish_started = bool(self.settings.get("tagging_first_publish_started", False))
+        self._publish_pulse_on = False
+        self._publish_pulse_timer = QTimer(self)
+        self._publish_pulse_timer.setInterval(900)
+        self._publish_pulse_timer.timeout.connect(self._advance_publish_pulse)
         root = self.layout()
         root.removeWidget(self.title)
         self.page_header = QWidget()
@@ -1225,16 +1359,21 @@ class TaggingPage(TaggingLegacyPage):
             Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
         )
         if expanded:
+            self._batch_attention = False
+            self._update_batch_attention()
             self.mode_stack.setCurrentWidget(self.batch_view)
+            self._update_publish_pulse()
             self.batch_refresh_requested.emit()
         elif self.mode_stack.currentWidget() is self.batch_view:
             self.show_search()
+            self._update_publish_pulse()
 
     def _return_from_batch(self) -> None:
         self.batch_button.setChecked(False)
 
     def show_batch_entries(self, entries: list[dict[str, object]]) -> None:
         self.batch_entries = list(entries)
+        self._update_batch_attention()
         states = [str(entry["publish_state"].value) for entry in self.batch_entries]
         local_count = sum(
             entry["site"] is None or str(entry["publish_state"].value) == "reviewed"
@@ -1242,6 +1381,66 @@ class TaggingPage(TaggingLegacyPage):
         )
         self._update_batch_counts(states, local_count)
         self._render_batch_entries()
+
+    def mark_batch_added(self) -> None:
+        self._batch_attention = True
+        self._update_batch_attention()
+
+    def _update_batch_attention(self) -> None:
+        if not hasattr(self, "batch_button"):
+            return
+        count = sum(
+            getattr(entry.get("publish_state"), "value", entry.get("publish_state"))
+            in {"pending_publish", "failed", "skipped"}
+            for entry in self.batch_entries
+        )
+        label = self.catalog.text("tagging.batch.button")
+        self.batch_button.setText(f"{label} [{count}]" if count else label)
+        attention = bool(count and self._batch_attention)
+        self.batch_button.setStyleSheet(
+            "QToolButton { background: palette(highlight); color: palette(highlighted-text); "
+            "border: 3px solid palette(highlight); border-radius: 6px; "
+            "padding: 5px 12px; font-weight: 700; }"
+            if attention else ""
+        )
+        self._batch_glow.setColor(self.batch_button.palette().highlight().color())
+        self._batch_glow.setEnabled(attention)
+        if not count:
+            self._batch_attention = False
+        self._update_publish_pulse()
+
+    def _update_publish_pulse(self) -> None:
+        pending = any(
+            getattr(entry.get("publish_state"), "value", entry.get("publish_state"))
+            == "pending_publish" and self._has_changes(entry)
+            for entry in self.batch_entries
+        )
+        active = (self.mode_stack.currentWidget() is self.batch_view and pending
+                  and not self._first_publish_started
+                  and self.batch_publish_button.isEnabled()
+                  and not getattr(self, "_batch_publish_running", False))
+        if active and not self._publish_pulse_timer.isActive():
+            self._publish_pulse_timer.start()
+            self._advance_publish_pulse()
+        elif not active:
+            self._publish_pulse_timer.stop()
+            self._publish_pulse_on = False
+            self.batch_publish_button.setStyleSheet("")
+
+    def _advance_publish_pulse(self) -> None:
+        self._publish_pulse_on = not self._publish_pulse_on
+        self.batch_publish_button.setStyleSheet(
+            "QPushButton { border: 2px solid palette(highlight); border-radius: 5px; }"
+            if self._publish_pulse_on else ""
+        )
+
+    def mark_publish_started(self) -> None:
+        if self._first_publish_started:
+            return
+        self._first_publish_started = True
+        self.settings["tagging_first_publish_started"] = True
+        self.search_settings_saved.emit({"tagging_first_publish_started": True})
+        self._update_publish_pulse()
 
     def _plural(self, key: str, count: int) -> str:
         return self.catalog.text(f"{key}.one" if count == 1 else f"{key}.other", count=count)
@@ -1265,6 +1464,7 @@ class TaggingPage(TaggingLegacyPage):
             local=self._plural("tagging.batch.count.local", local_count),
             published=self._plural("tagging.batch.count.published", states.count("published")),
             failed=self._plural("tagging.batch.count.failed", states.count("failed")),
+            skipped=self._plural("tagging.batch.count.skipped", states.count("skipped")),
         ))
 
     def _render_batch_entries(self, *_args) -> None:
@@ -1285,8 +1485,11 @@ class TaggingPage(TaggingLegacyPage):
             site = str(entry["site"] or self.catalog.text("tagging.batch.local"))
             post_id = entry["post_id"]
             identity = f"{site} #{post_id}" if post_id else self.catalog.text("tagging.batch.local_file")
-            additions = " ".join(entry["additions"]) or "—"
-            removals = " ".join(entry["removals"]) or "—"
+            skipped = str(entry["publish_state"].value) == "skipped"
+            shown_additions = entry.get("requested_additions") or ([] if skipped else entry["additions"])
+            shown_removals = entry.get("requested_removals") or ([] if skipped else entry["removals"])
+            additions = " ".join(shown_additions) or "—"
+            removals = " ".join(shown_removals) or "—"
             state_text = self.catalog.text(
                 f"tagging.batch.state.{entry['publish_state'].value}"
             )
@@ -1299,6 +1502,13 @@ class TaggingPage(TaggingLegacyPage):
                 )
                 state_text = self.catalog.text(
                     "tagging.batch.failed_reason", reason=self.catalog.text(key)
+                )
+            elif str(entry["publish_state"].value) == "skipped":
+                reason = str(entry.get("failure_reason") or entry.get("last_error") or "")
+                state_text = self.catalog.text(
+                    "tagging.batch.skipped_reason",
+                    reason=(self.catalog.text("tagging.bulk.no_changes")
+                            if reason == "no_effective_delta" else reason),
                 )
             values = (
                 identity,
@@ -1342,6 +1552,10 @@ class TaggingPage(TaggingLegacyPage):
         self.batch_review_button.setEnabled(len(entries) == 1)
         self.batch_open_button.setEnabled(len(entries) == 1 and entries[0]["site"] is not None)
         self.batch_remove_button.setEnabled(bool(entries))
+        self.batch_remove_completed_button.setEnabled(any(
+            str(entry["publish_state"].value) == "published"
+            for entry in getattr(self, "batch_entries", [])
+        ))
         running = getattr(self, "_batch_publish_running", False)
         pending_gelbooru = any(
             entry["site"] == "gelbooru"
@@ -1362,6 +1576,7 @@ class TaggingPage(TaggingLegacyPage):
         e621_publishable = pending_e621 and self._e621_publish_configured
         publishable = gelbooru_publishable or e621_publishable
         self.batch_publish_button.setEnabled(publishable and not running)
+        self._update_publish_pulse()
         self.batch_publish_button.setToolTip(
             self.catalog.text("tagging.publish.e621_credentials_missing")
             if pending_e621 and not self._e621_publish_configured and not gelbooru_publishable
@@ -1577,6 +1792,10 @@ class TaggingPage(TaggingLegacyPage):
             self.bulk_add.input.setPlaceholderText(text("tagging.bulk.placeholder")); self.bulk_remove.input.setPlaceholderText(text("tagging.bulk.placeholder")); self._update_bulk_action()
         if hasattr(self, "hide_queued_results"):
             self.hide_queued_results.setText(text("tagging.results.hide_queued"))
+            self.checkbox_selection.setText(text("tagging.results.checkbox_selection"))
+            self.bulk_intent_help.setText(text("tagging.bulk.intent_help"))
+        if hasattr(self, "wd14_cancel_button"):
+            self.wd14_cancel_button.setText(text("tagging.wd14.cancel"))
         if hasattr(self, "site_label"):
             self.site_label.setText(text("tagging.site"))
             if hasattr(self, "batch_session_test_button"):
@@ -1600,9 +1819,9 @@ class TaggingPage(TaggingLegacyPage):
             return
         selected_ids = self._selected_batch_ids()
         self.batch_back_button.setText(text("tagging.batch.back")); self.batch_refresh_button.setText(text("tagging.batch.refresh")); self.batch_filter_label.setText(text("tagging.batch.label"))
-        for index, key in enumerate(("all", "pending", "published", "failed", "local")): self.batch_filter.setItemText(index, text(f"tagging.batch.filter.{key}"))
+        for index, key in enumerate(("all", "pending", "published", "failed", "local", "skipped")): self.batch_filter.setItemText(index, text(f"tagging.batch.filter.{key}"))
         for index, key in enumerate(("identity", "site", "additions", "removals", "state", "reviewed_at", "item")): self.batch_table.horizontalHeaderItem(index).setText(text(f"tagging.batch.header.{key}"))
-        self.batch_review_button.setText(text("tagging.batch.review")); self.batch_remove_button.setText(text("tagging.batch.remove")); self.batch_open_button.setText(text("tagging.batch.open")); self.batch_retry_button.setText(text("tagging.batch.retry")); self.batch_session_test_button.setText(text("tagging.batch.session_test")); self.batch_publish_button.setText(text("tagging.batch.publish")); self.batch_cancel_button.setText(text("tagging.batch.cancel")); self.batch_button.setText(text("tagging.batch.button"))
+        self.batch_review_button.setText(text("tagging.batch.review")); self.batch_remove_button.setText(text("tagging.batch.remove")); self.batch_remove_completed_button.setText(text("tagging.batch.remove_completed")); self.batch_open_button.setText(text("tagging.batch.open")); self.batch_retry_button.setText(text("tagging.batch.retry")); self.batch_session_test_button.setText(text("tagging.batch.session_test")); self.batch_publish_button.setText(text("tagging.batch.publish")); self.batch_cancel_button.setText(text("tagging.batch.cancel")); self._update_batch_attention()
         self.batch_table.set_empty_text(text("table.empty_batch")); self._update_batch_counts(); self._render_batch_entries()
         for row in range(self.batch_table.rowCount()):
             item = self.batch_table.item(row, 6)

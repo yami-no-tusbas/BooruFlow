@@ -37,6 +37,7 @@ class PublishState(StrEnum):
     PUBLISHING = "publishing"
     PUBLISHED = "published"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class ObservationSource(StrEnum):

@@ -245,7 +245,9 @@ class PySide6WorkflowTests(unittest.TestCase):
         page.bulk_add.add_tag("child")
         page.bulk_add.add_tag("1girl")
         page.bulk_remove.add_tag("2girls")
-        page.bulk_apply.click()
+        from PySide6.QtWidgets import QMessageBox
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Ok):
+            page.bulk_apply.click()
         self.assertEqual(applied.count(), 1)
         self.assertEqual(applied.at(0)[1:], [["1girl", "child"], ["2girls"]])
         page.close()
@@ -269,8 +271,10 @@ class PySide6WorkflowTests(unittest.TestCase):
         page.bulk_add.add_tag("child")
         page.bulk_add.input.clear()
         QTest.keyClick(page.bulk_add.input, Qt.Key.Key_Backspace)
-        self.assertEqual(page.bulk_add.tags(), ["1girl"])
+        self.assertEqual(page.bulk_add.tags(), ["1girl", "child"])
         page.bulk_add._chips["1girl"].click()
+        self.assertEqual(page.bulk_add.tags(), ["child"])
+        page.bulk_add._chips["child"].click()
         self.assertEqual(page.bulk_add.tags(), [])
 
         page.bulk_remove.add_tag("1girl")
@@ -278,6 +282,96 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertEqual(page.bulk_add.tags(), ["1girl"])
         self.assertEqual(page.bulk_remove.tags(), [])
         page.close()
+
+    def test_bulk_alias_suggestion_mouse_and_enter_commit_canonical_and_clear(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+
+        from booruflow.presentation.pyside6.tagging_page import TagTokenEditor
+
+        mouse_editor = TagTokenEditor()
+        mouse_editor.set_suggestions([("1girl", "1girls")])
+        mouse_editor.completer.activated[str].emit("1girl ← 1girls")
+        self.assertEqual(mouse_editor.tags(), ["1girl"])
+        self.assertEqual(mouse_editor.input.text(), "")
+        self.assertTrue(mouse_editor.add_tag("abigail_williams_(fate) ← abigail_williams_(fate/grand_order)"))
+        self.assertNotIn("←", mouse_editor.tags()[-1])
+        mouse_editor.close()
+
+        remove_editor = TagTokenEditor()
+        remove_editor.set_suggestions([("1girl", "1girls")])
+        remove_editor.completer.activated[str].emit("1girl ← 1girls")
+        self.assertEqual(remove_editor.tags(), ["1girl"])
+        remove_editor.close()
+
+        # Enter path must not commit the decorated display label.
+        editor = TagTokenEditor()
+        editor.set_suggestions([("abigail_williams_(fate)", "abigail_williams_(fate/grand_order)")])
+        editor.completer.setCurrentRow(0)
+        editor.input.setFocus()
+        editor.completer.popup().show()
+        QTest.keyClick(editor.input, Qt.Key.Key_Return)
+        self.assertEqual(editor.tags(), ["abigail_williams_(fate)"])
+        self.assertEqual(editor.input.text(), "")
+        editor.close()
+
+    def test_bulk_click_enter_plain_and_alias_match_for_add_and_remove(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QSignalSpy, QTest
+
+        from booruflow.presentation.pyside6.tagging_page import TagTokenEditor
+
+        for canonical, alias in (("sword", None), ("qipao", "china_dress")):
+            suggestions = [(canonical, alias)]
+            for target in ("add", "remove"):
+                click_editor = TagTokenEditor(confidence_actions=target == "add")
+                click_commits = QSignalSpy(click_editor.tag_added)
+                click_editor.show()
+                click_editor.input.setFocus()
+                click_editor.input.setText(alias or canonical)
+                click_editor.set_suggestions(suggestions)
+                click_editor.completer.popup().show()
+                self.app.processEvents()
+                popup = click_editor.completer.popup()
+                index = popup.model().index(0, 0)
+                QTest.mouseClick(
+                    popup.viewport(), Qt.MouseButton.LeftButton,
+                    pos=popup.visualRect(index).center(),
+                )
+                self.app.processEvents()
+
+                enter_editor = TagTokenEditor(confidence_actions=target == "add")
+                enter_commits = QSignalSpy(enter_editor.tag_added)
+                enter_editor.input.setText(alias or canonical)
+                enter_editor.set_suggestions(suggestions)
+                enter_editor.completer.setCurrentRow(0)
+                enter_editor.input.setFocus()
+                enter_editor.completer.popup().show()
+                QTest.keyClick(enter_editor.input, Qt.Key.Key_Return)
+                self.app.processEvents()
+
+                with self.subTest(target=target, canonical=canonical, alias=alias):
+                    self.assertEqual(click_editor.tags(), [canonical])
+                    self.assertEqual(enter_editor.tags(), [canonical])
+                    self.assertEqual(click_editor.input.text(), "")
+                    self.assertEqual(enter_editor.input.text(), "")
+                    self.assertFalse(click_editor.completer.popup().isVisible())
+                    self.assertFalse(enter_editor.completer.popup().isVisible())
+                    self.assertEqual(click_commits.count(), 1)
+                    self.assertEqual(enter_commits.count(), 1)
+                    self.assertEqual(click_commits.at(0), [canonical])
+                    self.assertEqual(enter_commits.at(0), [canonical])
+                click_editor.close()
+                enter_editor.close()
+
+        no_commit = TagTokenEditor()
+        no_commit.add_tag("sword")
+        no_commit.input.setText("keep_me")
+        no_commit._commit_suggestion("sword")
+        self.app.processEvents()
+        self.assertEqual(no_commit.tags(), ["sword"])
+        self.assertEqual(no_commit.input.text(), "keep_me")
+        no_commit.close()
 
     def test_bulk_labels_apply_alignment_and_chip_flow_stay_responsive(self) -> None:
         from PySide6.QtTest import QTest
@@ -356,6 +450,28 @@ class PySide6WorkflowTests(unittest.TestCase):
         QTest.qWait(230)
         self.assertEqual(requested.count(), 1)
         editor.close()
+
+    def test_catalog_ready_refreshes_text_without_image_analysis_feature(self) -> None:
+        from booruflow.application.tag_lookup import TagLookupSuggestion
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        with tempfile.TemporaryDirectory() as directory:
+            database = Path(directory) / "tags.db"
+            settings = {"gelbooru_tag_database": str(database)}
+            page = TaggingPage(self.catalog(), settings)
+            controller = TaggingController(
+                self.catalog(), page, dict, lambda *_args: None, settings=settings
+            )
+            page.manual_tag.setText("armor")
+            with patch(
+                "booruflow.presentation.pyside6.tagging_controller.lookup_gelbooru_suggestions",
+                return_value=[TagLookupSuggestion("armor")],
+            ) as lookup:
+                controller.notify_tag_database_ready()
+            lookup.assert_called_once()
+            self.assertEqual(page.manual_suggestion_model.stringList(), ["armor"])
+            page.close()
 
     def test_bulk_autocomplete_runs_off_gui_thread_ignores_stale_and_caches(self) -> None:
         import time
@@ -491,6 +607,233 @@ class PySide6WorkflowTests(unittest.TestCase):
             self.assertEqual(repository.pending_change_count(), 40)
             page.close(); repository.close()
 
+    def test_bulk_apply_skips_posts_without_an_effective_delta(self) -> None:
+        from types import SimpleNamespace
+
+        from PySide6.QtTest import QSignalSpy
+
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = ImageAnalysisRepository(Path(temporary) / "analysis.sqlite")
+            page = TaggingPage(self.catalog(), {"tagging_hide_queued_results": False})
+            footer = QSignalSpy(page.page_status.message_changed)
+            controller = TaggingController(self.catalog(), page, dict, lambda *_args: None)
+            controller.image_analysis = SimpleNamespace(repository=repository, settings={})
+            posts = [
+                {"id": 1, "tags": "1girl blue_hair", "priority": "low", "tag_count": 2},
+                {"id": 2, "tags": "blue_hair", "priority": "low", "tag_count": 1},
+            ]
+            page.show_results(posts)
+            controller.apply_bulk_manual_tags(posts, ["1girl"], [])
+            entries = repository.list_batch_entries()
+            self.assertEqual([entry["post_id"] for entry in entries], ["2", "1"])
+            self.assertEqual(entries[1]["publish_state"].value, "skipped")
+            self.assertEqual(entries[1]["failure_reason"], "no_effective_delta")
+            self.assertEqual(entries[1]["requested_additions"], ["1girl"])
+            self.assertEqual(entries[1]["additions"], [])
+            self.assertEqual(entries[0]["requested_additions"], ["1girl"])
+            self.assertEqual(repository.pending_change_count(), 1)
+            self.assertIn("1 queued · 1 skipped", footer.at(footer.count() - 1)[1])
+            self.assertIn("No tag changes needed", page.catalog.text("tagging.bulk.no_changes"))
+            self.assertIn(1, page.result_buttons)
+            controller.apply_bulk_manual_tags(
+                [{"id": 3, "tags": "solo", "priority": "low", "tag_count": 1}],
+                ["solo"], [],
+            )
+            self.assertIn("0 queued · 1 skipped — No tag changes needed",
+                          footer.at(footer.count() - 1)[1])
+            page.close(); repository.close()
+
+    def test_new_query_resets_page_but_same_query_preserves_pagination(self) -> None:
+        from PySide6.QtTest import QSignalSpy
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {"tagging_query": "solo"})
+        requests = QSignalSpy(page.start_requested)
+        page.spins["start"].setValue(12)
+        page._start()
+        self.assertEqual(requests.at(0)[0].start_page, 12)
+        page.query.setText("1girl")
+        page._start()
+        self.assertEqual(requests.at(1)[0].start_page, 1)
+        page.spins["start"].setValue(3)
+        page._start()
+        self.assertEqual(requests.at(2)[0].start_page, 3)
+        page.close()
+
+    def test_partial_noop_keeps_requested_display_and_effective_publish_delta(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        with tempfile.TemporaryDirectory() as temporary:
+            repository = ImageAnalysisRepository(Path(temporary) / "analysis.sqlite")
+            page = TaggingPage(self.catalog(), {"tagging_hide_queued_results": False})
+            controller = TaggingController(self.catalog(), page, dict, lambda *_args: None)
+            controller.image_analysis = SimpleNamespace(repository=repository, settings={})
+            controller.apply_bulk_manual_tags(
+                [{"id": 42, "tags": "1girl", "priority": "low", "tag_count": 1}],
+                ["1girl", "solo"], [],
+            )
+            entry = repository.list_batch_entries()[0]
+            self.assertEqual(entry["publish_state"].value, "pending_publish")
+            self.assertEqual(entry["requested_additions"], ["1girl", "solo"])
+            self.assertEqual(entry["additions"], ["solo"])
+            self.assertEqual(page.batch_table.item(0, 2).text(), "1girl solo")
+            page.close(); repository.close()
+
+    def test_checkbox_mode_card_checkbox_and_normal_selection(self) -> None:
+        from PySide6.QtCore import Qt
+        from PySide6.QtTest import QTest
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {"tagging_hide_queued_results": False})
+        page.show_results([
+            {"id": value, "tags": "solo", "priority": "low", "tag_count": 1}
+            for value in (1, 2, 3)
+        ])
+        page.checkbox_selection.setChecked(True)
+        QTest.mouseClick(page.result_buttons[1], Qt.MouseButton.LeftButton)
+        QTest.mouseClick(page.result_buttons[2], Qt.MouseButton.LeftButton)
+        self.assertEqual([post["id"] for post in page.selected_posts()], [1, 2])
+        QTest.mouseClick(page.result_buttons[1], Qt.MouseButton.LeftButton)
+        self.assertEqual([post["id"] for post in page.selected_posts()], [2])
+        page.result_buttons[3].selection_checkbox.click()
+        self.assertEqual([post["id"] for post in page.selected_posts()], [2, 3])
+        QTest.mouseDClick(page.result_buttons[2], Qt.MouseButton.LeftButton)
+        self.assertEqual([post["id"] for post in page.selected_posts()], [2, 3])
+        page.checkbox_selection.setChecked(False)
+        QTest.mouseClick(page.result_buttons[1], Qt.MouseButton.LeftButton)
+        self.assertEqual([post["id"] for post in page.selected_posts()], [1])
+        page.close()
+
+    def test_tooltip_only_uses_loaded_tags_and_truncates(self) -> None:
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage, existing_tags_tooltip
+
+        post = {"id": 17, "tags": "1girl blonde_hair solo", "tag_count": 3,
+                "priority": "low", "score": 100}
+        page = TaggingPage(self.catalog(), {})
+        page.show_results([post])
+        self.assertEqual(page.result_buttons[17].toolTip(), "1girl, blonde_hair, solo")
+        self.assertEqual(existing_tags_tooltip(post, max_tags=2), "1girl, blonde_hair, …")
+        page.close()
+
+    def test_bulk_apply_confirmation_cancel_and_accept(self) -> None:
+        from PySide6.QtTest import QSignalSpy
+        from PySide6.QtWidgets import QMessageBox
+
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {"tagging_hide_queued_results": False})
+        page.show_results([{"id": 1, "tags": "solo", "priority": "low", "tag_count": 1}])
+        page.result_buttons[1].setChecked(True)
+        page.bulk_add.add_tag("1girl")
+        page.bulk_remove.add_tag("solo")
+        applied = QSignalSpy(page.bulk_apply_requested)
+        prompts = []
+        def cancel(dialog):
+            prompts.append(dialog.text())
+            return QMessageBox.StandardButton.Cancel
+        with patch.object(QMessageBox, "exec", cancel):
+            page.bulk_apply.click()
+        self.assertEqual(applied.count(), 0)
+        self.assertIn("Add: 1girl", prompts[0])
+        self.assertIn("Remove: solo", prompts[0])
+        self.assertIn("added to the batch", prompts[0])
+        self.assertEqual(page.bulk_add.tags(), ["1girl"])
+        self.assertEqual(len(page.selected_posts()), 1)
+        with patch.object(QMessageBox, "exec", return_value=QMessageBox.StandardButton.Ok):
+            page.bulk_apply.click()
+        self.assertEqual(applied.count(), 1)
+        self.assertEqual(applied.at(0)[1:], [["1girl"], ["solo"]])
+        page.close()
+
+    def test_batch_badge_attention_and_first_publish_guidance(self) -> None:
+        from PySide6.QtGui import QColor, QPalette
+
+        from booruflow.domain.image_analysis import PublishState
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(self.catalog(), {})
+        skipped = {"item_id": 1, "site": "gelbooru", "post_id": "1",
+                   "additions": [], "removals": [], "requested_additions": ["solo"],
+                   "requested_removals": [], "reviewed_at": "now",
+                   "publish_state": PublishState.SKIPPED,
+                   "failure_reason": "no_effective_delta"}
+        completed = {**skipped, "item_id": 2, "post_id": "2",
+                     "requested_additions": [], "publish_state": PublishState.PUBLISHED}
+        pending = {**skipped, "item_id": 3, "post_id": "3", "additions": ["1girl"],
+                   "publish_state": PublishState.PENDING_PUBLISH}
+        page.show_batch_entries([skipped, completed])
+        page.mark_batch_added()
+        self.assertIn("[1]", page.batch_button.text())
+        self.assertIn("palette(highlight)", page.batch_button.styleSheet())
+        self.assertIn("palette(highlighted-text)", page.batch_button.styleSheet())
+        self.assertTrue(page._batch_glow.isEnabled())
+        for accent in (QColor("#1b5fa7"), QColor("#ffbd54")):
+            palette = QPalette(page.batch_button.palette())
+            palette.setColor(QPalette.ColorRole.Highlight, accent)
+            page.batch_button.setPalette(palette)
+            self.assertEqual(page._batch_glow.color(), accent)
+            self.assertIn("[1]", page.batch_button.text())
+        page.show_batch()
+        self.assertEqual(page.batch_button.styleSheet(), "")
+        self.assertFalse(page._batch_glow.isEnabled())
+        self.assertFalse(page._publish_pulse_timer.isActive())
+        self.assertEqual(page.batch_table.item(1, 2).text(), "—")
+        self.assertIn("No tag changes needed", page.batch_table.item(0, 4).text())
+        page.show_batch_entries([skipped, completed, pending])
+        self.assertTrue(page._publish_pulse_timer.isActive())
+        page._return_from_batch()
+        page.mark_batch_added()
+        self.assertTrue(page._batch_glow.isEnabled())
+        page.show_batch()
+        self.assertFalse(page._batch_glow.isEnabled())
+        page.mark_publish_started()
+        self.assertFalse(page._publish_pulse_timer.isActive())
+        self.assertTrue(page.settings["tagging_first_publish_started"])
+        page.show_batch_entries([completed])
+        self.assertEqual(page.batch_button.text(), "Batch")
+        page.close()
+
+    def test_publish_result_event_updates_badge_and_batch_rows(self) -> None:
+        from types import SimpleNamespace
+
+        from booruflow.application.batch_publisher import BatchPublishProgress
+        from booruflow.domain.image_analysis import PublishState
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        entries = [
+            {"item_id": item_id, "site": "gelbooru", "post_id": str(item_id),
+             "additions": ["solo"], "removals": [], "reviewed_at": "now",
+             "publish_state": PublishState.PENDING_PUBLISH}
+            for item_id in (1, 2)
+        ]
+        page = TaggingPage(self.catalog(), {})
+        page.show_batch_entries(entries)
+        controller = TaggingController(self.catalog(), page, dict, lambda *_args: None)
+        controller.image_analysis = SimpleNamespace(repository=SimpleNamespace(
+            list_batch_entries=lambda: list(entries)
+        ))
+        self.assertIn("[2]", page.batch_button.text())
+        entries[0]["publish_state"] = PublishState.PUBLISHED
+        controller._batch_publish_status(BatchPublishProgress("result", 1, 2, 1))
+        self.assertIn("[1]", page.batch_button.text())
+        self.assertIn("Published", page.batch_table.item(0, 4).text())
+        entries[1]["publish_state"] = PublishState.FAILED
+        controller._batch_publish_status(BatchPublishProgress("result", 2, 2, 2))
+        self.assertIn("[1]", page.batch_button.text())
+        self.assertIn("Failed", page.batch_table.item(1, 4).text())
+        page.close()
+
     def test_result_checkboxes_share_selection_and_group_tristate(self) -> None:
         from PySide6.QtCore import Qt
         from PySide6.QtTest import QSignalSpy, QTest
@@ -535,7 +878,7 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertEqual(opened.count(), 1)
         page.close()
 
-    def test_queued_result_filter_uses_real_deltas_and_restores_cached_results(self) -> None:
+    def test_queued_result_filter_tracks_batch_rows_and_restores_removed_results(self) -> None:
         from booruflow.domain.image_analysis import PublishState
         from booruflow.presentation.pyside6.tagging_page import TaggingPage
 
@@ -550,15 +893,17 @@ class PySide6WorkflowTests(unittest.TestCase):
             {"site": "gelbooru", "post_id": "2", "additions": [], "removals": ["b"], "publish_state": PublishState.PUBLISHING},
             {"site": "gelbooru", "post_id": "3", "additions": ["c"], "removals": [], "publish_state": PublishState.PUBLISHED},
             {"site": "gelbooru", "post_id": "4", "additions": ["d"], "removals": [], "publish_state": PublishState.FAILED},
-            {"site": "gelbooru", "post_id": "5", "additions": [], "removals": [], "publish_state": PublishState.PENDING_PUBLISH},
+            {"site": "gelbooru", "post_id": "5", "additions": [], "removals": [], "publish_state": PublishState.SKIPPED},
         ])
-        self.assertEqual(set(page.result_buttons), {4, 5})
+        self.assertEqual(set(page.result_buttons), set())
         self.assertEqual(len(page._all_search_results), 5)
-        self.assertIn("3 already queued", page.result_filter_counts.text())
+        self.assertIn("5 already queued", page.result_filter_counts.text())
         page.hide_queued_results.setChecked(False)
         self.assertEqual(set(page.result_buttons), {1, 2, 3, 4, 5})
         page.hide_queued_results.setChecked(True)
-        self.assertEqual(set(page.result_buttons), {4, 5})
+        self.assertEqual(set(page.result_buttons), set())
+        page.set_batch_queue_entries([])
+        self.assertEqual(set(page.result_buttons), {1, 2, 3, 4, 5})
         page.close()
 
     def test_compact_result_card_format_never_renders_zero_deltas(self) -> None:
@@ -1375,6 +1720,50 @@ class PySide6WorkflowTests(unittest.TestCase):
         QTest.qWait(20)
 
         self.assertEqual(routed, ["gelbooru", "e621"])
+        self.assertTrue(page.settings["tagging_first_publish_started"])
+        page.close()
+
+    def test_publish_preflight_blocks_unauthenticated_embedded_session(self) -> None:
+        from types import SimpleNamespace
+        from unittest.mock import patch
+
+        from PySide6.QtTest import QTest
+
+        from booruflow.infrastructure.gelbooru_edit_transport import GelbooruSessionExpiredError
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        entries = [{
+            "item_id": 1, "site": "gelbooru", "post_id": "10", "additions": ["a"],
+            "removals": [], "reviewed_at": "now",
+            "publish_state": SimpleNamespace(value="pending_publish"),
+        }]
+        class Repository:
+            def list_batch_entries(self, _state=None): return entries
+        page = TaggingPage(self.catalog(), {})
+        page.show_batch_entries(entries)
+        page.show_batch()
+        self.assertTrue(page._publish_pulse_timer.isActive())
+        opened = []
+        class Session:
+            def validate(self): raise GelbooruSessionExpiredError("expired")
+        controller = TaggingController(
+            self.catalog(), page, dict, lambda *_args: None,
+            publisher_factory=lambda: (_ for _ in ()).throw(AssertionError("must not build")),
+            session_factory=Session(), embedded_login_opener=lambda: opened.append(True),
+        )
+        controller.image_analysis = SimpleNamespace(repository=Repository())
+        with patch("PySide6.QtWidgets.QMessageBox.question") as question:
+            page.batch_publish_button.click()
+            QTest.qWait(500)
+        self.assertIsNone(controller.publish_worker)
+        if not opened:
+            controller._show_gelbooru_auth_required("expired")
+        self.assertEqual(opened, [True])
+        self.assertEqual(question.call_count, 0)
+        self.assertIn("login", page.batch_status.text().lower())
+        self.assertFalse(page.settings.get("tagging_first_publish_started", False))
+        self.assertTrue(page._publish_pulse_timer.isActive())
         page.close()
 
     def test_publish_countdown_uses_worker_delay_and_formats_eta(self) -> None:
@@ -2094,6 +2483,8 @@ class PySide6WorkflowTests(unittest.TestCase):
         logs = []
         controller = TaggingController(self.catalog(), page, dict, logs.append)
         controller.current_post_id = 88
+        page._displayed_post_id = 88
+        page.mode_stack.setCurrentWidget(page.review)
         controller.refresh_local_review = MagicMock()
         messages = QSignalSpy(page.page_status.message_changed)
         states = QSignalSpy(page.page_status.state_changed)
@@ -2352,7 +2743,7 @@ class PySide6WorkflowTests(unittest.TestCase):
                 )
                 posts.append({"id": post_id, "tags": "solo", "priority": "low"})
             repository.add_to_tagging_pool(item_ids, "test")
-            page = TaggingPage(self.catalog(), {})
+            page = TaggingPage(self.catalog(), {"tagging_hide_queued_results": False})
             controller = TaggingController(
                 self.catalog(), page, dict, lambda *_args, **_kwargs: None
             )
@@ -2481,6 +2872,75 @@ class PySide6WorkflowTests(unittest.TestCase):
         self.assertIn("Local analysis requested", joined)
         self.assertIn("No existing item found", joined)
         self.assertIn("ready_for_review", joined)
+        page.close()
+
+    def test_wd14_completion_only_refreshes_the_still_displayed_post(self) -> None:
+        from types import SimpleNamespace
+
+        from PySide6.QtTest import QSignalSpy
+
+        from booruflow.domain.image_analysis import AnalysisState
+        from booruflow.presentation.pyside6.tagging_controller import TaggingController
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        posts = [
+            {"id": post_id, "tags": "solo", "priority": "low", "tag_count": 1}
+            for post_id in (1, 2)
+        ]
+        items = {
+            str(post_id): SimpleNamespace(
+                id=post_id, state=AnalysisState.PENDING,
+                cached_path=None, last_error=None,
+            )
+            for post_id in (1, 2)
+        }
+        page = TaggingPage(self.catalog(), {"tagging_hide_queued_results": False})
+        page.show_results(posts)
+        controller = TaggingController(self.catalog(), page, dict, lambda *_args: None)
+        controller.image_analysis = SimpleNamespace(repository=SimpleNamespace(
+            item_by_remote_source=lambda _site, post_id: items.get(post_id)
+        ))
+        controller.analyze = MagicMock()
+        rendered = []
+
+        def render_current():
+            rendered.append(controller.current_post_id)
+            page.show_local_review(
+                items[str(controller.current_post_id)].state.value,
+                None, [], [], [], [],
+            )
+
+        controller.refresh_local_review = render_current
+        page._select_post(posts[0])
+        self.assertIs(page.mode_stack.currentWidget(), page.review)
+        page._back_from_review()
+        before = len(rendered)
+        status_messages = QSignalSpy(page.page_status.message_changed)
+        items["1"].state = AnalysisState.READY_FOR_REVIEW
+        controller._poll_current()
+        self.assertIs(page.mode_stack.currentWidget(), page.search_view)
+        self.assertEqual(len(rendered), before)
+        self.assertTrue(any(
+            status_messages.at(index)[1] == "Analysis complete"
+            for index in range(status_messages.count())
+        ))
+
+        page._select_post(posts[0])
+        items["1"].state = AnalysisState.PROCESSING
+        controller._poll_current()
+        items["1"].state = AnalysisState.READY_FOR_REVIEW
+        controller._poll_current()
+        self.assertIs(page.mode_stack.currentWidget(), page.review)
+        self.assertEqual(rendered[-1], 1)
+        self.assertEqual(page.analysis_state.text(), "ready_for_review")
+
+        page._select_post(posts[1])
+        before = len(rendered)
+        items["1"].state = AnalysisState.REVIEWED
+        controller._poll_current()
+        self.assertEqual(len(rendered), before)
+        self.assertEqual(page._displayed_post_id, 2)
+        self.assertIs(page.mode_stack.currentWidget(), page.review)
         page.close()
 
     def test_legacy_tagging_surfaces_image_analysis_startup_timeout(self) -> None:

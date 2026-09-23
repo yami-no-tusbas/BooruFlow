@@ -144,7 +144,16 @@ class FeaturePageHost(QWidget):
         old_content.hide()
         old_content.deleteLater()
         self.page = page
-        self.content = ScrollablePageHost(page)
+        if hasattr(page, "persistent_footer"):
+            container = QWidget()
+            container_layout = QVBoxLayout(container)
+            container_layout.setContentsMargins(0, 0, 0, 0)
+            container_layout.setSpacing(0)
+            container_layout.addWidget(ScrollablePageHost(page), 1)
+            container_layout.addWidget(page.persistent_footer)
+            self.content = container
+        else:
+            self.content = ScrollablePageHost(page)
         self.stack.insertWidget(0, self.content)
         self.content.show()
 
@@ -155,10 +164,12 @@ class FeaturePageHost(QWidget):
         self.page = None
 
     def horizontalScrollBar(self):
-        return self.content.horizontalScrollBar()
+        scroll = self.content.findChild(ScrollablePageHost)
+        return (scroll or self.content).horizontalScrollBar()
 
     def verticalScrollBar(self):
-        return self.content.verticalScrollBar()
+        scroll = self.content.findChild(ScrollablePageHost)
+        return (scroll or self.content).verticalScrollBar()
 
     def resizeEvent(self, event) -> None:
         super().resizeEvent(event)

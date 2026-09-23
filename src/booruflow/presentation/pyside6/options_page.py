@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import sys
 from pathlib import Path
 
 from PySide6.QtCore import QUrl, Signal
@@ -90,6 +91,7 @@ class OptionsPage(QWidget):
     save_requested = Signal(dict, dict)
     language_changed = Signal(str)
     database_update_requested = Signal(str, str)
+    database_full_rebuild_requested = Signal(str, str)
     alias_update_requested = Signal(str, str)
     database_stop_requested = Signal()
     browser_test_requested = Signal(dict)
@@ -105,6 +107,7 @@ class OptionsPage(QWidget):
     hydra_install_requested = Signal()
     hydra_migrate_requested = Signal()
     hydra_remove_requested = Signal()
+    setup_requested = Signal()
 
     def __init__(
         self,
@@ -113,10 +116,12 @@ class OptionsPage(QWidget):
         credentials: dict[str, object] | None = None,
         project_root: Path | None = None,
         parent: QWidget | None = None,
+        log=None,
     ) -> None:
         super().__init__(parent)
         self.catalog = catalog
         self.project_root = project_root or Path.cwd()
+        self.log = log or (lambda _message: None)
         self.page_status = PageStatus("options", self)
         self._settings = dict(settings or {})
         self._credentials = {
@@ -223,6 +228,11 @@ class OptionsPage(QWidget):
         database_grid.addWidget(self.database_site, 0, 1)
         database_grid.addWidget(self.database_path_label, 1, 0)
         database_grid.addWidget(self.database_path, 1, 1)
+        self.full_rebuild = QPushButton()
+        self.full_rebuild.clicked.connect(lambda: self.database_full_rebuild_requested.emit(
+            str(self.database_site.currentData()), self.database_path.edit.text().strip()
+        ))
+        database_grid.addWidget(self.full_rebuild, 1, 2)
         path_grid.addWidget(self.grabber_executable_label, 0, 0)
         path_grid.addWidget(self.grabber_executable, 0, 1)
         path_grid.addWidget(self.grabber_status, 1, 1)
@@ -431,7 +441,12 @@ class OptionsPage(QWidget):
         self.save_button.setDefault(True)
         self.save_button.clicked.connect(self._save)
         buttons.addWidget(self.save_button)
-        layout.addLayout(buttons)
+        self.persistent_footer = QWidget()
+        self.persistent_footer.setLayout(buttons)
+        self.persistent_footer.setStyleSheet("border-top: 1px solid palette(mid);")
+        self.setup_button = QPushButton()
+        buttons.insertWidget(0, self.setup_button)
+        self.setup_button.clicked.connect(self.setup_requested.emit)
         layout.addStretch(1)
         self._load_settings(settings or {})
         self._display_credentials("gelbooru")
@@ -503,9 +518,17 @@ class OptionsPage(QWidget):
         status = analysis_installation_status(self.project_root, self._settings)
         installed = self.catalog.text("options.installed")
         missing = self.catalog.text("options.not_installed")
-        self.gpu_runtime_status.setText(
-            installed if status.gpu_runtime_installed else missing
-        )
+        if status.cuda_runtime_available:
+            runtime_label = self.catalog.text("options.runtime_cuda", version=status.runtime_version)
+        elif status.cpu_runtime_available:
+            runtime_label = self.catalog.text("options.runtime_cpu", version=status.runtime_version)
+        else:
+            runtime_label = missing
+        self.gpu_runtime_status.setText(runtime_label)
+        if getattr(sys, "frozen", False):
+            self.gpu_runtime_install.setEnabled(False)
+            self.gpu_runtime_install.setToolTip(self.catalog.text("options.runtime_frozen_cpu"))
+            self.gpu_runtime_status.setToolTip(self.catalog.text("options.runtime_frozen_cpu"))
         self.wd14_model_status.setText(installed if status.wd14_installed else missing)
         self.wd14_install.setText(
             self.catalog.text(
@@ -514,7 +537,7 @@ class OptionsPage(QWidget):
         )
 
     def set_analysis_install_running(self, running: bool, operation: str = "") -> None:
-        self.gpu_runtime_install.setEnabled(not running)
+        self.gpu_runtime_install.setEnabled(not running and not getattr(sys, "frozen", False))
         self.wd14_install.setEnabled(not running)
         if running:
             key = (
@@ -571,9 +594,16 @@ class OptionsPage(QWidget):
             self.hydra_status_label.setText(message)
 
     def _open_models(self) -> None:
-        QDesktopServices.openUrl(
+        self.log("[INFO] [ImageAnalysis] Open models folder requested.")
+        opened = QDesktopServices.openUrl(
             QUrl.fromLocalFile(str(self.project_root / "var" / "models"))
         )
+        if not opened:
+            self.log("[ERROR] [ImageAnalysis] Could not open models folder.")
+            self.page_status.show_message(
+                "Could not open models folder — see log", timeout_ms=0,
+                global_message=True, level="ERROR"
+            )
 
     @staticmethod
     def _percent_from_setting(value: object, default: float) -> float:
@@ -594,6 +624,9 @@ class OptionsPage(QWidget):
             if self._database_running_site == str(self.database_site.currentData())
             else self.catalog.text("options.update_database")
         )
+        self.full_rebuild.setText(self.catalog.text("options.full_rebuild"))
+        self.full_rebuild.setToolTip(self.catalog.text("options.full_rebuild_tip"))
+        self.full_rebuild.setEnabled(not self._database_running_site)
         self.database_path.action.setEnabled(
             not self._database_running_site
             or self._database_running_site == str(self.database_site.currentData())
@@ -604,6 +637,7 @@ class OptionsPage(QWidget):
         row.edit.setText(value)
 
     def _test_credentials(self) -> None:
+        self.log(f"[INFO] [Credentials] {self._current_site} validation requested.")
         self._capture_credentials(self._current_site)
         self.credentials_test_requested.emit(self._current_site, dict(self._credentials[self._current_site]))
 
@@ -639,7 +673,9 @@ class OptionsPage(QWidget):
         self.clear_browser_profile.setVisible(dedicated)
         self.reset_browser_profile.setVisible(dedicated)
         valid = not custom or "{url}" in self.browser_command.text()
-        self.browser_command.setStyleSheet("" if valid else "border: 1px solid #d9534f;")
+        self.browser_command.setStyleSheet(
+            "" if valid else "border: 1px solid palette(highlight);"
+        )
         self.test_browser.setEnabled(valid)
 
     def _update_publish_fields(self) -> None:
@@ -685,6 +721,16 @@ class OptionsPage(QWidget):
         self.user_id.setText(self._credentials[site]["user_id"])
         self.api_key.setText(self._credentials[site]["api_key"])
 
+    def apply_saved_credentials(self, credentials: dict[str, object]) -> None:
+        """Refresh the already-open form after another UI flow saves credentials."""
+        self._credentials = {
+            site: self._site_credentials(credentials, site)
+            for site in ("gelbooru", "e621")
+        }
+        self._display_credentials(self._current_site)
+        self._credential_statuses[self._current_site] = "not_tested"
+        self._update_credential_status()
+
     def _site_changed(self) -> None:
         self._capture_credentials(self._current_site)
         self._current_site = str(self.site.currentData())
@@ -722,6 +768,7 @@ class OptionsPage(QWidget):
 
     def retranslate(self) -> None:
         text = self.catalog.text
+        self.setup_button.setText(text("wizard.open"))
         self.title.setText(text("nav.options"))
         self.general_group.setTitle(text("options.general"))
         self.language_label.setText(text("options.language"))
@@ -771,6 +818,8 @@ class OptionsPage(QWidget):
             if self._database_running_site == str(self.database_site.currentData())
             else self.catalog.text("options.update_database")
         )
+        self.full_rebuild.setText(text("options.full_rebuild"))
+        self.full_rebuild.setToolTip(text("options.full_rebuild_tip"))
         for site, row in (("gelbooru", self.gelbooru_database), ("e621", self.e621_database)):
             row.action.setText(text("options.stop_database") if self._database_running_site == site else text("options.update_database"))
         self.note.setText(text("options.note"))

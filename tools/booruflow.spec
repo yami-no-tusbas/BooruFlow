@@ -1,10 +1,49 @@
 # PyInstaller onedir build for the first portable BooruFlow alpha.
+import os
+import sys
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 project = Path(SPECPATH).parent
 src = project / "src"
+runtime_profile = os.environ.get("BOORUFLOW_PORTABLE_RUNTIME_PROFILE", "CPU").upper()
+if runtime_profile not in {"CPU", "CUDA"}:
+    raise ValueError(f"Unsupported portable runtime profile: {runtime_profile}")
+
+profile_binaries = []
+profile_datas = []
+if runtime_profile == "CUDA":
+    site_packages = Path(sys.prefix) / "Lib" / "site-packages"
+    cuda_binaries = [
+        ("onnxruntime/capi/onnxruntime_providers_cuda.dll", "onnxruntime/capi"),
+        ("nvidia/cu13/bin/x86_64/cublasLt64_13.dll", "nvidia/cu13/bin/x86_64"),
+        ("nvidia/cu13/bin/x86_64/cublas64_13.dll", "nvidia/cu13/bin/x86_64"),
+        ("nvidia/cu13/bin/x86_64/cufft64_12.dll", "nvidia/cu13/bin/x86_64"),
+        ("nvidia/cu13/bin/x86_64/cudart64_13.dll", "nvidia/cu13/bin/x86_64"),
+        ("nvidia/cudnn/bin/cudnn_engines_runtime_compiled64_9.dll", "nvidia/cudnn/bin"),
+        ("nvidia/cudnn/bin/cudnn_engines_precompiled64_9.dll", "nvidia/cudnn/bin"),
+        ("nvidia/cudnn/bin/cudnn_heuristic64_9.dll", "nvidia/cudnn/bin"),
+        ("nvidia/cudnn/bin/cudnn_ops64_9.dll", "nvidia/cudnn/bin"),
+        ("nvidia/cudnn/bin/cudnn_adv64_9.dll", "nvidia/cudnn/bin"),
+        ("nvidia/cudnn/bin/cudnn_graph64_9.dll", "nvidia/cudnn/bin"),
+        ("nvidia/cudnn/bin/cudnn64_9.dll", "nvidia/cudnn/bin"),
+        ("nvidia/cudnn/bin/cudnn_engines_tensor_ir64_9.dll", "nvidia/cudnn/bin"),
+    ]
+    missing = [relative for relative, _destination in cuda_binaries
+               if not (site_packages / relative).is_file()]
+    if missing:
+        raise FileNotFoundError(
+            "CUDA portable dependencies are missing: " + ", ".join(missing)
+        )
+    profile_binaries = [
+        (str(site_packages / relative), destination)
+        for relative, destination in cuda_binaries
+    ]
+    profile_datas = [
+        *copy_metadata("nvidia-cuda-runtime"),
+        *copy_metadata("nvidia-cudnn-cu13"),
+    ]
 
 hiddenimports = [
     "booruflow.worker.image_analysis_bootstrap",
@@ -27,8 +66,9 @@ hiddenimports += collect_submodules("booruflow.infrastructure.schema")
 a = Analysis(
     [str(src / "booruflow" / "__main__.py")],
     pathex=[str(src)],
-    binaries=[],
+    binaries=profile_binaries,
     datas=[
+        *profile_datas,
         (str(project / "resources" / "i18n"), "resources/i18n"),
         (str(project / "data" / "taxonomy" / "tag_organization.json"), "data/taxonomy"),
         *[
@@ -60,9 +100,10 @@ a.binaries = [
         # Qt's OpenSSL TLS plugin crashes in this frozen CPU bundle before the
         # first HTTPS reply. Windows Schannel passed the same thumbnail probe.
         "qopensslbackend.dll",
-        # The packaged ONNX path uses CPUExecutionProvider. These optional GPU
-        # providers depend on CUDA/TensorRT DLLs absent from the portable app.
-        "onnxruntime_providers_cuda.dll", "onnxruntime_providers_tensorrt.dll",
+        # TensorRT is not used by WD14 and is excluded from both profiles.
+        "onnxruntime_providers_tensorrt.dll",
+        # The CPU profile stays free of the CUDA provider and NVIDIA runtime.
+        *({"onnxruntime_providers_cuda.dll"} if runtime_profile == "CPU" else set()),
     }
 ]
 pyz = PYZ(a.pure)

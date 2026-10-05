@@ -1,3 +1,4 @@
+import io
 import json
 import sys
 import tempfile
@@ -75,6 +76,87 @@ class WD14Tests(unittest.TestCase):
     def test_missing_artifacts_are_explicit(self):
         with self.assertRaises(WD14UnavailableError):
             WD14Backend(WD14Config(self.root)).prepare()
+
+    def test_analyze_batch_preserves_order_and_uses_one_run(self):
+        self.artifacts()
+        calls = []
+
+        class BatchSession(_Session):
+            def run(self, _outputs, values):
+                calls.append(values["input"].shape)
+                count = values["input"].shape[0]
+                return [numpy.tile(
+                    numpy.asarray([[0.05, 0.75, 0.25]], dtype=numpy.float32),
+                    (count, 1),
+                )]
+
+        fake = types.SimpleNamespace(
+            __version__="1.20",
+            get_available_providers=lambda: ["CPUExecutionProvider"],
+            InferenceSession=lambda path, providers: BatchSession(path, providers),
+        )
+        with patch.dict(sys.modules, {"onnxruntime": fake}):
+            backend = WD14Backend(WD14Config(self.root, store_threshold=0.10))
+            backend.prepare()
+            paths = []
+            for index in range(3):
+                path = self.root / f"batch-{index}.png"
+                Image.new("RGB", (4, 2), (index * 40, 0, 0)).save(path)
+                paths.append(path)
+            results = backend.analyze_batch(paths, batch_size=4)
+        self.assertEqual(calls, [(3, 448, 448, 3)])
+        self.assertEqual(len(results), 3)
+        self.assertEqual([r.predictions[0].raw_name for r in results], ["blue hair"] * 3)
+
+    def test_analyze_accepts_cache_bytes_without_materializing_a_file(self):
+        self.artifacts()
+        fake = types.SimpleNamespace(
+            __version__="1.20",
+            get_available_providers=lambda: ["CPUExecutionProvider"],
+            InferenceSession=_Session,
+        )
+        payload = io.BytesIO()
+        Image.new("RGB", (4, 2), "red").save(payload, format="PNG")
+        with patch.dict(sys.modules, {"onnxruntime": fake}):
+            backend = WD14Backend(WD14Config(self.root, store_threshold=0.10))
+            backend.prepare()
+            result = backend.analyze(payload.getvalue())
+        self.assertEqual(
+            [tag.raw_name for tag in result.predictions], ["blue hair", "miku"]
+        )
+
+    def test_analyze_batch_reduces_after_oom_and_remembers_limit(self):
+        self.artifacts()
+        calls = []
+
+        class OOMSession(_Session):
+            def run(self, _outputs, values):
+                calls.append(values["input"].shape[0])
+                if values["input"].shape[0] > 2:
+                    raise RuntimeError("CUDA memory allocation failed")
+                count = values["input"].shape[0]
+                return [numpy.tile(
+                    numpy.asarray([[0.05, 0.75, 0.25]], dtype=numpy.float32),
+                    (count, 1),
+                )]
+
+        fake = types.SimpleNamespace(
+            __version__="1.20",
+            get_available_providers=lambda: ["CUDAExecutionProvider", "CPUExecutionProvider"],
+            InferenceSession=lambda path, providers: OOMSession(path, providers),
+        )
+        with patch.dict(sys.modules, {"onnxruntime": fake}):
+            backend = WD14Backend(WD14Config(self.root, store_threshold=0.10))
+            backend.prepare()
+            paths = []
+            for index in range(4):
+                path = self.root / f"oom-{index}.png"
+                Image.new("RGB", (4, 2), "red").save(path)
+                paths.append(path)
+            results = backend.analyze_batch(paths, batch_size=4)
+            self.assertEqual(backend.effective_batch_size, 2)
+        self.assertEqual(calls, [4, 2, 2])
+        self.assertEqual(len(results), 4)
 
 
 if __name__ == "__main__": unittest.main()

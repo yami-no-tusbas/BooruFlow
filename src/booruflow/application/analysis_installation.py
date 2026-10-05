@@ -8,6 +8,8 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+from booruflow.infrastructure.onnx_runtime import preload_nvidia_dlls
+
 
 @dataclass(frozen=True, slots=True)
 class AnalysisInstallationStatus:
@@ -35,6 +37,9 @@ def runtime_capabilities() -> tuple[bool, bool, str]:
         providers = set(ort.get_available_providers())
         cuda_available = "CUDAExecutionProvider" in providers
         if cuda_available and os.name == "nt":
+            _available, preload_succeeded, _message = preload_nvidia_dlls(ort)
+            if not preload_succeeded:
+                cuda_available = False
             capi = Path(str(getattr(ort, "__file__", ""))).parent / "capi"
             provider = capi / "onnxruntime_providers_cuda.dll"
             try:

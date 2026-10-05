@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 from collections.abc import Callable
 from contextlib import nullcontext
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from importlib.resources import files
 from pathlib import Path
 from typing import Self
@@ -25,8 +26,17 @@ from booruflow.domain.image_analysis import (
     TagObservation,
     validate_transition,
 )
+from booruflow.domain.publication_retry import can_retry_publication
+from booruflow.infrastructure.wd14_score_cache import (
+    WD14_CACHE_PRUNE_LIMIT,
+    WD14_CACHE_TTL_DAYS,
+    decode_wd14_scores,
+    encode_wd14_scores,
+    wd14_labels_hash,
+)
 
-SCHEMA_VERSION = 25
+SCHEMA_VERSION = 26
+TEST_BLOCKED_DATABASE_ENV = "BOORUFLOW_TEST_BLOCKED_ANALYSIS_DATABASE"
 
 
 def utc_now() -> str:
@@ -35,7 +45,11 @@ def utc_now() -> str:
 
 class ImageAnalysisRepository:
     def __init__(self, path: Path, *, timeout_seconds: float = 30.0) -> None:
-        self.path = path
+        self.path = Path(path)
+        blocked = os.environ.get(TEST_BLOCKED_DATABASE_ENV, "").strip()
+        if blocked and self.path.resolve() == Path(blocked).resolve():
+            raise RuntimeError("Tests must use a temporary image-analysis database")
+        path = self.path
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, timeout=timeout_seconds)
         self.connection.row_factory = sqlite3.Row
@@ -294,6 +308,21 @@ class ImageAnalysisRepository:
             )
             with self.connection:
                 self.connection.executescript(migration)
+            version = 25
+        if version == 25:
+            migration = (
+                files("booruflow.infrastructure.schema")
+                .joinpath("image_analysis_v26.sql")
+                .read_text(encoding="utf-8")
+            )
+            # Recheck under the writer lock: concurrent repository opens must
+            # never drop an already migrated cache. Keep DDL/version atomic.
+            with self.connection:
+                self.connection.execute("BEGIN IMMEDIATE")
+                if self.connection.execute("PRAGMA user_version").fetchone()[0] == 25:
+                    for statement in migration.split(";"):
+                        if statement.strip():
+                            self.connection.execute(statement)
 
     def close(self) -> None:
         self.connection.close()
@@ -360,13 +389,7 @@ class ImageAnalysisRepository:
                 ),
             )
             item_id = int(cursor.lastrowid)
-            self.connection.executemany(
-                """
-                INSERT INTO source_tags(item_id,site,tag_name,category,fetched_at)
-                VALUES(?,?,?,?,?)
-                """,
-                ((item_id, tag.source.value, tag.name, tag.category, now) for tag in source_tags),
-            )
+            self._upsert_source_tags(item_id, source_tags, now)
             if source.site:
                 self.connection.executemany(
                     """
@@ -416,6 +439,54 @@ class ImageAnalysisRepository:
                 (site, str(post_id)),
             ).fetchone()
         return self.get_item(int(row[0])) if row else None
+
+    def items_by_remote_sources(
+        self, sources: list[tuple[str, str]] | tuple[tuple[str, str], ...]
+    ) -> dict[tuple[str, str], AnalysisItem]:
+        """Resolve remote identities in bounded batches without an N+1 lookup."""
+        requested = list(dict.fromkeys((str(site), str(post_id)) for site, post_id in sources))
+        resolved: dict[tuple[str, str], AnalysisItem] = {}
+        for offset in range(0, len(requested), 400):
+            batch = requested[offset : offset + 400]
+            values = ",".join("(?,?)" for _ in batch)
+            parameters = tuple(value for pair in batch for value in pair)
+            rows = self.connection.execute(
+                f"""WITH requested(site,post_id) AS (VALUES {values})
+                    SELECT requested.site AS requested_site,
+                           requested.post_id AS requested_post_id,
+                           analysis_items.*
+                    FROM requested
+                    JOIN image_provenances
+                      ON image_provenances.site=requested.site
+                     AND image_provenances.post_id=requested.post_id
+                    JOIN analysis_items ON analysis_items.id=image_provenances.item_id
+                    ORDER BY image_provenances.id""",
+                parameters,
+            ).fetchall()
+            for row in rows:
+                key = (str(row["requested_site"]), str(row["requested_post_id"]))
+                resolved.setdefault(key, self._item_from_row(row))
+            missing = [pair for pair in batch if pair not in resolved]
+            if not missing:
+                continue
+            values = ",".join("(?,?)" for _ in missing)
+            parameters = tuple(value for pair in missing for value in pair)
+            rows = self.connection.execute(
+                f"""WITH requested(site,post_id) AS (VALUES {values})
+                    SELECT requested.site AS requested_site,
+                           requested.post_id AS requested_post_id,
+                           analysis_items.*
+                    FROM requested
+                    JOIN analysis_items
+                      ON analysis_items.source_site=requested.site
+                     AND analysis_items.source_post_id=requested.post_id
+                    ORDER BY analysis_items.id""",
+                parameters,
+            ).fetchall()
+            for row in rows:
+                key = (str(row["requested_site"]), str(row["requested_post_id"]))
+                resolved.setdefault(key, self._item_from_row(row))
+        return resolved
 
     def tag_mapping(self, source_namespace: str, source_tag: str, target_site: str) -> str | None:
         row = self.connection.execute(
@@ -481,11 +552,7 @@ class ImageAnalysisRepository:
                     "UPDATE analysis_items SET queue_visible=?,updated_at=? WHERE id=?",
                     (int(queue_visible), now, item_id),
                 )
-            self.connection.executemany(
-                """INSERT OR REPLACE INTO source_tags(item_id,site,tag_name,category,fetched_at)
-                   VALUES(?,?,?,?,?)""",
-                ((item_id, tag.source.value, tag.name, tag.category, now) for tag in source_tags),
-            )
+            self._upsert_source_tags(item_id, source_tags, now)
             if site:
                 self.connection.executemany(
                     """INSERT OR IGNORE INTO item_artists(item_id,site,artist_tag,provenance)
@@ -550,6 +617,27 @@ class ImageAnalysisRepository:
         if not changed:
             raise KeyError(item_id)
 
+    def cancel_navigation_prefetch(self, item_id: int) -> None:
+        """Withdraw only our unclaimed speculative request, never a promoted job."""
+        with self.connection:
+            self.connection.execute(
+                """UPDATE analysis_items SET analysis_requested=0,updated_at=?
+                   WHERE id=? AND state='pending' AND priority=50""",
+                (utc_now(), item_id),
+            )
+
+    def prioritize_navigation_item(self, item_id: int) -> None:
+        """The displayed image precedes earlier interactive requests."""
+        with self.connection:
+            self.connection.execute(
+                """UPDATE analysis_items SET priority=100
+                   WHERE id<>? AND priority=200 AND state='pending'""", (item_id,),
+            )
+            self.connection.execute(
+                """UPDATE analysis_items SET priority=200,analysis_requested=1
+                   WHERE id=? AND state IN ('pending','processing')""", (item_id,),
+            )
+
     def resolve_item(
         self,
         item_id: int,
@@ -573,7 +661,7 @@ class ImageAnalysisRepository:
                 WHERE id=? AND source_state='unresolved'
                 """,
                 (
-                    str(item.cached_path),
+                    str(item.cached_path) if item.cached_path else None,
                     item.content_sha256,
                     item.mime_type,
                     item.width,
@@ -584,11 +672,7 @@ class ImageAnalysisRepository:
             ).rowcount
             if not changed:
                 raise ValueError(f"item {item_id} is not unresolved")
-            self.connection.executemany(
-                """INSERT INTO source_tags(item_id,site,tag_name,category,fetched_at)
-                   VALUES(?,?,?,?,?)""",
-                ((item_id, tag.source.value, tag.name, tag.category, now) for tag in source_tags),
-            )
+            self._upsert_source_tags(item_id, source_tags, now)
             site = item.source.site
             self.connection.executemany(
                 """INSERT INTO item_artists(item_id,site,artist_tag,provenance)
@@ -627,7 +711,7 @@ class ImageAnalysisRepository:
                    WHERE source_state='unresolved'
                      AND analysis_requested=1
                      AND source_resolution_started_at IS NULL
-                   ORDER BY created_at,id LIMIT ?""",
+                   ORDER BY priority DESC,created_at,id LIMIT ?""",
                 (available,),
             ).fetchall()
             ids = [int(row[0]) for row in rows]
@@ -656,6 +740,10 @@ class ImageAnalysisRepository:
         ).fetchone()
         if row is None:
             return None
+        return self._item_from_row(row)
+
+    @staticmethod
+    def _item_from_row(row: sqlite3.Row) -> AnalysisItem:
         source = SourceReference(
             InputKind(row["input_kind"]),
             Path(row["original_path"]) if row["original_path"] else None,
@@ -683,6 +771,29 @@ class ImageAnalysisRepository:
             )
         )
 
+    def _upsert_source_tags(
+        self,
+        item_id: int,
+        source_tags: tuple[SourceTag, ...],
+        fetched_at: str,
+        *,
+        site: str | None = None,
+    ) -> None:
+        """Idempotently merge one metadata set without weakening its unique key."""
+        rows: dict[tuple[str, str], tuple[int, str, str, str | None, str]] = {}
+        for tag in source_tags:
+            tag_site = site or tag.source.value
+            rows[(tag_site, tag.name)] = (
+                item_id, tag_site, tag.name, tag.category, fetched_at
+            )
+        self.connection.executemany(
+            """INSERT INTO source_tags(item_id,site,tag_name,category,fetched_at)
+               VALUES(?,?,?,?,?)
+               ON CONFLICT(item_id,site,tag_name) DO UPDATE SET
+                 category=excluded.category,fetched_at=excluded.fetched_at""",
+            rows.values(),
+        )
+
     def replace_source_metadata(
         self, item_id: int, site: str, source_tags: tuple[SourceTag, ...], artists: tuple[str, ...]
     ) -> None:
@@ -692,11 +803,7 @@ class ImageAnalysisRepository:
             self.connection.execute(
                 "DELETE FROM source_tags WHERE item_id=? AND site=?", (item_id, site)
             )
-            self.connection.executemany(
-                """INSERT INTO source_tags(item_id,site,tag_name,category,fetched_at)
-                   VALUES(?,?,?,?,?)""",
-                ((item_id, site, tag.name, tag.category, now) for tag in source_tags),
-            )
+            self._upsert_source_tags(item_id, source_tags, now, site=site)
             self.connection.execute(
                 "DELETE FROM item_artists WHERE item_id=? AND site=? AND provenance='source_tag'",
                 (item_id, site),
@@ -769,11 +876,7 @@ class ImageAnalysisRepository:
     ) -> None:
         now = utc_now()
         with self.connection:
-            self.connection.executemany(
-                """INSERT OR REPLACE INTO source_tags(item_id,site,tag_name,category,fetched_at)
-                   VALUES(?,?,?,?,?)""",
-                ((item_id, site, tag.name, tag.category, now) for tag in tags),
-            )
+            self._upsert_source_tags(item_id, tags, now, site=site)
             self.connection.executemany(
                 """INSERT OR IGNORE INTO item_artists(item_id,site,artist_tag,provenance)
                    VALUES(?,?,?,'source_tag')""",
@@ -961,7 +1064,7 @@ class ImageAnalysisRepository:
         """Explain every resolved canonical image lacking an artist association."""
         items = self.connection.execute(
             """SELECT id,content_sha256,cached_path FROM analysis_items i
-               WHERE source_state='resolved' AND cached_path IS NOT NULL
+               WHERE source_state='resolved' AND content_sha256 IS NOT NULL
                  AND NOT EXISTS(SELECT 1 FROM item_artists a WHERE a.item_id=i.id)
                ORDER BY id"""
         )
@@ -1002,7 +1105,7 @@ class ImageAnalysisRepository:
                 {
                     "item_id": int(item["id"]),
                     "sha": str(item["content_sha256"] or "")[:12],
-                    "cached_path": str(item["cached_path"]),
+                    "cached_path": str(item["cached_path"] or ""),
                     "provenances": provenances,
                     "source_tags": source_tags,
                     "metadata_available": metadata_available,
@@ -1047,7 +1150,7 @@ class ImageAnalysisRepository:
             row = self.connection.execute(
                 """SELECT id FROM analysis_items
                    WHERE state='pending' AND source_state='resolved'
-                     AND analysis_requested=1 AND priority>=100
+                     AND analysis_requested=1 AND priority>=50
                    ORDER BY priority DESC,created_at,id LIMIT 1"""
             ).fetchone()
             if row is None and analysis_prefetch is not None:
@@ -1723,18 +1826,27 @@ class ImageAnalysisRepository:
             ).rowcount
 
     def retry_failed_publishes(self, item_ids: object, max_attempts: int = 3) -> int:
-        values = tuple(dict.fromkeys(int(item_id) for item_id in item_ids))
+        """Start a fresh automatic-attempt cycle only after an explicit retry.
+
+        max_attempts is retained for callers using the previous API; exhaustion
+        of that automatic budget does not make a transient error permanent.
+        """
+        wanted = {int(item_id) for item_id in item_ids}
+        values = tuple(
+            int(entry["item_id"]) for entry in self.list_batch_entries(PublishState.FAILED)
+            if int(entry["item_id"]) in wanted and can_retry_publication(entry)
+        )
         if not values:
             return 0
         placeholders = ",".join("?" for _ in values)
         with self.connection:
             return self.connection.execute(
-                f"""UPDATE tagging_review_batch_entries SET publish_state=?
-                    WHERE publish_state=? AND COALESCE(failure_retryable,1)=1
-                    AND publish_attempts<? AND item_id IN ({placeholders})""",
+                f"""UPDATE tagging_review_batch_entries SET publish_state=?,
+                        failure_retryable=1
+                    WHERE publish_state=? AND item_id IN ({placeholders})""",
                 (
                     PublishState.PENDING_PUBLISH.value, PublishState.FAILED.value,
-                    int(max_attempts), *values,
+                    *values,
                 ),
             ).rowcount
 
@@ -2087,7 +2199,7 @@ class ImageAnalysisRepository:
             int(row[0])
             for row in self.connection.execute(
                 """SELECT id FROM analysis_items
-               WHERE source_state='resolved' AND cached_path IS NOT NULL ORDER BY id"""
+               WHERE source_state='resolved' AND content_sha256 IS NOT NULL ORDER BY id"""
             )
         ]
 
@@ -2100,7 +2212,7 @@ class ImageAnalysisRepository:
         total = int(
             self.connection.execute(
                 """SELECT COUNT(*) FROM analysis_items
-               WHERE source_state='resolved' AND cached_path IS NOT NULL"""
+               WHERE source_state='resolved' AND content_sha256 IS NOT NULL"""
             ).fetchone()[0]
         )
         embedded = int(
@@ -2128,10 +2240,10 @@ class ImageAnalysisRepository:
     def artist_image_rows(self, site: str, artist_tag: str) -> list[sqlite3.Row]:
         return list(
             self.connection.execute(
-                """SELECT DISTINCT i.id,i.cached_path FROM item_artists a
+                """SELECT DISTINCT i.id,i.cached_path,i.content_sha256 FROM item_artists a
                JOIN analysis_items i ON i.id=a.item_id
                WHERE a.site=? AND a.artist_tag=? COLLATE NOCASE
-                 AND i.cached_path IS NOT NULL ORDER BY i.id""",
+                 AND i.content_sha256 IS NOT NULL ORDER BY i.id""",
                 (site, artist_tag),
             )
         )
@@ -2427,17 +2539,55 @@ class ImageAnalysisRepository:
         return len(rows)
 
     def save_wd14_score_vector(
-        self, run_id: int, scores: dict[str, float]
+        self, run_id: int, scores: dict[str, float], *, labels: tuple[str, ...]
     ) -> None:
-        """Persist one complete WD14 output vector against its versioned model run."""
-        payload = json.dumps(scores, ensure_ascii=False, separators=(",", ":"))
+        """Persist only scores >= the cache floor, with an exact shared label map."""
+        labels_hash = wd14_labels_hash(labels)
+        payload = encode_wd14_scores(scores, labels)
         with self.connection:
-            self.connection.execute(
-                """INSERT INTO wd14_score_vectors(model_run_id,scores_json,created_at)
-                   VALUES(?,?,?) ON CONFLICT(model_run_id) DO UPDATE SET
-                   scores_json=excluded.scores_json,created_at=excluded.created_at""",
-                (run_id, payload, utc_now()),
+            run = self.connection.execute(
+                """SELECT model_name,model_version,configuration_hash FROM model_runs
+                   WHERE id=? AND backend='wd14'""", (run_id,),
+            ).fetchone()
+            if run is None:
+                raise ValueError("WD14 cache requires an existing WD14 model run")
+            identity = (*tuple(run), labels_hash)
+            cursor = self.connection.execute(
+                """INSERT INTO wd14_label_sets(
+                       model_name,model_version,configuration_hash,labels_hash,label_count)
+                   VALUES(?,?,?,?,?) ON CONFLICT DO NOTHING""",
+                (*identity, len(labels)),
             )
+            label_set_id = int(self.connection.execute(
+                """SELECT id FROM wd14_label_sets WHERE model_name=? AND model_version=?
+                   AND configuration_hash=? AND labels_hash=?""", identity,
+            ).fetchone()[0])
+            if cursor.rowcount:
+                self.connection.executemany(
+                    "INSERT INTO wd14_labels(label_set_id,tag_index,tag_name) VALUES(?,?,?)",
+                    ((label_set_id, index, name) for index, name in enumerate(labels)),
+                )
+            self.connection.execute(
+                """INSERT INTO wd14_score_vectors(
+                       model_run_id,label_set_id,scores_blob,created_at)
+                   VALUES(?,?,?,?) ON CONFLICT(model_run_id) DO UPDATE SET
+                   label_set_id=excluded.label_set_id,scores_blob=excluded.scores_blob,
+                   created_at=excluded.created_at""",
+                (run_id, label_set_id, payload, utc_now()),
+            )
+
+    def prune_wd14_score_vectors(self) -> int:
+        """Bounded lazy expiry after WD14 work; preserve runs and all their other data."""
+        cutoff = (datetime.now(UTC) - timedelta(days=WD14_CACHE_TTL_DAYS)).isoformat(
+            timespec="seconds"
+        )
+        with self.connection:
+            cursor = self.connection.execute(
+                """DELETE FROM wd14_score_vectors WHERE model_run_id IN (
+                       SELECT model_run_id FROM wd14_score_vectors WHERE created_at<=?
+                       ORDER BY created_at LIMIT ?)""", (cutoff, WD14_CACHE_PRUNE_LIMIT),
+            )
+        return cursor.rowcount
 
     def model_run_id_for_identity(
         self,
@@ -2463,12 +2613,55 @@ class ImageAnalysisRepository:
         model_version: str,
         configuration_hash: str,
         target_names: tuple[str, ...],
+        *,
+        labels: tuple[str, ...],
     ) -> dict[str, float]:
-        """Load compatible targeted scores for many remote posts in one query."""
-        if not post_ids or not target_names:
-            return {}
-        result: dict[str, float] = {}
+        """Return exact retained targets only; absent targets require fresh inference."""
         names = {value.casefold() for value in target_names}
+        # Preserve the first match in full model order, even if it was not retained.
+        target = next((name for name in labels if name.casefold() in names), None)
+        if target is None:
+            return {}
+        vectors = self.wd14_vectors_for_remote_posts(
+            site, post_ids, model_name, model_version, configuration_hash, labels=labels,
+        )
+        return {post: vector[target] for post, vector in vectors.items() if target in vector}
+
+    def wd14_vectors_for_remote_posts(
+        self,
+        site: str,
+        post_ids: list[str],
+        model_name: str,
+        model_version: str,
+        configuration_hash: str,
+        *,
+        labels: tuple[str, ...],
+    ) -> dict[str, dict[str, float]]:
+        """Read sparse vectors; missing keys are unknown, never implicit zero scores.
+
+        Callers must supply the current model's ordered labels and check that all
+        requested targets are present before considering an image a cache hit.
+        """
+        if not post_ids:
+            return {}
+        label_set = self.connection.execute(
+            """SELECT id,label_count FROM wd14_label_sets WHERE model_name=?
+               AND model_version=? AND configuration_hash=? AND labels_hash=?""",
+            (model_name, model_version, configuration_hash, wd14_labels_hash(labels)),
+        ).fetchone()
+        if label_set is None or label_set["label_count"] != len(labels):
+            return {}
+        stored_labels = self.connection.execute(
+            "SELECT tag_index,tag_name FROM wd14_labels WHERE label_set_id=? ORDER BY tag_index",
+            (label_set["id"],),
+        ).fetchall()
+        if [(row[0], row[1]) for row in stored_labels] != list(enumerate(labels)):
+            return {}
+        cutoff = (datetime.now(UTC) - timedelta(days=WD14_CACHE_TTL_DAYS)).isoformat(
+            timespec="seconds"
+        )
+        result: dict[str, dict[str, float]] = {}
+        seen: set[str] = set()
         for offset in range(0, len(post_ids), 800):
             chunk = post_ids[offset:offset + 800]
             placeholders = ",".join("?" for _ in chunk)
@@ -2480,30 +2673,27 @@ class ImageAnalysisRepository:
                         SELECT id,source_post_id FROM analysis_items
                         WHERE source_site=? AND source_post_id IN ({placeholders})
                     )
-                    SELECT p.post_id,v.scores_json
+                    SELECT p.post_id,v.scores_blob
                     FROM remote_items p
                     JOIN model_runs r ON r.item_id=p.item_id
                     JOIN wd14_score_vectors v ON v.model_run_id=r.id
                     WHERE r.backend='wd14' AND r.model_name=? AND r.model_version=?
                       AND r.configuration_hash=? AND r.state='completed'
+                      AND v.label_set_id=? AND v.created_at>?
                     ORDER BY r.finished_at DESC,r.id DESC""",
-                (
-                    site, *chunk, site, *chunk,
-                    model_name, model_version, configuration_hash,
-                ),
+                (site, *chunk, site, *chunk, model_name, model_version,
+                 configuration_hash, label_set["id"], cutoff),
             )
             for row in rows:
                 post_id = str(row["post_id"])
-                if post_id in result:
+                if post_id in seen:
                     continue
-                scores = json.loads(str(row["scores_json"]))
-                match = next(
-                    (float(score) for name, score in scores.items()
-                     if name.casefold() in names),
-                    None,
-                )
-                if match is not None:
-                    result[post_id] = match
+                seen.add(post_id)
+                try:
+                    result[post_id] = decode_wd14_scores(row["scores_blob"], labels)
+                except (ValueError, TypeError):
+                    # This is reconstructible cache, not a failed image analysis.
+                    continue
         return result
 
     def statistics(self, item_id: int) -> ColorStatistics | None:

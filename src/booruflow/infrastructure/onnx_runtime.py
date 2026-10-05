@@ -2,13 +2,58 @@
 
 from __future__ import annotations
 
+import errno
 import importlib
 import os
 import subprocess
+import tempfile
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
+from time import perf_counter, sleep
 from typing import Any
+
+_wd14_thread_lock = threading.Lock()
+
+
+@contextmanager
+def serialized_wd14_execution():
+    """Serialize existing WD14 sessions across the GUI and analysis process.
+
+    OS ownership is released on process exit; no database lease or second
+    inference worker is needed. Never acquire this on the GUI thread.
+    """
+    path = Path(tempfile.gettempdir()) / "booruflow-wd14-execution.lock"
+    with _wd14_thread_lock, path.open("a+b") as stream:
+        stream.seek(0, os.SEEK_END)
+        if stream.tell() == 0:
+            stream.write(b"0")
+            stream.flush()
+        stream.seek(0)
+        if os.name == "nt":
+            import msvcrt
+            while True:
+                try:
+                    msvcrt.locking(stream.fileno(), msvcrt.LK_NBLCK, 1)
+                    break
+                except OSError as exc:
+                    if exc.errno not in {errno.EACCES, errno.EAGAIN, errno.EDEADLK}:
+                        raise
+                    sleep(.01)
+            try:
+                yield
+            finally:
+                stream.seek(0)
+                msvcrt.locking(stream.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(stream.fileno(), fcntl.LOCK_EX)
+            try:
+                yield
+            finally:
+                fcntl.flock(stream.fileno(), fcntl.LOCK_UN)
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,7 +135,11 @@ def preload_nvidia_dlls(ort: Any) -> tuple[bool, bool, str]:
 
 def create_inference_session(model: Path, provider_preference: tuple[str, ...],trace=None):
     """Create a session, preload isolated DLLs, and report the provider actually active."""
-    trace=trace or (lambda _message:None);trace("ONNX import begin")
+    started = perf_counter()
+    raw_trace = trace or (lambda _message: None)
+    def trace(message):
+        raw_trace(f"{message} elapsed_ms={(perf_counter() - started) * 1000:.1f}")
+    trace("ONNX import begin")
     ort = import_onnxruntime()
     trace("ONNX import complete")
     runtime_version = str(getattr(ort, "__version__", "unknown"))

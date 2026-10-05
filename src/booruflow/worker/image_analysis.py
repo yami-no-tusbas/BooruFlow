@@ -22,7 +22,10 @@ from booruflow.domain.image_analysis import (
 from booruflow.infrastructure.classic_image_analysis import ClassicImageAnalyzer
 from booruflow.infrastructure.hydra import HydraBackend, HydraConfig, HydraResult
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
-from booruflow.infrastructure.image_sources import ImageSourceService
+from booruflow.infrastructure.image_sources import (
+    ImageSourceService,
+    analysis_cache_directory_for_repository,
+)
 from booruflow.infrastructure.media_frames import representative_frames
 from booruflow.infrastructure.wd14 import (
     DEFAULT_MODEL_ID,
@@ -31,6 +34,7 @@ from booruflow.infrastructure.wd14 import (
     WD14OutOfMemoryError,
     WD14Result,
     WD14UnavailableError,
+    resolve_wd14_batch_size,
 )
 
 
@@ -84,6 +88,8 @@ class ImageAnalysisWorker:
         heartbeat_interval: float = 2.0,
         alias_database: Path | None = None,
         require_wd14: bool = False,
+        wd14_batch_size: str = "auto",
+        cache_directory: Path | None = None,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self.repository = repository
@@ -92,11 +98,17 @@ class ImageAnalysisWorker:
         self.heartbeat_interval = heartbeat_interval
         self.alias_database = alias_database
         self.require_wd14 = require_wd14
+        self.wd14_batch_size = str(wd14_batch_size or "auto")
         self.clock = clock
-        self.sources = ImageSourceService(repository, repository.path.parent.parent / "cache")
+        if cache_directory is None:
+            cache_directory = analysis_cache_directory_for_repository(repository)
+        self.sources = ImageSourceService(repository, cache_directory)
         self.last_scheduler_signature: tuple | None = None
         self.completed_since_summary = 0
         self.failed_since_summary = 0
+
+    def close(self) -> None:
+        self.sources.close()
 
     def log_scheduler_if_changed(self) -> None:
         diagnostic = self.repository.scheduler_diagnostic(self.analysis_prefetch)
@@ -150,6 +162,7 @@ class ImageAnalysisWorker:
         self.last_scheduler_signature = None
         print(f"[DEBUG] [Worker] [item:{item.id}] Item claimed", flush=True)
         run_id: int | None = None
+        source_context = None
         try:
             active_backends = ", ".join(
                 backend.identity.backend for backend in self.backends
@@ -171,7 +184,8 @@ class ImageAnalysisWorker:
                 backend.identity.backend == "wd14" for backend in self.backends
             ):
                 raise RuntimeError("WD14 was required but no WD14 backend is active")
-            path = self.sources.validate_item_file(item)
+            source_context = self.sources.materialize_item(item)
+            path = source_context.__enter__()
             last_heartbeat = self.clock()
             for backend in selected_backends:
                 identity = backend.identity
@@ -208,7 +222,15 @@ class ImageAnalysisWorker:
                     # preserve their existing one-image result contract.
                     analysis_frames = frames if identity.backend == "wd14" else frames[:1]
                     with ItemHeartbeat(self.repository.path, item.id, self.heartbeat_interval):
-                        results = [backend.analyze(frame) for frame in analysis_frames]
+                        if identity.backend == "wd14" and len(analysis_frames) > 1:
+                            results = list(backend.analyze_batch(
+                                analysis_frames,
+                                batch_size=resolve_wd14_batch_size(
+                                    self.wd14_batch_size, backend.provider
+                                ),
+                            ))
+                        else:
+                            results = [backend.analyze(frame) for frame in analysis_frames]
                 finally:
                     if temporary is not None:
                         temporary.cleanup()
@@ -281,6 +303,139 @@ class ImageAnalysisWorker:
                 print(f"[ERROR] [WD14] [item:{item.id}] OOM: {exc}", flush=True)
                 raise
             print(f"[ERROR] [Worker] [item:{item.id}] Item failed: {exc}", flush=True)
+        finally:
+            if source_context is not None:
+                source_context.__exit__(None, None, None)
+        return True
+
+    def process_batch(self) -> bool:
+        """Claim and process a fixed-image batch with one WD14 session."""
+        first = self.repository.claim_next(self.analysis_prefetch)
+        if first is None:
+            self.log_scheduler_if_changed()
+            return False
+        backend = next((value for value in self.backends
+                        if getattr(value, "identity", None)
+                        and value.identity.backend == "wd14"), None)
+        if backend is None:
+            return self._process_claimed_fallback(first)
+        requested = resolve_wd14_batch_size(self.wd14_batch_size, backend.provider)
+        priority = self.repository.connection.execute(
+            "SELECT priority FROM analysis_items WHERE id=?", (first.id,)
+        ).fetchone()[0]
+        if priority >= 50:
+            # Do not make the current image or its one neighbour wait for an
+            # unrelated background batch to be prepared and inferred.
+            requested = 1
+        items = [first]
+        while len(items) < requested:
+            item = self.repository.claim_next(None)
+            if item is None:
+                break
+            items.append(item)
+        contexts = []
+        try:
+            for item in items:
+                selected = tuple(value for value in self.backends
+                                 if not hasattr(value, "supported_sites")
+                                 or item.source.site in value.supported_sites)
+                source_context = self.sources.materialize_item(item)
+                path = source_context.__enter__()
+                try:
+                    frames, temporary, media_log = representative_frames(path)
+                except Exception:
+                    source_context.__exit__(None, None, None)
+                    raise
+                if media_log:
+                    print(f"[INFO] [Worker] [item:{item.id}] {media_log}", flush=True)
+                contexts.append((item, selected, frames, temporary, source_context, {}))
+                for value in selected:
+                    identity = value.identity
+                    run_id = self.repository.begin_model_run(
+                        item.id, identity.backend, identity.name, identity.version,
+                        identity.configuration_hash, str(getattr(value, "runtime", "")),
+                        getattr(identity, "device", getattr(value, "device", "")),
+                    )
+                    contexts[-1][5][identity.backend] = run_id
+            wd14_contexts = [value for value in contexts
+                             if value[5].get("wd14") is not None]
+            paths = [frame for value in wd14_contexts for frame in value[2]]
+            if paths:
+                try:
+                    results = backend.analyze_batch(paths, batch_size=requested)
+                except Exception as exc:  # noqa: BLE001 - isolate a batch failure per image
+                    print(f"[WARNING] [WD14] Batch fallback to per-image analysis: {exc}", flush=True)
+                    results = []
+                    for path in paths:
+                        try:
+                            results.append(backend.analyze(path))
+                        except Exception as image_exc:  # noqa: BLE001 - per-image boundary
+                            results.append(image_exc)
+                metrics = getattr(backend, "last_batch_metrics", {})
+                print(
+                    "[INFO] [WD14] Batch "
+                    f"provider={metrics.get('provider', backend.provider)} "
+                    f"requested={requested} used={metrics.get('batch_size', len(paths))} "
+                    f"images={len(paths)} preprocess_ms={metrics.get('preprocess_ms', 0):.1f} "
+                    f"session_run_ms={metrics.get('session_run_ms', 0):.1f} "
+                    f"postprocess_ms={metrics.get('postprocess_ms', 0):.1f} "
+                    f"total_ms={metrics.get('total_ms', 0):.1f}",
+                    flush=True,
+                )
+                result_index = 0
+                for context in wd14_contexts:
+                    item, _selected, _frames, _temporary, _source_context, runs = context
+                    frame_count = len(_frames)
+                    result_group = results[result_index:result_index + frame_count]
+                    result_index += frame_count
+                    if any(isinstance(value, Exception) for value in result_group):
+                        raise next(value for value in result_group if isinstance(value, Exception))
+                    result = _merge_results(result_group)
+                    predictions = [(tag.raw_name, tag.category, tag.score)
+                                   for tag in result.predictions]
+                    self.repository.save_tag_predictions(
+                        item.id, runs["wd14"], predictions,
+                        canonicalize=wd14_canonicalizer(item.source.site, self.alias_database),
+                    )
+                    self.repository.complete_model_run(runs["wd14"])
+                    runs["wd14"] = None
+            for item, selected, frames, temporary, _source_context, runs in contexts:
+                for value in selected:
+                    if value.identity.backend == "wd14":
+                        continue
+                    run_id = runs[value.identity.backend]
+                    if run_id is None:
+                        continue
+                    result = value.analyze(frames[0])
+                    if isinstance(result, ColorStatistics):
+                        self.repository.save_statistics(item.id, run_id, result)
+                    self.repository.complete_model_run(run_id)
+                    runs[value.identity.backend] = None
+                self.repository.transition(item.id, AnalysisState.READY_FOR_REVIEW)
+                self.completed_since_summary += 1
+                print(f"[DEBUG] [Worker] [item:{item.id}] Item ready", flush=True)
+        except Exception as exc:  # noqa: BLE001 - worker batch boundary
+            for item, _selected, _frames, _temporary, _source_context, runs in contexts:
+                for run_id in runs.values():
+                    if run_id is not None:
+                        self.repository.fail_model_run(run_id, str(exc))
+                current = self.repository.get_item(item.id)
+                if current and current.state is AnalysisState.PROCESSING:
+                    self.repository.transition(item.id, AnalysisState.FAILED, str(exc))
+            print(f"[ERROR] [Worker] batch failed: {exc}", flush=True)
+        finally:
+            for _item, _selected, _frames, temporary, source_context, _runs in contexts:
+                if temporary is not None:
+                    temporary.cleanup()
+                source_context.__exit__(None, None, None)
+        return True
+
+    def _process_claimed_fallback(self, item) -> bool:
+        """Keep the legacy single-item path when WD14 is not active."""
+        # A non-WD14 worker cannot safely be re-claimed through process_one().
+        # Its normal callers use process_one directly; this defensive path only
+        # applies when a batch was requested with an unexpected backend set.
+        self.repository.transition(item.id, AnalysisState.FAILED, "WD14 batch backend unavailable")
         return True
 
 
@@ -316,6 +471,7 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument("--wd14-model-directory", type=Path)
     result.add_argument("--wd14-model-id", default=DEFAULT_MODEL_ID)
     result.add_argument("--wd14-store-threshold", type=float, default=0.10)
+    result.add_argument("--wd14-batch-size", default="auto")
     result.add_argument("--hydra-enabled", action="store_true")
     result.add_argument("--hydra-source-directory", type=Path)
     result.add_argument("--hydra-model-path", type=Path)
@@ -490,6 +646,7 @@ def main(
             heartbeat_interval=args.heartbeat_interval,
             alias_database=args.gelbooru_alias_database,
             require_wd14=args.wd14_enabled,
+            wd14_batch_size=args.wd14_batch_size,
         )
         print(
             "[INFO] [Worker] Active backends: "
@@ -508,7 +665,14 @@ def main(
         try:
             while not stop.is_set():
                 repository.worker_heartbeat(worker_id)
-                worked = worker.process_one()
+                use_batch = (
+                    args.wd14_enabled
+                    and not args.hydra_enabled
+                    and str(args.wd14_batch_size).casefold() != "1"
+                    and any(getattr(backend, "identity", None)
+                            and backend.identity.backend == "wd14" for backend in backends)
+                )
+                worked = worker.process_batch() if use_batch else worker.process_one()
                 completed += int(worked)
                 if args.once:
                     break
@@ -531,6 +695,7 @@ def main(
             return 1
         repository.stop_worker(worker_id)
         print(f"[INFO] [Worker] Exited pid={os.getpid()} code=0", flush=True)
+        worker.close()
         for backend in backends:
             close = getattr(backend, "close", None)
             if close:

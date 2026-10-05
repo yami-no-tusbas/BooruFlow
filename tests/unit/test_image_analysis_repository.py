@@ -1,5 +1,6 @@
 import sqlite3
 import tempfile
+import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -38,7 +39,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
-            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 25)
+            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 26)
             self.assertIn("wd14_score_vectors", tables)
             self.assertEqual(repository.connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
             self.assertEqual(repository.connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
@@ -59,7 +60,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 ).fetchone()
             )
         with ImageAnalysisRepository(self.database) as reopened:
-            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 25)
+            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 26)
 
     def test_feature_maintenance_marker_is_database_local_and_persistent(self) -> None:
         with ImageAnalysisRepository(self.database) as repository:
@@ -107,6 +108,10 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 "ALTER TABLE tagging_review_batch_entries "
                 "DROP COLUMN published_final_tags_json"
             )
+            # Restore the pre-WD14-cache schema before replaying old migrations.
+            connection.execute("DROP TABLE wd14_score_vectors")
+            connection.execute("DROP TABLE wd14_labels")
+            connection.execute("DROP TABLE wd14_label_sets")
             connection.execute("PRAGMA user_version=16")
             connection.commit()
         finally:
@@ -188,7 +193,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
         with ImageAnalysisRepository(self.database) as reopened:
             self.assertEqual(reopened.batch_entry(item_id)["reviewed_final_tags"], ["a", "c", "e"])
 
-    def test_retry_failed_excludes_locked_and_exhausted_but_accepts_legacy_null(self) -> None:
+    def test_explicit_retry_excludes_locked_and_restarts_exhausted_transient_errors(self) -> None:
         from booruflow.domain.image_analysis import PublishState
 
         with ImageAnalysisRepository(self.database) as repository:
@@ -220,9 +225,10 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
 
             changed = repository.retry_failed_publishes(item_ids, max_attempts=3)
 
-            self.assertEqual(changed, 1)
+            self.assertEqual(changed, 2)
             self.assertIs(repository.batch_entry(locked_id)["publish_state"], PublishState.FAILED)
-            self.assertIs(repository.batch_entry(exhausted_id)["publish_state"], PublishState.FAILED)
+            self.assertIs(repository.batch_entry(exhausted_id)["publish_state"], PublishState.PENDING_PUBLISH)
+            self.assertEqual(repository.batch_entry(exhausted_id)["publish_attempts"], 3)
             self.assertIs(
                 repository.batch_entry(legacy_id)["publish_state"],
                 PublishState.PENDING_PUBLISH,
@@ -528,6 +534,29 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
             repository.make_queue_visible(item_id)
             self.assertTrue(repository.item_queue_visible(item_id))
 
+    def test_remote_sources_are_resolved_in_one_batch_across_primary_and_provenance(self) -> None:
+        primary = AnalysisItem(
+            SourceReference(InputKind.GELBOORU_POST, site="gelbooru", post_id="100"),
+            cached_path=Path("cached.png"), content_sha256="d" * 64,
+            mime_type="image/png", width=10, height=20,
+        )
+        with ImageAnalysisRepository(self.database) as repository:
+            item_id = repository.add_item(primary)
+            repository.reuse_item(
+                item_id,
+                SourceReference(
+                    InputKind.GELBOORU_POST, site="gelbooru", post_id="200"
+                ),
+            )
+
+            found = repository.items_by_remote_sources(
+                [("gelbooru", "100"), ("gelbooru", "200"), ("gelbooru", "404")]
+            )
+
+            self.assertEqual(found[("gelbooru", "100")].id, item_id)
+            self.assertEqual(found[("gelbooru", "200")].id, item_id)
+            self.assertNotIn(("gelbooru", "404"), found)
+
     def test_embedding_only_import_can_avoid_full_analysis_scheduler(self) -> None:
         with ImageAnalysisRepository(self.database) as repository:
             item_id = repository.add_item(self.item("embedding-only.png"))
@@ -569,6 +598,86 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 repository.connection.execute(
                     "INSERT INTO source_tags VALUES(999,'e621','missing',NULL,'now')"
                 )
+
+    def test_source_tag_upsert_deduplicates_and_keeps_sites_independent(self) -> None:
+        gelbooru = AnalysisItem(
+            SourceReference(InputKind.GELBOORU_POST, site="gelbooru", post_id="42"),
+            content_sha256="b" * 64,
+        )
+        second = AnalysisItem(
+            SourceReference(InputKind.GELBOORU_POST, site="gelbooru", post_id="43"),
+            content_sha256="c" * 64,
+        )
+        duplicate_tags = (
+            SourceTag("shared", ObservationSource.GELBOORU, None),
+            SourceTag("shared", ObservationSource.GELBOORU, "general"),
+            SourceTag("solo", ObservationSource.GELBOORU, "general"),
+        )
+        with ImageAnalysisRepository(self.database) as repository:
+            item_id = repository.add_item(gelbooru, duplicate_tags)
+            repository.reuse_item(item_id, gelbooru.source, duplicate_tags)
+            other_id = repository.add_item(second, duplicate_tags)
+            repository.reuse_item(
+                item_id,
+                SourceReference(InputKind.E621_POST, site="e621", post_id="99"),
+                (SourceTag("shared", ObservationSource.E621, "general"),),
+            )
+
+            rows = repository.connection.execute(
+                """SELECT site,tag_name,category FROM source_tags
+                   WHERE item_id=? ORDER BY site,tag_name""",
+                (item_id,),
+            ).fetchall()
+            self.assertEqual(
+                [tuple(row) for row in rows],
+                [
+                    ("e621", "shared", "general"),
+                    ("gelbooru", "shared", "general"),
+                    ("gelbooru", "solo", "general"),
+                ],
+            )
+            self.assertEqual(
+                {tag.name for tag in repository.source_tags(other_id)},
+                {"shared", "solo"},
+            )
+
+    def test_replace_source_metadata_is_exact_idempotent_and_concurrency_safe(self) -> None:
+        with ImageAnalysisRepository(self.database) as repository:
+            item_id = repository.add_item(self.item())
+            initial = tuple(
+                SourceTag(name, ObservationSource.GELBOORU, "general")
+                for name in ("a", "b")
+            )
+            repository.replace_source_metadata(item_id, "gelbooru", initial, ())
+            repository.replace_source_metadata(item_id, "gelbooru", initial, ())
+            replacement = tuple(
+                SourceTag(name, ObservationSource.GELBOORU, "general")
+                for name in ("b", "c", "c")
+            )
+            repository.replace_source_metadata(item_id, "gelbooru", replacement, ())
+            self.assertEqual(
+                [tag.name for tag in repository.source_tags(item_id)], ["b", "c"]
+            )
+
+        barrier = threading.Barrier(2)
+
+        def replace(names: tuple[str, ...]) -> None:
+            tags = tuple(
+                SourceTag(name, ObservationSource.GELBOORU, "general")
+                for name in names
+            )
+            with ImageAnalysisRepository(self.database) as repository:
+                barrier.wait()
+                repository.replace_source_metadata(item_id, "gelbooru", tags, ())
+
+        alternatives = (("a", "b"), ("b", "c"))
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(replace, names) for names in alternatives]
+            for future in futures:
+                future.result()
+        with ImageAnalysisRepository(self.database) as repository:
+            final_tags = tuple(tag.name for tag in repository.source_tags(item_id))
+        self.assertIn(final_tags, alternatives)
 
     def test_same_remote_post_reuses_existing_queue_item(self) -> None:
         with ImageAnalysisRepository(self.database) as repository:

@@ -246,9 +246,13 @@ class WorkerLifecycleTests(unittest.TestCase):
 class FakeWD14:
     identity = ModelIdentity("wd14", "test", "v1", "config", "cpu")
     runtime = "fake"
+    provider = "CPUExecutionProvider"
 
     def analyze(self, _path):
         return WD14Result((WD14Tag("blue hair", "general", 0.8),))
+
+    def analyze_batch(self, paths, *, batch_size=None):
+        return tuple(self.analyze(path) for path in paths)
 
 
 class ImageAnalysisWorkerTests(unittest.TestCase):
@@ -351,6 +355,56 @@ class ImageAnalysisWorkerTests(unittest.TestCase):
         self.assertEqual(observations[0][1].raw_tag_name, "blue hair")
         self.assertEqual(observations[0][1].category, "general")
 
+    def test_wd14_batch_processes_multiple_items_in_one_backend_call(self) -> None:
+        first = self.image("batch-one.png")
+        second = self.image("batch-two.png")
+        backend = FakeWD14()
+        calls = []
+        original = backend.analyze_batch
+
+        def traced(paths, *, batch_size=None):
+            calls.append((len(paths), batch_size))
+            return original(paths, batch_size=batch_size)
+
+        backend.analyze_batch = traced
+        worker = ImageAnalysisWorker(
+            self.repository, [backend], analysis_prefetch=2, wd14_batch_size="2"
+        )
+        self.assertTrue(worker.process_batch())
+        self.assertEqual(calls, [(2, 2)])
+        self.assertEqual(self.repository.get_item(first).state, AnalysisState.READY_FOR_REVIEW)
+        self.assertEqual(self.repository.get_item(second).state, AnalysisState.READY_FOR_REVIEW)
+
+    def test_classic_analysis_reads_remote_blob_through_ephemeral_path(self) -> None:
+        source_path = self.root / "remote-source.png"
+        Image.new("RGB", (17, 11), (20, 40, 60)).save(source_path)
+        cache_directory = self.root / "remote-cache"
+
+        class Provider:
+            def fetch_post(self, post_id: str) -> NormalizedPost:
+                return NormalizedPost(
+                    "gelbooru", post_id, "https://local.invalid/image.png", (), ()
+                )
+
+        with ImageSourceService(
+            self.repository, cache_directory,
+            bytes_fetcher=lambda _url, _headers: source_path.read_bytes(),
+        ) as resolver:
+            item_id = resolver.add_post(Provider(), "42")
+        item = self.repository.get_item(item_id)
+        self.assertIsNone(item.cached_path)
+
+        worker = ImageAnalysisWorker(
+            self.repository, [ClassicImageAnalyzer()], cache_directory=cache_directory
+        )
+        try:
+            self.assertTrue(worker.process_one())
+        finally:
+            worker.close()
+        self.assertEqual(self.repository.get_item(item_id).state, AnalysisState.READY_FOR_REVIEW)
+        self.assertIsNotNone(self.repository.statistics(item_id))
+        self.assertFalse(cache_directory.exists())
+
     def test_e621_remote_resolution_runs_hydra_only_and_reuses_cache(self) -> None:
         """Exercise the normal remote resolver without an e621 network call."""
         source_path = self.root / "e621-source.png"
@@ -394,13 +448,16 @@ class ImageAnalysisWorkerTests(unittest.TestCase):
         self.assertEqual(item.source.post_id, "local-e621-1")
         self.assertEqual(item.state, AnalysisState.PENDING)
         self.assertIsNotNone(item.content_sha256)
-        self.assertTrue(item.cached_path and item.cached_path.is_file())
+        self.assertIsNone(item.cached_path)
         self.assertEqual(item.mime_type, "image/png")
         self.assertEqual((item.width, item.height), (17, 11))
-        self.assertEqual(resolver.validate_item_file(item), item.cached_path)
+        self.assertEqual(resolver.cached_bytes(item), source_path.read_bytes())
 
         hydra = FakeHydra()
-        worker = ImageAnalysisWorker(self.repository, [ExplodingWD14(), hydra])
+        worker = ImageAnalysisWorker(
+            self.repository, [ExplodingWD14(), hydra],
+            cache_directory=self.root / "remote-cache",
+        )
         self.assertTrue(worker.process_one())
         self.assertEqual(hydra.calls, 1)
         self.assertEqual(self.repository.get_item(item_id).state, AnalysisState.READY_FOR_REVIEW)
@@ -427,6 +484,8 @@ class ImageAnalysisWorkerTests(unittest.TestCase):
             ).fetchone()[0],
             1,
         )
+        worker.close()
+        resolver.close()
 
     def test_manual_reanalysis_reuses_item_and_replaces_old_wd14_observations(self) -> None:
         item_id = self.image()

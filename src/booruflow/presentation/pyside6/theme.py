@@ -37,4 +37,3 @@ def refresh_widget_tree(root: QWidget) -> None:
         if widget is not root and callable(refresh):
             refresh()
         widget.update()
-

@@ -122,6 +122,8 @@ def parse_review_row_token(value: object) -> tuple[str, str | int]:
     token = str(value)
     if token.startswith("existing:"):
         return "existing", token.removeprefix("existing:")
+    if token.startswith("entity:"):
+        return "entity", token.removeprefix("entity:")
     return "observation", int(token)
 
 

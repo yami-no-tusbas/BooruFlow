@@ -12,13 +12,23 @@ from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
 
-from PySide6.QtCore import QThread, Signal
+from PySide6.QtCore import QThread, QTimer, Signal
 from PySide6.QtWidgets import QApplication, QMessageBox
 
 from booruflow.application.batch_publisher import MAX_PUBLISH_ATTEMPTS, BatchPublishSummary
 from booruflow.application.database_paths import gelbooru_alias_database, gelbooru_tag_database
+from booruflow.application.entity_profiles import merge_profile_suggestions
+from booruflow.application.tag_autocomplete import (
+    AutocompleteRequest,
+    TagAutocompleteService,
+    TagSuggestion,
+    parse_autocomplete_text,
+)
 from booruflow.application.tag_canonicalization import canonicalize_new_gelbooru_tag
-from booruflow.application.tag_lookup import exact_tag, lookup_gelbooru_suggestions, lookup_tags
+from booruflow.application.tag_lookup import (
+    AUTOCOMPLETE_MIN_CHARS,
+    exact_tag,
+)
 from booruflow.application.tag_policy import is_deprecated
 from booruflow.application.tagging import (
     LocalMatchState,
@@ -27,17 +37,32 @@ from booruflow.application.tagging import (
     parse_review_row_token,
 )
 from booruflow.application.targeted_wd14 import (
+    PersistentWD14Session,
     TargetedWD14Analyzer,
     resolve_wd14_target,
 )
 from booruflow.domain.booru_sites import category_name, site_definition
-from booruflow.domain.image_analysis import AnalysisState, DecisionState, ObservationSource
+from booruflow.domain.entity_profiles import activation_tags
+from booruflow.domain.image_analysis import (
+    AnalysisItem,
+    AnalysisState,
+    DecisionState,
+    InputKind,
+    ObservationSource,
+    SourceReference,
+    SourceTag,
+)
+from booruflow.domain.publication_retry import can_retry_publication
+from booruflow.infrastructure.entity_profile_repository import EntityProfileRepository
 from booruflow.infrastructure.gelbooru_edit_transport import (
     GelbooruSessionExpiredError,
     GelbooruSessionUnknownError,
 )
 from booruflow.infrastructure.tag_browser import TagRow, exact_tags
-from booruflow.presentation.pyside6.tagging_legacy_controller import TaggingLegacyController
+from booruflow.presentation.pyside6.tagging_legacy_controller import (
+    TaggingLegacyController,
+    _analysis_item_signature,
+)
 
 
 def _active_site(controller) -> str:
@@ -166,6 +191,7 @@ class TagSuggestionWorker(QThread):
         query: str,
         tag_database: Path,
         alias_database: Path | None,
+        generation: int = 0,
     ) -> None:
         super().__init__()
         self.target = target
@@ -173,22 +199,16 @@ class TagSuggestionWorker(QThread):
         self.query = query
         self.tag_database = tag_database
         self.alias_database = alias_database
+        self.request = AutocompleteRequest(target, generation, site, query)
 
     def run(self) -> None:
         started = perf_counter()
         try:
-            if self.site == "gelbooru":
-                rows = lookup_gelbooru_suggestions(
-                    self.tag_database, self.alias_database, self.query, limit=20
-                )
-                suggestions = [(row.value, row.alias_source) for row in rows]
-            else:
-                suggestions = [
-                    row.name
-                    for row in lookup_tags(
-                        self.site, self.tag_database, self.query, limit=20
-                    )
-                ]
+            service = TagAutocompleteService(
+                {self.site: self.tag_database},
+                {self.site: self.alias_database},
+            )
+            suggestions = service.suggestions(self.request)
         except Exception as exc:  # noqa: BLE001 - worker boundary
             self.failed.emit(self.target, self.site, self.query, str(exc))
             return
@@ -201,21 +221,68 @@ class TagSuggestionWorker(QThread):
         )
 
 
+class SearchTokenResolutionWorker(QThread):
+    """Resolve pasted tag-shaped tokens exactly, without validating the query."""
+
+    completed = Signal(int, str, object, float)
+    failed = Signal(int, str, str)
+
+    def __init__(
+        self, generation: int, site: str, database: Path, candidates: list[str]
+    ) -> None:
+        super().__init__()
+        self.generation = generation
+        self.site = site
+        self.database = database
+        self.candidates = list(candidates)
+
+    def run(self) -> None:
+        started = perf_counter()
+        try:
+            rows = exact_tags(self.database, self.candidates)
+            known = {
+                normalize_booru_tag(row.name): (
+                    row.name,
+                    category_name(self.site, row.category),
+                )
+                for row in rows
+                if not is_deprecated(self.site, row.category)
+            }
+        except (FileNotFoundError, ValueError, sqlite3.Error) as exc:
+            self.failed.emit(self.generation, self.site, str(exc))
+            return
+        self.completed.emit(
+            self.generation,
+            self.site,
+            known,
+            (perf_counter() - started) * 1_000,
+        )
+
+
 class TargetedWD14Worker(QThread):
     progress = Signal(object)
     completed = Signal(object)
     failed = Signal(str)
+    diagnostic = Signal(str)
 
-    def __init__(self, analyzer: TargetedWD14Analyzer, tag: str, raw_names, posts) -> None:
+    def __init__(self, analyzer: TargetedWD14Analyzer, tag: str, raw_names, posts, tag_requests=None) -> None:
         super().__init__()
         self.analyzer = analyzer; self.tag = tag; self.raw_names = raw_names; self.posts = posts
+        self.tag_requests = tag_requests
 
     def run(self) -> None:
         try:
-            result = self.analyzer.analyze(
-                self.tag, self.raw_names, self.posts, self.progress.emit,
-                self.isInterruptionRequested,
-            )
+            self.analyzer.diagnostic_callback = self.diagnostic.emit
+            if self.tag_requests:
+                result = self.analyzer.analyze_many(
+                    tuple(self.tag_requests), self.posts, self.progress.emit,
+                    self.isInterruptionRequested,
+                )
+            else:
+                result = self.analyzer.analyze(
+                    self.tag, self.raw_names, self.posts, self.progress.emit,
+                    self.isInterruptionRequested,
+                )
             self.completed.emit(result)
         except Exception as exc:  # noqa: BLE001 - worker boundary
             self.failed.emit(str(exc))
@@ -271,6 +338,7 @@ class ManualAddOperation:
 
 
 class TaggingController(TaggingLegacyController):
+    interactive_priority = 200
     """Transition entry point for the new Tagging workflow."""
 
     def __init__(self, *args, **kwargs) -> None:
@@ -307,6 +375,10 @@ class TaggingController(TaggingLegacyController):
         self.page.site_changed.connect(self.site_changed)
         self.page.bulk_apply_requested.connect(self.apply_bulk_manual_tags)
         self.page.bulk_lookup_requested.connect(self.lookup_bulk_tags)
+        self.page.search_lookup_requested.connect(
+            lambda text: self.lookup_bulk_tags("search", text)
+        )
+        self.page.search_resolve_requested.connect(self.resolve_search_tokens)
         self.page.targeted_wd14_requested.connect(self.start_targeted_wd14)
         self.page.targeted_wd14_cancel_requested.connect(self.cancel_targeted_wd14)
         self.publish_worker: BatchPublishWorker | None = None
@@ -315,13 +387,89 @@ class TaggingController(TaggingLegacyController):
         self._publish_preflight_retry_ids: list[int] | None = None
         self._publish_preflight_login_opened = False
         self.targeted_wd14_worker: TargetedWD14Worker | None = None
+        self.targeted_wd14_session = PersistentWD14Session()
         self.bulk_lookup_workers: dict[str, TagSuggestionWorker] = {}
         self._bulk_lookup_pending: dict[str, str] = {}
+        self._bulk_lookup_generation: dict[str, int] = {}
         self._bulk_suggestion_cache: OrderedDict[
-            tuple[str, str, str, str], list[str] | list[tuple[str, str | None]]
+            tuple[str, str, str, str],
+            list[TagSuggestion | str | tuple[str, str | None] | tuple[str, str | None, str]],
         ] = OrderedDict()
+        self.search_resolution_worker: SearchTokenResolutionWorker | None = None
+        self._pending_search_resolution: tuple[int, list[str]] | None = None
+        self.page.query.request_resolution()
+        self._navigation_prefetch: tuple[str, int, int, bool] | None = None
+        self._navigation_closed = False
+        self._navigation_preview_bytes: OrderedDict[str, bytes] = OrderedDict()
+        self._navigation_timer = QTimer(self)
+        self._navigation_timer.setSingleShot(True)
+        self._navigation_timer.timeout.connect(self._prepare_next_review)
+        self.page.navigation_changed.connect(lambda: self._navigation_timer.start(0))
+
+    def _cancel_navigation_prefetch(self) -> None:
+        previous, self._navigation_prefetch = self._navigation_prefetch, None
+        if previous is not None and previous[3] and self.image_analysis:
+            self.image_analysis.repository.cancel_navigation_prefetch(previous[2])
+
+    def _prepare_next_review(self) -> None:
+        if self._navigation_closed or not self.image_analysis or not self._page_available():
+            return
+        if not self._review_matches_current_post() or len(self.page.result_posts) < 2:
+            self._cancel_navigation_prefetch()
+            return
+        index = self.page.current_result_index
+        if index < 0:
+            self._cancel_navigation_prefetch()
+            return
+        post = self.page.next_individual_review_post()
+        if post is None:
+            self._cancel_navigation_prefetch()
+            return
+        site, post_id = _active_site(self), int(post["id"])
+        previous = self._navigation_prefetch
+        if previous is None or previous[:2] != (site, post_id):
+            self._cancel_navigation_prefetch()
+            # Explicit targeted work keeps precedence over speculation.
+            if self.targeted_wd14_worker and self.targeted_wd14_worker.isRunning():
+                return
+            try:
+                item_id, owned = self.image_analysis.prepare_navigation_item(site, str(post_id))
+                self._navigation_prefetch = (site, post_id, item_id, owned)
+            except Exception as exc:  # noqa: BLE001 - speculation must never block navigation
+                self._log(f"Next image preparation unavailable: {exc}", level="DEBUG")
+                return
+        item = self.image_analysis.repository.item_by_remote_source(site, str(post_id))
+        if item is not None:
+            data = self._preview_data(item)
+            if data:
+                self.page.preview.prepare_image_bytes(data)
+
+    def _preview_data(self, item) -> bytes | None:
+        key = str(getattr(item, "content_sha256", "") or "")
+        cached = self._navigation_preview_bytes.get(key) if key else None
+        if cached is not None:
+            self._navigation_preview_bytes.move_to_end(key)
+            return cached
+        data = super()._preview_data(item)
+        if data and key and len(data) <= 64 * 1024 * 1024:
+            self._navigation_preview_bytes[key] = data
+            while len(self._navigation_preview_bytes) > 3 or sum(
+                len(value) for value in self._navigation_preview_bytes.values()
+            ) > 64 * 1024 * 1024:
+                self._navigation_preview_bytes.popitem(last=False)
+        return data
+
+    def _image_sources_changed(self) -> None:
+        super()._image_sources_changed()
+        self._navigation_timer.start(0)
+
+    def bind_image_analysis(self, controller) -> None:
+        super().bind_image_analysis(controller)
+        if hasattr(controller, "analysis_changed"):
+            controller.analysis_changed.connect(self._poll_current)
 
     def start_targeted_wd14(self, tag: str, posts: list[dict]) -> None:
+        self._cancel_navigation_prefetch()
         if self.targeted_wd14_worker and self.targeted_wd14_worker.isRunning():
             self.page.show_targeted_wd14_unavailable(
                 tag, self.catalog.text("tagging.wd14.busy")
@@ -337,11 +485,19 @@ class TaggingController(TaggingLegacyController):
             self._project_root / "var" / "models" / "image_analysis" / "wd-vit-tagger-v3",
         ))
         alias_database = gelbooru_alias_database(self._settings)
+        active_tags = getattr(self.page, "targeted_wd14_active_tags", lambda: [tag])()
+        if tag not in active_tags:
+            active_tags.insert(0, tag)
         try:
-            raw_names = resolve_wd14_target(tag, model_directory, alias_database)
+            tag_requests = [
+                (active_tag, resolve_wd14_target(active_tag, model_directory, alias_database))
+                for active_tag in active_tags
+            ]
         except Exception as exc:  # noqa: BLE001 - local model diagnostic boundary
             self.page.show_targeted_wd14_unavailable(tag, str(exc))
             return
+        tag_requests = [entry for entry in tag_requests if entry[1]]
+        raw_names = next((names for active_tag, names in tag_requests if active_tag == tag), ())
         if not raw_names:
             self.page.show_targeted_wd14_unavailable(
                 tag, self.catalog.text("tagging.wd14.tag_unavailable")
@@ -354,15 +510,31 @@ class TaggingController(TaggingLegacyController):
             model_directory,
             str(self._settings.get("image_analysis_wd14_model_id", "SmilingWolf/wd-vit-tagger-v3")),
             alias_database, self.credentials(), gelbooru_tag_database(self._settings),
+            batch_size=str(self._settings.get("image_analysis_wd14_batch_size", "auto")),
+            session=self.targeted_wd14_session,
+            preprocess_workers=2,
         )
         self._log(f"Targeted WD14 analysis started tag={tag} visible_items={len(posts)}")
-        worker = TargetedWD14Worker(analyzer, tag, raw_names, list(posts))
+        worker = TargetedWD14Worker(
+            analyzer, tag, raw_names, list(posts),
+            tag_requests=tag_requests if len(tag_requests) > 1 else None,
+        )
         worker.progress.connect(self._targeted_wd14_progress)
+        worker.diagnostic.connect(self._targeted_wd14_diagnostic)
         worker.completed.connect(self._targeted_wd14_completed)
         worker.failed.connect(lambda error, value=tag: self._targeted_wd14_failed(value, error))
         worker.finished.connect(self._targeted_wd14_finished)
         self.targeted_wd14_worker = worker
         worker.start()
+
+    def _targeted_wd14_diagnostic(self, message: str) -> None:
+        self._log(message, level="DEBUG")
+        if "first batch prepare started" in message:
+            self.page.page_status.show_message("Préparation du premier lot WD14…", timeout_ms=0)
+        elif "first inference started" in message:
+            self.page.page_status.show_message("Initialisation CUDA / première inférence…", timeout_ms=0)
+        elif "session acquire started" in message:
+            self.page.page_status.show_message("Préparation du modèle WD14…", timeout_ms=0)
 
     def _targeted_wd14_progress(self, progress) -> None:
         self.page.set_targeted_wd14_progress(progress)
@@ -372,8 +544,9 @@ class TaggingController(TaggingLegacyController):
                 f"missing={progress.total - progress.reused}"
             )
         self._log(
-            f"Targeted WD14 progress completed={progress.completed}/{progress.total} "
-            f"reused={progress.reused} analyzed={progress.analyzed} failed={progress.failed}",
+            f"Targeted WD14 progress processed={progress.completed}/{progress.total} "
+            f"cached={progress.reused} analyzed={progress.analyzed} failed={progress.failed} "
+            f"retrying={getattr(progress, 'retrying', 0)}",
             level="DEBUG",
         )
 
@@ -392,10 +565,14 @@ class TaggingController(TaggingLegacyController):
         for post_id in result.scores:
             key = confidence_bucket(result.scores[post_id]); counts[key] = counts.get(key, 0) + 1
         self._log(
-            f"Targeted WD14 analysis completed tag={result.tag} total={result.progress.total} "
-            f"reused={result.progress.reused} analyzed={result.progress.analyzed} "
-            f"failed={result.progress.failed} elapsed={result.elapsed_seconds:.1f}s"
+            f"Targeted WD14 summary tag={result.tag} total={result.progress.total} "
+            f"cached={result.progress.reused} analyzed={result.progress.analyzed} "
+            f"failed={result.progress.failed} attempted_retries={result.attempted_retries} "
+            f"recovered_after_retry={result.recovered_after_retry} "
+            f"elapsed={result.elapsed_seconds:.1f}s"
         )
+        if result.failure_summary:
+            self._log("Targeted WD14 failure_summary " + repr(result.failure_summary), level="WARNING")
         self._log("WD14 confidence groups " + " ".join(f"{key}={value}" for key, value in counts.items()))
 
     def _targeted_wd14_failed(self, tag: str, error: str) -> None:
@@ -407,12 +584,18 @@ class TaggingController(TaggingLegacyController):
         self.targeted_wd14_worker = None
         if worker is not None:
             worker.deleteLater()
+        self._navigation_timer.start(0)
 
     def cancel_targeted_wd14(self) -> None:
         if self.targeted_wd14_worker and self.targeted_wd14_worker.isRunning():
             self.targeted_wd14_worker.requestInterruption()
 
     def shutdown(self) -> bool:
+        self._navigation_closed = True
+        self._navigation_timer.stop()
+        self._cancel_navigation_prefetch()
+        self.page.preview.cancel_preparation()
+        self._navigation_preview_bytes.clear()
         clean = True
         worker = self.targeted_wd14_worker
         if worker is not None and worker.isRunning():
@@ -422,6 +605,11 @@ class TaggingController(TaggingLegacyController):
             if lookup_worker.isRunning():
                 lookup_worker.requestInterruption()
                 clean = lookup_worker.wait(5_000) and clean
+        resolution_worker = self.search_resolution_worker
+        if resolution_worker is not None and resolution_worker.isRunning():
+            resolution_worker.requestInterruption()
+            clean = resolution_worker.wait(5_000) and clean
+        self.targeted_wd14_session.close()
         return clean
 
     def apply_bulk_manual_tags(
@@ -497,6 +685,8 @@ class TaggingController(TaggingLegacyController):
         )
 
     def site_changed(self, site: str) -> None:
+        self._cancel_navigation_prefetch()
+        self.page.preview.cancel_preparation()
         if self.worker is not None and self.worker.isRunning():
             self.worker.requestInterruption()
         self.current_post_id = None
@@ -518,12 +708,61 @@ class TaggingController(TaggingLegacyController):
         """Refresh visible autocomplete fields after bootstrap becomes usable."""
         self._bulk_suggestion_cache.clear()
         manual = getattr(self.page, "manual_tag", None)
-        if manual is not None and len(manual.text().strip()) >= 2:
+        if manual is not None and len(manual.text().strip()) >= AUTOCOMPLETE_MIN_CHARS:
             self.lookup_manual_tags(manual.text())
-        for target in ("add", "remove"):
+        for target in ("bulk", "search"):
             value = self.page.bulk_lookup_text(target)
-            if len(value) >= 2:
+            if len(value) >= AUTOCOMPLETE_MIN_CHARS:
                 self.lookup_bulk_tags(target, value)
+        self.page.query.request_resolution()
+
+    def resolve_search_tokens(self, generation: int, candidates: list[str]) -> None:
+        """Enhance exact local matches while leaving every other query token raw."""
+        database = self._tag_database()
+        site = _active_site(self)
+        if database is None or not candidates:
+            self.page.query.apply_known_tokens(generation, {})
+            return
+        worker = self.search_resolution_worker
+        if worker is not None and worker.isRunning():
+            self._pending_search_resolution = (generation, list(candidates))
+            return
+        worker = SearchTokenResolutionWorker(generation, site, database, candidates)
+        self.search_resolution_worker = worker
+        worker.completed.connect(self._search_resolution_completed)
+        worker.failed.connect(self._search_resolution_failed)
+        worker.finished.connect(
+            lambda worker=worker: self._search_resolution_finished(worker)
+        )
+        worker.start()
+
+    def _search_resolution_completed(
+        self,
+        generation: int,
+        site: str,
+        known: dict[str, tuple[str, str]],
+        elapsed_ms: float,
+    ) -> None:
+        if site == _active_site(self):
+            self.page.query.apply_known_tokens(generation, known)
+        self._log(
+            f"Search token resolution known={len(known)} elapsed_ms={elapsed_ms:.1f}",
+            level="DEBUG",
+        )
+
+    def _search_resolution_failed(self, generation: int, site: str, error: str) -> None:
+        if site == _active_site(self):
+            self.page.query.apply_known_tokens(generation, {})
+        self._log(f"Search token resolution unavailable: {error}", level="DEBUG")
+
+    def _search_resolution_finished(self, worker: SearchTokenResolutionWorker) -> None:
+        if self.search_resolution_worker is worker:
+            self.search_resolution_worker = None
+        worker.deleteLater()
+        pending = self._pending_search_resolution
+        self._pending_search_resolution = None
+        if pending is not None:
+            self.resolve_search_tokens(*pending)
 
     def finished(self, *args) -> None:
         super().finished(*args)
@@ -544,6 +783,8 @@ class TaggingController(TaggingLegacyController):
             self.refresh_batch()
 
     def start(self, request) -> None:
+        self._cancel_navigation_prefetch()
+        self.page.preview.cancel_preparation()
         credentials = self.credentials().get(request.site, {})
         if (
             not isinstance(credentials, dict)
@@ -567,11 +808,39 @@ class TaggingController(TaggingLegacyController):
                 existing = self.image_analysis.repository.item_by_remote_source(
                     self._current_remote_site, str(post_id)
                 )
+                profile_path = self._project_root / "var/state/entity_profiles.sqlite"
+                if existing is None and self._current_remote_site == "gelbooru" and profile_path.is_file():
+                    from booruflow.infrastructure.gelbooru_tagging import post_tags
+                    with EntityProfileRepository(profile_path) as profiles:
+                        seeds = set(post_tags(post))
+                        api_categories = post.get("_tag_categories", {})
+                        source_categories = dict(api_categories) if isinstance(api_categories, dict) else {}
+                        source_categories.update({tag: row.category for tag, row in
+                                                  self._local_tag_rows(list(seeds)).items()})
+                        suggestions = profiles.suggestions(seeds, source_categories)
+                    if suggestions:
+                        # Metadata already came from search. Allow profile review without a WD14 run,
+                        # image download, or a prematurely validated batch entry.
+                        item_id = self.image_analysis.repository.add_item(
+                            AnalysisItem(SourceReference(InputKind.GELBOORU_POST, site="gelbooru",
+                                                         post_id=str(post_id)), state=AnalysisState.REVIEWED),
+                            tuple(SourceTag(tag, ObservationSource.GELBOORU) for tag in post_tags(post)),
+                            request_analysis=False,
+                        )
+                        existing = self.image_analysis.repository.get_item(item_id)
             except Exception:  # noqa: BLE001 - legacy controller reports the detail
                 lookup_failed = True
         super().select_post(post_id, post)
         if lookup_failed:
             return
+        if self.image_analysis:
+            current = self.image_analysis.repository.item_by_remote_source(
+                self._current_remote_site, str(post_id)
+            )
+            if current is not None:
+                promote = getattr(self.image_analysis.repository, "prioritize_navigation_item", None)
+                if callable(promote):
+                    promote(current.id)
         if existing is not None and existing.state is AnalysisState.PENDING:
             # Targeted WD14 may have populated the shared cache with an item
             # deliberately marked analysis_requested=0. Selecting it for full
@@ -592,6 +861,7 @@ class TaggingController(TaggingLegacyController):
             f"existing_tags={len(str(post.get('tags', '')).split())} local analysis requested"
         )
         _emit_perf(self, "remote_metadata_apply", started)
+        self._navigation_timer.start(0)
 
     def _page_available(self) -> bool:
         try:
@@ -647,19 +917,20 @@ class TaggingController(TaggingLegacyController):
                 ensure("interactive Tagging request")
 
     def _poll_current(self) -> None:
+        if self._navigation_closed:
+            return
         if not self._page_available():
             self.current_post_id = None
             return
         if self.current_post_id is None or not self.image_analysis:
             return
+        self._navigation_timer.start(0)
         if not self._review_matches_current_post():
             try:
                 item = self.image_analysis.repository.item_by_remote_source(
                     _active_site(self), str(self.current_post_id)
                 )
-                signature = None if item is None else (
-                    item.id, item.state.value, str(item.cached_path or "")
-                )
+                signature = _analysis_item_signature(item)
                 if signature == self._last_polled_state:
                     return
                 self._last_polled_state = signature
@@ -918,16 +1189,15 @@ class TaggingController(TaggingLegacyController):
             == ("failed" if retry_ids is not None else "pending_publish")
             and bool(entry.get("additions") or entry.get("removals"))
             and (
+                retry_ids is not None
+                or
                 entry["site"] != "gelbooru"
                 or int(entry.get("publish_attempts", 0)) < MAX_PUBLISH_ATTEMPTS
             )
             and (retry_ids is None or int(entry["item_id"]) in set(retry_ids))
             and (
                 retry_ids is None
-                or (
-                    entry.get("failure_retryable") is not False
-                    and int(entry.get("publish_attempts", 0)) < MAX_PUBLISH_ATTEMPTS
-                )
+                or can_retry_publication(entry)
             )
         ]
         if not pending:
@@ -1135,6 +1405,7 @@ class TaggingController(TaggingLegacyController):
         item_id = self._current_item_id()
         if item_id is None or not self.image_analysis:
             return
+        next_post = self.page.next_individual_review_post()
         try:
             repository = self.image_analysis.repository
             local_entry = repository.batch_entry(item_id)
@@ -1167,23 +1438,35 @@ class TaggingController(TaggingLegacyController):
             self._log(f"Review snapshot saved ({state.value})", item_id=item_id)
             self.refresh_pool()
             self.refresh_batch()
-            self._advance_after_validation(item_id)
+            self._advance_after_validation(
+                item_id, next_post_id=int(next_post["id"]) if next_post else None,
+            )
         except Exception as exc:  # noqa: BLE001 - Qt action boundary
             self._log(f"Could not validate review: {exc}", level="ERROR", item_id=item_id)
             self.page.show_review_completion(f"Validation locale impossible : {exc}")
 
-    def _advance_after_validation(self, item_id: int) -> None:
+    def _advance_after_validation(self, item_id: int, *, next_post_id: int | None = None) -> None:
         repository = self.image_analysis.repository
+        if (self.current_post_id is not None and next_post_id is None
+                and self.page._review_origin == "tagging_grid" and self.page._all_search_results):
+            self.page.finish_individual_review()
+            return
         if self.current_post_id is not None and self.page.mark_reviewed_and_advance(
             self.current_post_id
         ):
             return
+        if next_post_id is not None:
+            next_index = next((i for i, post in enumerate(self.page.result_posts)
+                               if int(post.get("id", 0)) == next_post_id), None)
+            if next_index is not None:
+                self.page._open_result(next_index)
+                return
         scope = (
             str(self.page.pool_scope.currentData()) if hasattr(self.page, "pool_scope") else "all"
         )
         next_item = repository.next_tagging_pool_item(item_id, scope)
         if next_item is None:
-            self.page.show_review_completion(self.catalog.text("tagging.review.pool_finished"))
+            self.page.finish_individual_review()
             return
         site, post_id = next_item["source_site"], next_item["source_post_id"]
         if site in {"gelbooru", "e621"} and post_id:
@@ -1235,7 +1518,7 @@ class TaggingController(TaggingLegacyController):
 
     def lookup_bulk_tags(self, target: str, text: str) -> None:
         query = text.strip()
-        if len(query) < 2:
+        if len(parse_autocomplete_text(query).text) < AUTOCOMPLETE_MIN_CHARS:
             self.page.set_bulk_suggestions(target, [])
             return
         database = self._tag_database()
@@ -1260,7 +1543,11 @@ class TaggingController(TaggingLegacyController):
         if active_worker is not None and active_worker.isRunning():
             self._bulk_lookup_pending[target] = query
             return
-        worker = TagSuggestionWorker(target, site, query, database, alias_database)
+        generation = self._bulk_lookup_generation.get(target, 0) + 1
+        self._bulk_lookup_generation[target] = generation
+        worker = TagSuggestionWorker(
+            target, site, query, database, alias_database, generation
+        )
         self.bulk_lookup_workers[target] = worker
         worker.completed.connect(self._bulk_lookup_completed)
         worker.failed.connect(self._bulk_lookup_failed)
@@ -1276,7 +1563,9 @@ class TaggingController(TaggingLegacyController):
         target: str,
         site: str,
         query: str,
-        suggestions: list[str] | list[tuple[str, str | None]],
+        suggestions: list[
+            TagSuggestion | str | tuple[str, str | None] | tuple[str, str | None, str]
+        ],
         elapsed_ms: float,
     ) -> None:
         worker = self.bulk_lookup_workers.get(target)
@@ -1318,16 +1607,16 @@ class TaggingController(TaggingLegacyController):
         if pending and self.page.bulk_lookup_text(target) == pending:
             self.lookup_bulk_tags(target, pending)
 
-    def _tag_suggestions(self, text: str) -> list[str] | list[tuple[str, str | None]]:
+    def _tag_suggestions(self, text: str) -> list[TagSuggestion]:
         database = self._tag_database()
         if database is None or not text.strip():
             return []
-        if _active_site(self) == "gelbooru":
-            rows = lookup_gelbooru_suggestions(
-                database, self._alias_database(), text.strip(), limit=20
-            )
-            return [(row.value, row.alias_source) for row in rows]
-        return [row.name for row in lookup_tags("e621", database, text.strip(), limit=20)]
+        site = _active_site(self)
+        service = TagAutocompleteService(
+            {site: database},
+            {site: self._alias_database() if site == "gelbooru" else None},
+        )
+        return service.suggestions(AutocompleteRequest("tagging.manual", 0, site, text))
 
     def _eligible_exact_name(self, value: str) -> str | None:
         database = self._tag_database()
@@ -1457,6 +1746,25 @@ class TaggingController(TaggingLegacyController):
             decision = change.before if undo else change.after
             if change.kind == "existing":
                 repository.set_existing_tag_decision(item_id, str(change.target), decision)
+            elif change.kind == "entity":
+                path = self._project_root / "var/state/entity_profiles.sqlite"
+                tag = str(change.target)
+                with EntityProfileRepository(path) as profiles:
+                    entry = profiles.review_decisions(item_id).get(tag, {})
+                    observation_id = entry.get("observation_id")
+                    observations = dict(repository.observations(item_id))
+                    observation = observations.get(observation_id)
+                    if (observation is None or observation.source is not ObservationSource.MANUAL
+                            or normalize_booru_tag(observation.reviewed_name or observation.name) != tag):
+                        observation_id = None
+                    if decision == "accepted" and observation_id is None:
+                        database = self._tag_database()
+                        if database is not None and database.is_file() and self._eligible_exact_name(tag) is None:
+                            raise ValueError(f"Tag absent or deprecated: {tag}")
+                        observation_id = self.image_analysis.workflow.add_manual_tag(item_id, tag)
+                    if observation_id is not None:
+                        self.image_analysis.workflow.decide(observation_id, DecisionState(decision), None)
+                    profiles.save_review_decision(item_id, tag, decision, observation_id)
             else:
                 self.image_analysis.workflow.decide(
                     int(change.target), DecisionState(decision), None
@@ -1488,6 +1796,16 @@ class TaggingController(TaggingLegacyController):
                 if kind == "existing":
                     before = repository.existing_tag_decision(item_id, str(target))
                     after = "keep" if value == "accepted" else "remove"
+                elif kind == "entity":
+                    with EntityProfileRepository(self._project_root / "var/state/entity_profiles.sqlite") as profiles:
+                        entry = profiles.review_decisions(item_id).get(str(target), {})
+                        manual = observations.get(entry.get("observation_id"))
+                        if manual is not None and normalize_booru_tag(manual.reviewed_name or manual.name) != str(target):
+                            manual = None
+                        before = manual.decision.value if manual else entry.get("decision", "unreviewed")
+                        if manual is None and before == "accepted":
+                            before = "unreviewed"
+                    after = "accepted" if value == "accepted" else "rejected"
                 else:
                     before = observations[int(target)].decision.value
                     after = (
@@ -1687,6 +2005,8 @@ class TaggingController(TaggingLegacyController):
                 ):
                     existing["confidence"] = confidence
                 origins = self.catalog.text("tagging.match.manual") if observation.source is ObservationSource.MANUAL else "WD14"
+                if observation.source is ObservationSource.WD14:
+                    existing["wd14_score"] = observation.confidence
                 if origins not in existing["match"]:
                     existing["match"] += self.catalog.text("tagging.match.also", origin=origins)
                 continue
@@ -1720,6 +2040,45 @@ class TaggingController(TaggingLegacyController):
                 "category": category_label,
                 "category_id": category_id,
             }
+            if observation.source is ObservationSource.WD14:
+                rows[key]["wd14_score"] = observation.confidence
+        profile_path = getattr(self, "_project_root", Path.cwd()) / "var/state/entity_profiles.sqlite"
+        if _active_site(self) == "gelbooru" and profile_path.is_file():
+            confirmed = {
+                normalize_booru_tag(observation.reviewed_name or observation.name)
+                for _oid, observation in observations if observation.decision is DecisionState.ACCEPTED
+            }
+            # Input seeds are remote source tags and explicit accepted observations only.
+            # Rows emitted by merge_profile_suggestions never feed this set.
+            seeds = activation_tags(
+                {normalize_booru_tag(tag) for tag in current_tags - set(summary["removals"])}, confirmed)
+            with EntityProfileRepository(profile_path) as profiles:
+                source_categories = dict(api_categories) if isinstance(api_categories, dict) else {}
+                source_categories.update({tag: value for tag, value in persisted_categories.items()
+                                          if value is not None})
+                source_categories.update({tag: row.category for tag, row in
+                                          (local_rows | suggestion_rows).items() if tag in seeds})
+                suggestions = profiles.suggestions(seeds, source_categories)
+                decisions = profiles.review_decisions(item.id)
+            observation_by_id = dict(observations)
+            for tag, decision in decisions.items():
+                observation_id = decision.get("observation_id")
+                observation = observation_by_id.get(observation_id)
+                if observation_id is not None and (observation is None
+                        or normalize_booru_tag(observation.reviewed_name or observation.name) != tag):
+                    # Analysis data can have been reset. A stale ID must never confirm another tag.
+                    decision["observation_id"] = None
+                    if decision["decision"] == "accepted":
+                        decision["decision"] = "unreviewed"
+            for tag, decision in decisions.items():
+                row = rows.get(tag)
+                if row is not None and str(row["id"]) == str(decision.get("observation_id")):
+                    row["match"] = self.catalog.text("entity.confirmed")
+            merge_profile_suggestions(rows, suggestions, decisions=decisions,
+                                      category_values=lambda category: _category_values(self, category))
+            for row in rows.values():
+                if row.get("profile_scores") and "wd14_score" in row and "WD14" not in row["match"]:
+                    row["match"] = "WD14 · " + row["match"]
         labels = {
             "pending": self.catalog.text("tagging.analysis.pending"),
             "processing": self.catalog.text("tagging.analysis.processing"),
@@ -1732,6 +2091,8 @@ class TaggingController(TaggingLegacyController):
             labels["pending"] = self._worker_pending_label() or labels["pending"]
         if entry is not None:
             labels[item.state.value] += self.catalog.text("tagging.analysis.validated")
+        preview_data = self._preview_data(item) if hasattr(self, "_preview_data") else None
+        preview_options = {"preview_data": preview_data} if preview_data else {}
         self.page.show_local_review(
             labels[item.state.value],
             item.cached_path,
@@ -1739,6 +2100,7 @@ class TaggingController(TaggingLegacyController):
             list(rows.values()),
             [],
             summary["final_tags"],
+            **preview_options,
         )
         if hasattr(self.page, "set_reanalyze_available"):
             self.page.set_reanalyze_available(

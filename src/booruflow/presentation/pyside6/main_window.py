@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import ClassVar
 
-from PySide6.QtCore import QProcess, QSize, Qt, QThread, Signal
+from PySide6.QtCore import QEvent, QProcess, QSize, Qt, QThread, QTimer, Signal
 from PySide6.QtGui import QBrush, QFontMetrics, QPalette
 from PySide6.QtWidgets import (
     QCheckBox,
@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QPushButton,
     QStackedWidget,
     QStatusBar,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
@@ -41,6 +42,7 @@ from booruflow.presentation.pyside6.icons import navigation_icon
 from booruflow.presentation.pyside6.pages import DashboardPage, ScrollablePageHost
 from booruflow.presentation.pyside6.status_bar import StatusBarController
 from booruflow.presentation.pyside6.task_manager import TaskManager
+from booruflow.presentation.pyside6.theme import refresh_widget_tree
 from booruflow.presentation.pyside6.ui_logging import RunLog, log_event
 from booruflow.runtime import bundled_bootstrap_root, frozen_module_command
 
@@ -94,6 +96,7 @@ class MainWindow(QMainWindow):
         ("page", "options"),
     )
     LEGACY_NAVIGATION_ALIASES: ClassVar[dict[str, str]] = {"review": "grabber"}
+    COMPACT_NAVIGATION_WIDTH = 58
 
     def __init__(
         self,
@@ -110,6 +113,7 @@ class MainWindow(QMainWindow):
     ) -> None:
         main_window_started = startup_profile.now_ns()
         super().__init__(parent)
+        self._theme_refresh_pending = False
         self._early_logs: list[str] = []
         self._log_history: list[str] = []
         self._show_debug_logs = False
@@ -177,6 +181,19 @@ class MainWindow(QMainWindow):
                 # Keep the supported 720 px window usable with all group labels visible.
                 item.setSizeHint(QSize(0, 38))
             self.navigation.addItem(item)
+
+        self.sidebar = QWidget()
+        self.sidebar.setObjectName("mainSidebar")
+        sidebar_layout = QVBoxLayout(self.sidebar)
+        sidebar_layout.setContentsMargins(0, 0, 0, 0)
+        sidebar_layout.setSpacing(0)
+        self.sidebar_toggle = QToolButton()
+        self.sidebar_toggle.setAutoRaise(True)
+        self.sidebar_toggle.setFixedHeight(30)
+        self.sidebar_toggle.clicked.connect(self.toggle_sidebar)
+        sidebar_layout.addWidget(self.sidebar_toggle)
+        sidebar_layout.addWidget(self.navigation, 1)
+        self._sidebar_collapsed = bool(settings.get("sidebar_collapsed", False))
 
         self.pages = QStackedWidget()
         self.content_pages: list[QWidget | None] = [None] * len(self.NAVIGATION_KEYS)
@@ -255,7 +272,7 @@ class MainWindow(QMainWindow):
         workspace_layout = QHBoxLayout(workspace)
         workspace_layout.setContentsMargins(0, 0, 0, 0)
         workspace_layout.setSpacing(0)
-        workspace_layout.addWidget(self.navigation)
+        workspace_layout.addWidget(self.sidebar)
         workspace_layout.addWidget(self.pages, 1)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
@@ -413,12 +430,17 @@ class MainWindow(QMainWindow):
         from booruflow.presentation.pyside6.tagging_controller import TaggingController
         from booruflow.presentation.pyside6.tagging_page import TaggingPage
         from booruflow.presentation.pyside6.thumbnail_cache import ThumbnailMemoryCache
+        from booruflow.presentation.pyside6.thumbnail_loader import PersistentThumbnailSources
 
         if not hasattr(self, "_tagging_thumbnail_cache"):
             self._tagging_thumbnail_cache = ThumbnailMemoryCache()
         page = TaggingPage(
-            self.catalog, self._settings, self.internal_browser_launcher,
+            self.catalog, self._settings, self.browser_launcher,
             thumbnail_cache=self._tagging_thumbnail_cache,
+            persistent_thumbnail_sources=PersistentThumbnailSources(
+                self.project_root / "var" / "state" / "image_analysis.sqlite",
+                self.project_root / "var" / "cache" / "image_analysis",
+            ),
         )
         self.status_controller.bind(page.page_status)
         controller = TaggingController(
@@ -436,6 +458,7 @@ class MainWindow(QMainWindow):
         page.start_requested.connect(controller.start)
         page.stop_requested.connect(controller.stop)
         page.search_settings_saved.connect(self._save_tagging_settings)
+        page.entity_profile_requested.connect(lambda tag, category: self._open_entity_profile(page, tag, category))
         if self.image_analysis_controller is not None:
             controller.bind_image_analysis(self.image_analysis_controller)
         if self.database_controller is not None:
@@ -450,7 +473,8 @@ class MainWindow(QMainWindow):
 
         credentials = self._credentials()
         page = ImageFinderPage(
-            self.catalog, connected=bool(str(credentials.get("pixiv_refresh_token", "")).strip())
+            self.catalog, connected=bool(str(credentials.get("pixiv_refresh_token", "")).strip()),
+            browser_launcher=self.browser_launcher,
         )
         self.status_controller.bind(page.page_status)
         controller = ImageFinderController(
@@ -547,9 +571,12 @@ class MainWindow(QMainWindow):
         if self.image_analysis_controller is None:
             raise RuntimeError("Image Analysis must be prepared before Similar Artists")
         page = SimilarArtistsPage(self.catalog)
+        page.browser_launcher = self.browser_launcher
+        page.entity_profile_requested.connect(lambda tag, category: self._open_entity_profile(page, tag, category))
+        self.status_controller.bind(page.page_status)
         controller = SimilarArtistsController(
             self.project_root, page, self.image_analysis_controller, self.log,
-            self.task_manager, self, browser_launcher=self.internal_browser_launcher,
+            self.task_manager, self, browser_launcher=self.browser_launcher,
         )
         self.similar_artists_page = page
         self.similar_artists_controller = controller
@@ -563,8 +590,9 @@ class MainWindow(QMainWindow):
         from booruflow.presentation.pyside6.organization_page import OrganizationPage
 
         page = OrganizationPage(
-            self.catalog, default_document(), self.internal_browser_launcher
+            self.catalog, default_document(), self.browser_launcher
         )
+        page.entity_profile_requested.connect(lambda tag, category: self._open_entity_profile(page, tag, category))
         coordinator = OrganizationCoordinator(
             self.project_root, self.catalog, page, self.taxonomy_repository,
             self.settings_repository, self._credentials, self.log, self.task_manager, self,
@@ -591,12 +619,36 @@ class MainWindow(QMainWindow):
             self.catalog,
             {"gelbooru": database, "e621": Path(e621) if e621 else None},
             {"gelbooru": gelbooru_alias_database(self._settings), "e621": None},
+            browser_launcher=self.browser_launcher,
         )
+        page.entity_profile_requested.connect(lambda tag, category: self._open_entity_profile(page, tag, category))
         self.status_controller.bind(page.page_status)
         if self.database_controller is not None:
             self.database_controller.tag_browser_page = page
         self.tag_browser_page = page
         return page
+
+    def _open_entity_profile(self, page, tag: str, category: str) -> None:
+        from booruflow.presentation.pyside6.entity_profiles import EntityProfileDialog
+
+        try:
+            dialog = EntityProfileDialog(self.project_root, self.catalog, tag, category,
+                                         self._credentials, gelbooru_tag_database(self._settings),
+                                         self.browser_launcher, page.page_status, self,
+                                         thumbnail_cache=getattr(self, "_tagging_thumbnail_cache", None))
+            self._entity_profile_dialog = dialog
+            dialog.profiles_changed.connect(self._entity_profiles_changed)
+            dialog.setModal(True)
+            dialog.show()
+        except Exception as exc:  # noqa: BLE001 - GUI action boundary
+            page.page_status.show_message(self.catalog.text("entity.error", error=type(exc).__name__),
+                                          timeout_ms=0, log=True, global_message=True, level="ERROR")
+
+    def _entity_profiles_changed(self) -> None:
+        controller = self.tagging_controller
+        if (controller is not None and controller.image_analysis is not None
+                and controller.page.mode_stack.currentWidget() is controller.page.review):
+            controller.refresh_local_review()
 
     def _build_wiki(self):
         from booruflow.presentation.pyside6.wiki_page import WikiPage
@@ -605,9 +657,12 @@ class MainWindow(QMainWindow):
             self.catalog, self.project_root / "var" / "wiki_drafts",
             gelbooru_tag_database(self._settings), self.settings_repository,
             self.internal_browser_launcher,
+            alias_database_path=gelbooru_alias_database(self._settings),
+            context_launcher=self.browser_launcher,
         )
         self.status_controller.bind(page.page_status)
         page.organization_tag_requested.connect(self._open_organization_tag)
+        page.entity_profile_requested.connect(lambda tag, category: self._open_entity_profile(page, tag, category))
         self.wiki_page = page
         return page
 
@@ -619,11 +674,13 @@ class MainWindow(QMainWindow):
             gelbooru_tag_database(self._settings),
             gelbooru_alias_database(self._settings),
             self.taxonomy_repository.database_path("gelbooru"),
-            self.internal_browser_launcher,
+            self.browser_launcher,
             self._credentials,
             self.log,
         )
         self.wiki_audit_page = page
+        page.entity_profile_requested.connect(lambda tag, category: self._open_entity_profile(page, tag, category))
+        self.status_controller.bind(page.page_status)
         return page
 
     def _build_cleanup(self):
@@ -1039,8 +1096,16 @@ class MainWindow(QMainWindow):
             item = self.navigation.item(index)
             label_key = f"nav.group.{key}" if kind == "group" else f"nav.{key}"
             label = self.catalog.text(label_key)
-            item.setText(label)
+            item.setData(Qt.ItemDataRole.UserRole + 2, label)
+            item.setText("" if self._sidebar_collapsed else label)
             item.setToolTip("" if kind == "group" else label)
+            item.setHidden(self._sidebar_collapsed and kind == "group")
+        self.sidebar_toggle.setText(">" if self._sidebar_collapsed else "<")
+        sidebar_action = self.catalog.text(
+            "nav.sidebar.expand" if self._sidebar_collapsed else "nav.sidebar.collapse"
+        )
+        self.sidebar_toggle.setToolTip(sidebar_action)
+        self.sidebar_toggle.setAccessibleName(sidebar_action)
         self._update_navigation_width()
         for page in self.content_pages:
             if hasattr(page, "retranslate"):
@@ -1061,6 +1126,11 @@ class MainWindow(QMainWindow):
 
     def _update_navigation_width(self) -> None:
         """Size the sidebar once from its translated visible content."""
+        if self._sidebar_collapsed:
+            self.sidebar.setFixedWidth(self.COMPACT_NAVIGATION_WIDTH)
+            self.navigation.setMinimumWidth(0)
+            self.navigation.setMaximumWidth(self.COMPACT_NAVIGATION_WIDTH)
+            return
         text_width = 0
         group_width = 0
         for row in range(self.navigation.count()):
@@ -1074,7 +1144,70 @@ class MainWindow(QMainWindow):
         # icon + icon/text gap + horizontal padding + frame/selection breathing room
         page_width = self.navigation.iconSize().width() + 12 + text_width + 28
         width = max(group_width + 28, page_width)
-        self.navigation.setFixedWidth(max(176, min(width, 320)))
+        expanded_width = max(176, min(width, 320))
+        self.sidebar.setFixedWidth(expanded_width)
+        self.navigation.setMinimumWidth(0)
+        self.navigation.setMaximumWidth(expanded_width)
+
+    def toggle_sidebar(self) -> None:
+        self.set_sidebar_collapsed(not self._sidebar_collapsed)
+
+    def set_sidebar_collapsed(self, collapsed: bool, *, persist: bool = True) -> None:
+        collapsed = bool(collapsed)
+        self._sidebar_collapsed = collapsed
+        for index, (kind, _key) in enumerate(self.VISIBLE_NAVIGATION):
+            item = self.navigation.item(index)
+            label = str(item.data(Qt.ItemDataRole.UserRole + 2) or "")
+            item.setText("" if collapsed else label)
+            item.setHidden(collapsed and kind == "group")
+        self.sidebar_toggle.setText(">" if collapsed else "<")
+        sidebar_action = self.catalog.text(
+            "nav.sidebar.expand" if collapsed else "nav.sidebar.collapse"
+        )
+        self.sidebar_toggle.setToolTip(sidebar_action)
+        self.sidebar_toggle.setAccessibleName(sidebar_action)
+        self._update_navigation_width()
+        if persist:
+            self._persist_ui_setting("sidebar_collapsed", collapsed)
+
+    def _persist_ui_setting(self, key: str, value: object) -> None:
+        self._settings[key] = value
+        if self.settings_repository is None:
+            return
+        settings = self.settings_repository.load()
+        settings[key] = value
+        self.settings_repository.save(settings)
+
+    def _refresh_navigation_theme(self) -> None:
+        """Update section brushes that QListWidgetItem stores by value."""
+        palette = self.navigation.palette()
+        foreground = QBrush(palette.color(QPalette.ColorRole.PlaceholderText))
+        background = QBrush(palette.color(QPalette.ColorRole.Window))
+        for row in range(self.navigation.count()):
+            item = self.navigation.item(row)
+            if item.data(Qt.ItemDataRole.UserRole + 1):
+                item.setForeground(foreground)
+                item.setBackground(background)
+
+    def refresh_theme(self) -> None:
+        """Refresh the visual state of existing pages after a palette change."""
+        self._theme_refresh_pending = False
+        refresh_widget_tree(self)
+        self._refresh_navigation_theme()
+        self.navigation.viewport().update()
+
+    def changeEvent(self, event) -> None:
+        super().changeEvent(event)
+        if event.type() not in {
+            QEvent.Type.ApplicationPaletteChange,
+            QEvent.Type.PaletteChange,
+        }:
+            return
+        if self._theme_refresh_pending:
+            return
+        self._theme_refresh_pending = True
+        # Let Qt propagate the new application palette before repolishing QSS.
+        QTimer.singleShot(0, self.refresh_theme)
 
     def _credentials(self) -> dict[str, object]:
         return self.credentials_repository.load() if self.credentials_repository else {}
@@ -1402,7 +1535,18 @@ class MainWindow(QMainWindow):
         self.log_view.clear()
 
     def closeEvent(self, event) -> None:
+        entity_dialog = getattr(self, "_entity_profile_dialog", None)
+        if entity_dialog is not None:
+            import shiboken6
+            if shiboken6.isValid(entity_dialog) and entity_dialog.worker is not None:
+                entity_dialog.close()
+                event.ignore()
+                return
         if self._bootstrap_worker is not None and self._bootstrap_worker.isRunning():
+            event.ignore()
+            return
+        tagging_page = getattr(self, "tagging_page", None)
+        if tagging_page is not None and not tagging_page.thumbnail_loader.shutdown():
             event.ignore()
             return
         if self.tagging_controller is not None and not self.tagging_controller.shutdown():
@@ -1454,6 +1598,8 @@ class MainWindow(QMainWindow):
             "tagging_site", "tagging_query", "tagging_pages", "tagging_start",
             "tagging_minimum", "tagging_maximum",
             "tagging_checkbox_selection", "tagging_first_publish_started",
+            "tagging_bulk_expanded", "tagging_bulk_width", "tagging_bulk_palette",
+            "tagging_result_sort",
         }
         settings = self.settings_repository.load()
         settings.update({key: value for key, value in values.items() if key in allowed})

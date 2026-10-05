@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtCore import QModelIndex, QPoint, QRect, QSize, Qt, QThread, QTimer, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QCompleter,
     QGroupBox,
     QHBoxLayout,
     QLabel,
@@ -24,10 +25,27 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from booruflow.application.tag_autocomplete import TagAutocompleteService
 from booruflow.domain.booru_sites import site_definition
+from booruflow.infrastructure.browser_launcher import BrowserLauncher
 from booruflow.infrastructure.localization import LanguageCatalog
 from booruflow.infrastructure.tag_browser import TagRow, TagSearch, search_tags
+from booruflow.presentation.pyside6.context_actions import (
+    add_action,
+    bind_tag_popup,
+    exec_menu,
+    open_url,
+    tag_actions,
+)
 from booruflow.presentation.pyside6.status_bar import PageStatus
+from booruflow.presentation.pyside6.tag_autocomplete import TagAutocompleteCoordinator
+from booruflow.presentation.pyside6.tag_presentation import (
+    CANONICAL_TAG_ROLE,
+    TagSuggestionListModel,
+    configure_tag_completer,
+    present_tag,
+    show_tag_completer,
+)
 from booruflow.presentation.pyside6.ui_components import DataTable
 
 RAW_NAME_ROLE = Qt.ItemDataRole.UserRole + 1
@@ -126,17 +144,26 @@ class TagSearchWorker(QThread):
 
 
 class TagBrowserPage(QWidget):
+    entity_profile_requested = Signal(str, str)
+
     def __init__(
         self,
         catalog: LanguageCatalog,
         databases: dict[str, Path | None] | None = None,
         alias_databases: dict[str, Path | None] | None = None,
+        browser_launcher=None,
     ) -> None:
         super().__init__()
         self.catalog = catalog
+        self.browser_launcher = browser_launcher if browser_launcher is not None else BrowserLauncher(Path.cwd() / "var")
         self.page_status = PageStatus("tag_browser", self)
         self.databases = databases or {}
         self.alias_databases = alias_databases or {}
+        self.autocomplete_service = TagAutocompleteService(
+            self.databases, self.alias_databases
+        )
+        self.autocomplete = TagAutocompleteCoordinator(self.autocomplete_service, self)
+        self.autocomplete.suggestions_ready.connect(self._autocomplete_ready)
         self.worker: TagSearchWorker | None = None
         self.rows: list[TagRow] = []
         layout = QVBoxLayout(self)
@@ -156,6 +183,20 @@ class TagBrowserPage(QWidget):
         self.site.currentIndexChanged.connect(self._site_changed)
         self.site_label = QLabel()
         self.query = QLineEdit(); self.query.returnPressed.connect(self.search)
+        self.suggestion_model = TagSuggestionListModel(self)
+        self.completer = QCompleter(self.suggestion_model, self)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
+        configure_tag_completer(self.completer)
+        self.query.setCompleter(self.completer)
+        bind_tag_popup(self.completer, catalog, launcher=self.browser_launcher,
+                       entity=self.entity_profile_requested.emit)
+        self.autocomplete_timer = QTimer(self)
+        self.autocomplete_timer.setSingleShot(True)
+        self.autocomplete_timer.setInterval(200)
+        self.query.textEdited.connect(lambda _value: self.autocomplete_timer.start())
+        self.autocomplete_timer.timeout.connect(self._request_autocomplete)
+        self.completer.activated[QModelIndex].connect(self._autocomplete_activated)
         self.mode = QComboBox()
         for key in ("auto", "contains", "glob", "regex", "exact"):
             self.mode.addItem(key, key)
@@ -237,6 +278,10 @@ class TagBrowserPage(QWidget):
         self._site_changed()
         self.retranslate()
 
+    def closeEvent(self, event) -> None:
+        self.autocomplete.shutdown()
+        super().closeEvent(event)
+
     @staticmethod
     def _filter_group(*widgets: QWidget) -> QWidget:
         group = QWidget()
@@ -249,14 +294,18 @@ class TagBrowserPage(QWidget):
 
     def set_databases(self, databases: dict[str, Path | None]) -> None:
         self.databases = databases
+        self.autocomplete_service.update_catalogues(self.databases, self.alias_databases)
 
     def set_alias_databases(self, databases: dict[str, Path | None]) -> None:
         self.alias_databases = databases
+        self.autocomplete_service.update_catalogues(self.databases, self.alias_databases)
 
     def current_site(self) -> str:
         return str(self.site.currentData())
 
     def _site_changed(self) -> None:
+        self.autocomplete.invalidate("tag_browser.query", self.current_site())
+        self.suggestion_model.set_suggestions([], self.palette())
         definition = site_definition(self.current_site())
         selected = self.category.currentData()
         self.category.clear(); self.category.addItem(self.catalog.text("tag_browser.all"), None)
@@ -267,6 +316,46 @@ class TagBrowserPage(QWidget):
         self.alias.setEnabled(definition.supports_aliases)
         if not definition.supports_aliases:
             self.alias.setCurrentIndex(0)
+
+    def _request_autocomplete(self) -> None:
+        self.autocomplete.request(
+            "tag_browser.query", self.current_site(), self.query.text().strip()
+        )
+
+    def _autocomplete_ready(
+        self, owner: str, _request: object, suggestions: object
+    ) -> None:
+        if owner != "tag_browser.query" or not isinstance(suggestions, list):
+            return
+        self.suggestion_model.set_suggestions(suggestions, self.palette())
+        if suggestions and self.query.hasFocus():
+            show_tag_completer(self.completer)
+
+    def _autocomplete_activated(self, index: QModelIndex) -> None:
+        value = str(index.data(CANONICAL_TAG_ROLE) or "")
+        if value:
+            self.query.setText(value)
+            QTimer.singleShot(0, lambda value=value: self.query.setText(value))
+
+    def refresh_theme(self) -> None:
+        """Refresh stored result and popup brushes without rebuilding or resorting rows."""
+        palette = self.palette()
+        self.suggestion_model.refresh_palette(palette)
+        for row in range(self.table.rowCount()):
+            category_item = self.table.item(row, 3)
+            category = (
+                category_item.data(Qt.ItemDataRole.UserRole)
+                if category_item is not None
+                else None
+            )
+            color = present_tag(
+                self.current_site(), "", category, palette
+            ).style.color(palette)
+            for column in (1, 3):
+                item = self.table.item(row, column)
+                if item is not None:
+                    item.setForeground(color)
+        self.table.viewport().update()
 
     def current_database(self) -> Path | None:
         return self.databases.get(str(self.site.currentData()))
@@ -333,6 +422,11 @@ class TagBrowserPage(QWidget):
                     if deprecated: tooltip.append("Deprecated: yes")
                     if row.ambiguous: tooltip.append("Ambiguous: yes")
                     item.setToolTip("\n".join(tooltip))
+                if column in {1, 3}:
+                    presentation = present_tag(
+                        self.current_site(), row.name, row.category, self.palette()
+                    )
+                    item.setForeground(presentation.style.color(self.palette()))
                 if column != 1: item.setTextAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.table.setItem(row_index, column, item)
         self.table.setSortingEnabled(True)
@@ -376,7 +470,8 @@ class TagBrowserPage(QWidget):
         raw_name, canonical_name = self._row_names(row)
         name = canonical_name if canonical else raw_name
         if name:
-            QDesktopServices.openUrl(QUrl(site_definition(self.current_site()).search_url(str(name))))
+            url = site_definition(self.current_site()).search_url(str(name))
+            open_url(url, self.browser_launcher)
 
     def _show_context_menu(self, position) -> None:
         row = self.table.rowAt(position.y())
@@ -384,23 +479,17 @@ class TagBrowserPage(QWidget):
             return
         self.table.selectRow(row)
         raw_name, canonical_name = self._row_names(row)
-        site_name = site_definition(self.current_site()).display_name
         menu = QMenu(self)
-        copy_raw = menu.addAction(self.catalog.text("tag_browser.copy_tag"))
-        copy_canonical = menu.addAction(self.catalog.text("tag_browser.copy_canonical"))
-        menu.addSeparator()
-        open_raw = menu.addAction(self.catalog.text("tag_browser.open_site", site=site_name))
-        open_canonical = menu.addAction(
-            self.catalog.text("tag_browser.open_canonical_site", site=site_name)
-        )
-        has_distinct_canonical = bool(canonical_name and canonical_name != raw_name)
-        copy_canonical.setEnabled(has_distinct_canonical)
-        open_canonical.setEnabled(has_distinct_canonical)
-        chosen = menu.exec(self.table.viewport().mapToGlobal(position))
-        if chosen == copy_raw: self._copy_names([raw_name])
-        elif chosen == copy_canonical and canonical_name: self._copy_names([str(canonical_name)])
-        elif chosen == open_raw: self._open_row(row, canonical=False)
-        elif chosen == open_canonical: self._open_row(row, canonical=True)
+        handlers = tag_actions(menu, self.catalog, raw_name, site=self.current_site(),
+                               canonical=canonical_name,
+                               category=self.table.item(row, 3).data(Qt.ItemDataRole.UserRole),
+                               launcher=self.browser_launcher, entity=self.entity_profile_requested.emit,
+                               copy=lambda name: self._copy_names([name]))
+        if canonical_name and canonical_name != raw_name:
+            menu.addSeparator()
+            add_action(menu, self.catalog.text("tag_browser.copy_canonical"),
+                       lambda: self._copy_names([str(canonical_name)]), handlers)
+        exec_menu(menu, self.table.viewport().mapToGlobal(position), handlers)
 
     def retranslate(self) -> None:
         text = self.catalog.text

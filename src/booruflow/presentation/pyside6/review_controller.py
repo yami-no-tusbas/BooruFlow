@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-import sqlite3
 import unicodedata
 from collections import deque
 from collections.abc import Callable
@@ -12,9 +11,17 @@ from pathlib import Path
 
 from PySide6.QtCore import QObject, QProcess, QProcessEnvironment, QThread, QTimer, Signal
 
-from booruflow.application.database_paths import gelbooru_tag_database
+from booruflow.application.database_paths import (
+    gelbooru_alias_database,
+    gelbooru_tag_database,
+)
 from booruflow.application.ports import SettingsRepository
 from booruflow.application.review import EngineCommand, ReviewRequest, build_review_commands
+from booruflow.application.tag_autocomplete import (
+    AutocompleteRequest,
+    TagAutocompleteService,
+    TagSuggestion,
+)
 from booruflow.infrastructure.gelbooru_client import fetch_result_count
 from booruflow.infrastructure.localization import LanguageCatalog, translate_legacy_log
 from booruflow.presentation.pyside6.task_manager import TaskManager
@@ -132,35 +139,45 @@ class ReviewCountWorker(QThread):
 
 
 class ReviewAutocompleteWorker(QThread):
-    completed = Signal(str, list)
+    completed = Signal(str, int, object, list)
 
-    def __init__(self, token: str, databases: tuple[tuple[str, Path], ...]) -> None:
+    def __init__(
+        self,
+        token: str,
+        generation: int,
+        databases: dict[str, Path | None],
+        alias_databases: dict[str, Path | None],
+    ) -> None:
         super().__init__()
         self.token = token
+        self.generation = generation
         self.databases = databases
+        self.alias_databases = alias_databases
 
     def run(self) -> None:
-        merged: dict[str, dict[str, object]] = {}
-        lookup = self.token.lstrip("-").casefold()
-        for site, path in self.databases:
-            try:
-                connection = sqlite3.connect(f"file:{path.resolve().as_posix()}?mode=ro", uri=True)
-                try:
-                    rows = connection.execute(
-                        "SELECT name,post_count FROM tags INDEXED BY idx_tags_name "
-                        "WHERE name>=? AND name<? ORDER BY post_count DESC LIMIT 20",
-                        (lookup, lookup + "\uffff"),
-                    ).fetchall()
-                finally:
-                    connection.close()
-            except (OSError, sqlite3.Error):
-                continue
-            for name, count in rows:
-                item = merged.setdefault(str(name), {"count": 0, "sites": []})
-                item["count"] = max(int(item["count"]), int(count))
-                item["sites"].append(site)
-        ranked = sorted(merged.items(), key=lambda item: (-int(item[1]["count"]), item[0]))[:12]
-        self.completed.emit(self.token, ranked)
+        service = TagAutocompleteService(self.databases, self.alias_databases)
+        merged: dict[str, tuple[TagSuggestion, list[str]]] = {}
+        for site in self.databases:
+            request = AutocompleteRequest(
+                "review.queries", self.generation, site, self.token, limit=20
+            )
+            for suggestion in service.suggestions(request):
+                key = suggestion.canonical_name.casefold()
+                current = merged.get(key)
+                if current is None:
+                    merged[key] = (suggestion, [site])
+                else:
+                    best, sites = current
+                    if suggestion.post_count > best.post_count:
+                        best = suggestion
+                    if site not in sites:
+                        sites.append(site)
+                    merged[key] = (best, sites)
+        ranked = sorted(
+            merged.values(),
+            key=lambda item: (-item[0].post_count, item[0].canonical_name),
+        )[:12]
+        self.completed.emit(self.token, self.generation, tuple(self.databases), ranked)
 
 
 def folded_log_text(value: str) -> str:
@@ -230,6 +247,7 @@ class ReviewCoordinator(QObject):
         self.process_controller.finished.connect(self.finished)
         self.count_worker: ReviewCountWorker | None = None
         self.autocomplete_workers: list[ReviewAutocompleteWorker] = []
+        self.autocomplete_generation = 0
         self.active_request: ReviewRequest | None = None
         self.output_state = ReviewOutputState()
 
@@ -402,21 +420,37 @@ class ReviewCoordinator(QObject):
         request_sites = tuple(self.page.site.currentData())
         settings = self.settings_repository.load() if self.settings_repository else {}
         candidates = (
-            ("Gelbooru", gelbooru_tag_database(settings) or Path()),
+            ("gelbooru", gelbooru_tag_database(settings) or Path()),
             ("e621", Path(str(settings.get("e621_database", "")))),
         )
-        databases = tuple(
-            (name, path)
+        databases = {
+            name: path
             for name, path in candidates
-            if name.casefold() in request_sites and path.is_file()
-        )
+            if name in request_sites and path.is_file()
+        }
         if not databases:
+            self.page.show_suggestions(token, [])
             return
-        worker = ReviewAutocompleteWorker(token, databases)
+        self.autocomplete_generation += 1
+        worker = ReviewAutocompleteWorker(
+            token,
+            self.autocomplete_generation,
+            databases,
+            {"gelbooru": gelbooru_alias_database(settings), "e621": None},
+        )
         self.autocomplete_workers.append(worker)
-        worker.completed.connect(self.page.show_suggestions)
+        worker.completed.connect(self._autocomplete_completed)
         worker.finished.connect(lambda value=worker: self.discard_autocomplete(value))
         worker.start()
+
+    def _autocomplete_completed(
+        self, token: str, generation: int, sites: tuple[str, ...], ranked: list
+    ) -> None:
+        if (
+            generation == self.autocomplete_generation
+            and sites == tuple(self.page.site.currentData())
+        ):
+            self.page.show_suggestions(token, ranked)
 
     def discard_autocomplete(self, worker: ReviewAutocompleteWorker) -> None:
         if worker in self.autocomplete_workers:

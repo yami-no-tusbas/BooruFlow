@@ -11,7 +11,11 @@ from PySide6.QtCore import QObject, QThread, Signal
 from PySide6.QtWidgets import QInputDialog, QMessageBox
 
 from booruflow.application.database_paths import gelbooru_tag_database
-from booruflow.application.tag_lookup import exact_tag, lookup_tags
+from booruflow.application.tag_lookup import (
+    AUTOCOMPLETE_MIN_CHARS,
+    exact_tag,
+    lookup_autocomplete_tags,
+)
 from booruflow.application.tagging import (
     LocalMatchState,
     TaggingRequest,
@@ -40,6 +44,17 @@ from booruflow.presentation.pyside6.ui_logging import log_event
 
 def _controller_site(controller) -> str:
     return str(getattr(getattr(controller, "page", None), "active_site", "gelbooru"))
+
+
+def _analysis_item_signature(item) -> tuple | None:
+    if item is None:
+        return None
+    return (
+        item.id,
+        item.state.value,
+        str(item.cached_path or ""),
+        str(getattr(item, "content_sha256", "") or ""),
+    )
 
 
 class TaggingWorker(QThread):
@@ -166,6 +181,13 @@ class TaggingLegacyController(QObject):
         self.image_analysis = controller
         controller.timer.timeout.connect(self._poll_current)
         controller.worker_state_changed.connect(self._image_analysis_state_changed)
+        if hasattr(controller, "sources_changed"):
+            controller.sources_changed.connect(self._image_sources_changed)
+
+    def _image_sources_changed(self) -> None:
+        """Refresh only the post still displayed when source preparation finishes."""
+        if self.current_post_id is not None:
+            self._poll_current()
 
     def _image_analysis_state_changed(self, state: str, detail: str) -> None:
         if self.current_post_id is None or state not in {"failed", "startup_timeout"}:
@@ -190,9 +212,7 @@ class TaggingLegacyController(QObject):
             item = self.image_analysis.repository.item_by_remote_source(
                 _controller_site(self), str(self.current_post_id)
             )
-            signature = None if item is None else (
-                item.id, item.state.value, str(item.cached_path or "")
-            )
+            signature = _analysis_item_signature(item)
             if signature != self._last_polled_state:
                 self._last_polled_state = signature
                 if item is not None:
@@ -217,9 +237,7 @@ class TaggingLegacyController(QObject):
                 self.analyze(post_id)
             else:
                 self.refresh_local_review()
-                self._last_polled_state = (
-                    item.id, item.state.value, str(item.cached_path or "")
-                )
+                self._last_polled_state = _analysis_item_signature(item)
                 if item.state.value in {"ready_for_review", "reviewed"}:
                     self.page.analysis_state.setText(self.catalog.text("tagging.analysis.cached"))
         except Exception as exc:  # noqa: BLE001 - Qt signal boundary
@@ -240,7 +258,8 @@ class TaggingLegacyController(QObject):
             if known is None:
                 self._log("No existing item found; creating analysis source")
                 ids = self.image_analysis.add_remote_ids(
-                    _controller_site(self), [str(post_id)], priority=100
+                    _controller_site(self), [str(post_id)],
+                    priority=getattr(self, "interactive_priority", 100),
                 )
                 if hasattr(repository, "add_to_tagging_pool"): repository.add_to_tagging_pool(ids, "tagging_remote")
                 self._log(f"Item queued: {ids[0] if ids else 'pending lookup'}")
@@ -256,11 +275,11 @@ class TaggingLegacyController(QObject):
                     repository.requeue_skipped(known.id)
                     self._log("Skipped analysis restored as ready", item_id=known.id)
                 elif action == "retry":
-                    repository.request_analysis(known.id, 100)
+                    repository.request_analysis(known.id, getattr(self, "interactive_priority", 100))
                     self.image_analysis.retry(known.id)
                     self._log("Failed analysis requeued", item_id=known.id)
                 elif action == "restore_pending":
-                    repository.request_analysis(known.id, 100)
+                    repository.request_analysis(known.id, getattr(self, "interactive_priority", 100))
                     self.image_analysis._start_source_preparation()
                     self._log("Pending analysis made queue-visible", item_id=known.id)
                 elif action == "reuse":
@@ -302,10 +321,16 @@ class TaggingLegacyController(QObject):
 
     def lookup_manual_tags(self, text: str) -> None:
         database = self._tag_database()
-        if database is None or len(text.strip()) < 2:
+        if database is None or len(text.strip()) < AUTOCOMPLETE_MIN_CHARS:
             self.page.set_manual_suggestions([]); return
         try:
-            self.page.set_manual_suggestions([row.name for row in lookup_tags(_controller_site(self), database, text.strip(), limit=20)])
+            site = _controller_site(self)
+            rows = lookup_autocomplete_tags(site, database, text.strip(), limit=20)
+            if site == "gelbooru":
+                values = [row.value for row in rows]
+            else:
+                values = [row.name for row in rows]
+            self.page.set_manual_suggestions(values)
         except (FileNotFoundError, ValueError):
             self.page.set_manual_suggestions([])
 
@@ -403,10 +428,28 @@ class TaggingLegacyController(QObject):
             }.get(str(diagnostic["reason"]), self.catalog.text("tagging.analysis.pending"))
         if item.state.value in {"pending", "processing"}:
             labels[item.state.value] = self._worker_failure_label() or labels[item.state.value]
-        self.page.show_local_review(labels[item.state.value], item.cached_path,
-                                    sorted(current_tags), rows, [], summary["final_tags"])
+        preview_data = self._preview_data(item) if hasattr(self, "_preview_data") else None
+        preview_options = {"preview_data": preview_data} if preview_data else {}
+        self.page.show_local_review(
+            labels[item.state.value],
+            item.cached_path,
+            sorted(current_tags),
+            rows,
+            [],
+            summary["final_tags"],
+            **preview_options,
+        )
         if item.state.value in {"ready_for_review", "reviewed"}:
             self._log("Opening local review", item_id=item.id)
+
+    def _preview_data(self, item) -> bytes | None:
+        sources = getattr(self.image_analysis, "sources", None)
+        if sources is None:
+            return None
+        try:
+            return sources.cached_bytes(item)
+        except Exception:  # noqa: BLE001 - unresolved sources legitimately have no bytes yet
+            return None
 
     def decide(self, observation_id: object, value: str) -> None:
         if not self.image_analysis: return

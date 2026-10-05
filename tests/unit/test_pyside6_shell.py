@@ -19,13 +19,17 @@ class PySide6ShellTests(unittest.TestCase):
 
         cls.app = QApplication.instance() or QApplication([])
 
-    @staticmethod
-    def window(available: bool = False, **kwargs):
+    def window(self, available: bool = False, **kwargs):
         from booruflow.application.capabilities import ApplicationCapabilities
         from booruflow.domain import ToolAvailability
         from booruflow.infrastructure.localization import LanguageCatalog
         from booruflow.presentation.pyside6.main_window import MainWindow
 
+        if "project_root" not in kwargs:
+            temporary = tempfile.TemporaryDirectory()
+            self.addCleanup(temporary.cleanup)
+            kwargs["project_root"] = Path(temporary.name)
+            kwargs.setdefault("resource_root", LANGUAGES.parents[1])
         return MainWindow(
             ApplicationCapabilities(
                 ToolAvailability(available, "not configured" if not available else "")
@@ -193,10 +197,11 @@ class PySide6ShellTests(unittest.TestCase):
             (0, 0, 0, 0),
         )
         self.assertEqual(workspace_layout.spacing(), 0)
-        self.assertIs(workspace_layout.itemAt(0).widget(), window.navigation)
+        self.assertIs(workspace_layout.itemAt(0).widget(), window.sidebar)
+        self.assertIs(window.sidebar.layout().itemAt(1).widget(), window.navigation)
         self.assertIs(workspace_layout.itemAt(1).widget(), window.pages)
         self.assertEqual(
-            window.pages.geometry().left(), window.navigation.geometry().right() + 1
+            window.pages.geometry().left(), window.sidebar.geometry().right() + 1
         )
         with patch.object(window.feature_lifecycle, "request"):
             for key in (
@@ -211,9 +216,240 @@ class PySide6ShellTests(unittest.TestCase):
         self.app.processEvents()
         self.assertEqual(window.navigation.width(), initial_width)
         self.assertEqual(
-            window.pages.geometry().left(), window.navigation.geometry().right() + 1
+            window.pages.geometry().left(), window.sidebar.geometry().right() + 1
         )
         window.close()
+
+    def test_sidebar_collapses_without_rebuilding_pages_and_persists(self) -> None:
+        from booruflow.infrastructure.settings import JsonSettingsRepository
+
+        with tempfile.TemporaryDirectory() as directory:
+            repository = JsonSettingsRepository(Path(directory) / "settings.json")
+            window = self.window(settings_repository=repository)
+            self.open_feature(window, "tagging")
+            tagging_identity = id(window.tagging_page)
+            window.set_sidebar_collapsed(True)
+            self.app.processEvents()
+
+            self.assertEqual(window.sidebar.width(), window.COMPACT_NAVIGATION_WIDTH)
+            self.assertTrue(repository.load()["sidebar_collapsed"])
+            for row in range(window.navigation.count()):
+                item = window.navigation.item(row)
+                if item.data(256):
+                    self.assertEqual(item.text(), "")
+                    self.assertTrue(item.toolTip())
+                    self.assertFalse(item.icon().isNull())
+                else:
+                    self.assertTrue(item.isHidden())
+            self.assertEqual(id(window.tagging_page), tagging_identity)
+            self.assertEqual(window.navigation.currentRow(), window._visible_navigation_row("tagging"))
+            window.close()
+
+            restored = self.window(settings_repository=repository)
+            restored.show()
+            self.app.processEvents()
+            self.assertEqual(restored.sidebar.width(), restored.COMPACT_NAVIGATION_WIDTH)
+            self.assertEqual(restored.sidebar_toggle.text(), ">")
+            restored.sidebar_toggle.click()
+            self.app.processEvents()
+            self.assertFalse(repository.load()["sidebar_collapsed"])
+            self.assertGreaterEqual(restored.sidebar.width(), 176)
+            self.assertEqual(restored.navigation.item(0).text(), "Home")
+            restored.close()
+
+    def test_tagging_bulk_collapse_persists_through_main_settings(self) -> None:
+        from booruflow.infrastructure.settings import JsonSettingsRepository
+
+        with tempfile.TemporaryDirectory() as directory:
+            repository = JsonSettingsRepository(Path(directory) / "settings.json")
+            window = self.window(settings_repository=repository)
+            self.open_feature(window, "tagging")
+            window.show()
+            self.app.processEvents()
+            window.tagging_page.bulk_splitter.moveSplitter(410, 1)
+            self.app.processEvents()
+            self.assertEqual(repository.load()["tagging_bulk_width"], 410)
+            window.tagging_page.set_bulk_expanded(False)
+            self.assertFalse(repository.load()["tagging_bulk_expanded"])
+            window.close()
+
+            restored = self.window(settings_repository=repository)
+            self.open_feature(restored, "tagging")
+            self.assertTrue(restored.tagging_page.bulk_group.isHidden())
+            self.assertFalse(restored.tagging_page.bulk_reopen.isHidden())
+            restored.tagging_page.set_bulk_expanded(True, persist=False)
+            restored.show()
+            self.app.processEvents()
+            self.assertGreaterEqual(restored.tagging_page.bulk_panel.width(), 400)
+            self.assertLessEqual(restored.tagging_page.bulk_panel.width(), 420)
+            restored.close()
+
+    def test_restored_bulk_labels_survive_responsive_host_before_theme_refresh(self) -> None:
+        from PySide6.QtWidgets import QSizePolicy
+
+        from booruflow.infrastructure.localization import LanguageCatalog
+        from booruflow.presentation.pyside6.pages import ScrollablePageHost
+        from booruflow.presentation.pyside6.tagging_page import TaggingPage
+
+        page = TaggingPage(LanguageCatalog(LANGUAGES), {
+            "tagging_bulk_palette": [
+                {"tag": "1girl", "mode": "+", "checked": True, "category": "general"},
+            ],
+        })
+        editor = page.bulk_palette
+        restored = editor._chips["1girl"]
+        label = restored.label
+        original_policy = label.sizePolicy().horizontalPolicy()
+        original_minimum = label.minimumWidth()
+        host = ScrollablePageHost(page)
+        self.addCleanup(host.close)
+        host.resize(1100, 760)
+        host.show()
+        for _ in range(4):
+            self.app.processEvents()
+
+        # The shell adapts existing labels when installing a lazy page. A chip
+        # committed after that traversal never sees it; compare before any
+        # refresh_theme() can rehydrate a damaged restored label.
+        editor.input.setText("solo")
+        editor.input.returnPressed.emit()
+        for _ in range(4):
+            self.app.processEvents()
+        interactive = editor._chips["solo"]
+        self.assertIs(editor._chips["1girl"], restored)
+        self.assertIs(restored.label, label)
+        self.assertEqual(label.text(), "1girl")
+        self.assertEqual(label.sizePolicy().horizontalPolicy(), original_policy)
+        self.assertEqual(label.minimumWidth(), original_minimum)
+        for chip in (restored, interactive):
+            self.assertEqual(
+                chip.label.sizePolicy().horizontalPolicy(), QSizePolicy.Policy.Preferred
+            )
+            self.assertTrue(chip.label.isVisibleTo(host))
+            self.assertGreater(chip.label.width(), 0)
+            self.assertGreater(chip.layout().itemAt(2).sizeHint().width(), 0)
+            self.assertIs(chip.layout().itemAt(2).widget(), chip.label)
+            self.assertIs(chip.label.parentWidget(), chip)
+
+    def test_real_bootstrap_restores_visible_bulk_chip_labels_before_theme_refresh(self) -> None:
+        from booruflow.infrastructure.settings import JsonSettingsRepository
+        from booruflow.presentation.pyside6 import app as app_module
+
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            settings = app_module.initial_settings(root)
+            settings.update(
+                {
+                    "first_run_wizard_completed": True,
+                    "image_analysis_wd14_enabled": False,
+                    "tagging_site": "gelbooru",
+                    "tagging_bulk_palette": [],
+                }
+            )
+            repository = JsonSettingsRepository(root / "config" / "booruflow_settings.json")
+            repository.save(settings)
+
+            def start_tagging_window():
+                with (
+                    patch.object(app_module, "project_root", return_value=root),
+                    patch.object(
+                        app_module, "resource_root", return_value=LANGUAGES.parents[1]
+                    ),
+                    patch(
+                        "booruflow.infrastructure.gelbooru_aliases.migrate_alias_catalog"
+                    ),
+                ):
+                    _application, window = app_module.create_application(
+                        ["booruflow-test"]
+                    )
+                window.show()
+                self.app.processEvents()
+                window.navigate_to_key("tagging")
+                for _ in range(8):
+                    self.app.processEvents()
+                    if window.tagging_page is not None:
+                        break
+                self.assertIsNotNone(window.tagging_page)
+                for _ in range(8):
+                    self.app.processEvents()
+                return window, window.tagging_page
+
+            expected = {
+                "1girl": "1girl",
+                "solo": "solo",
+                "ayanami_rei": "ayanami_rei",
+                "neon_genesis_evangelion": "neon_genesis_ev...",
+            }
+            entries = (
+                ("1girl", "general", "add"),
+                ("solo", "general", "add"),
+                ("ayanami_rei", "character", "add"),
+                ("neon_genesis_evangelion", "copyright", "remove"),
+            )
+
+            interactive_window, interactive_page = start_tagging_window()
+            for tag, category, operation in entries:
+                interactive_page.bulk_palette.add_tag(
+                    tag, category, operation=operation
+                )
+            for _ in range(4):
+                self.app.processEvents()
+            interactive_geometry = {
+                tag: (
+                    interactive_page.bulk_palette._chips[tag].label.geometry().width(),
+                    interactive_page.bulk_palette._chips[tag].geometry().width(),
+                    interactive_page.bulk_palette._chips[tag]
+                    .layout()
+                    .itemAt(2)
+                    .minimumSize()
+                    .width(),
+                )
+                for tag in expected
+            }
+            self.assertTrue(
+                all(
+                    label_width > 0 and minimum_width > 0
+                    for label_width, _chip_width, minimum_width in interactive_geometry.values()
+                )
+            )
+            self.assertEqual(
+                [entry["tag"] for entry in repository.load()["tagging_bulk_palette"]],
+                list(expected),
+            )
+            interactive_window.close()
+            interactive_window.deleteLater()
+            self.app.processEvents()
+
+            restored_window, restored_page = start_tagging_window()
+            self.assertEqual(restored_page.bulk_palette.tags(), list(expected))
+            for tag, visible_text in expected.items():
+                chip = restored_page.bulk_palette._chips[tag]
+                self.assertEqual(chip.label.text(), visible_text)
+                self.assertTrue(chip.label.isVisibleTo(restored_window))
+                self.assertGreater(chip.label.geometry().width(), 0)
+                self.assertGreater(chip.label.sizeHint().width(), 0)
+                self.assertIs(chip.label.parentWidget(), chip)
+                self.assertGreater(chip.layout().itemAt(2).minimumSize().width(), 0)
+                self.assertEqual(
+                    (
+                        chip.label.geometry().width(),
+                        chip.geometry().width(),
+                        chip.layout().itemAt(2).minimumSize().width(),
+                    ),
+                    interactive_geometry[tag],
+                )
+            self.assertEqual(restored_page.bulk_palette.operation("1girl"), "add")
+            self.assertEqual(
+                restored_page.bulk_palette.operation("neon_genesis_evangelion"),
+                "remove",
+            )
+            self.assertEqual(
+                restored_page.bulk_palette._chips[
+                    "neon_genesis_evangelion"
+                ].label.toolTip(),
+                "neon_genesis_evangelion",
+            )
+            restored_window.close()
 
     def test_status_bar_replaces_messages_and_manages_scoped_progress(self) -> None:
         window = self.window()

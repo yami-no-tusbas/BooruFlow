@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from PySide6.QtCore import QCoreApplication
+from PySide6.QtCore import QCoreApplication, QEvent, QTimer
 from PySide6.QtWidgets import (
     QApplication,
     QCheckBox,
@@ -45,6 +45,15 @@ def runtime_paths() -> tuple[Path, Path]:
 
 
 class StandaloneTaggingWindow(QMainWindow):
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        if event.type() in {QEvent.Type.PaletteChange, QEvent.Type.ApplicationPaletteChange}:
+            QTimer.singleShot(0, self.refresh_theme)
+
+    def refresh_theme(self):
+        from booruflow.presentation.pyside6.theme import refresh_widget_tree
+        refresh_widget_tree(self)
+
     def __init__(
         self,
         catalog: LanguageCatalog,
@@ -92,7 +101,13 @@ class StandaloneTaggingWindow(QMainWindow):
         credentials_layout.addRow("", self.save_credentials_button)
         layout.addWidget(self.credentials_group)
 
-        self.page = TaggingPage(catalog, settings)
+        from booruflow.infrastructure.browser_launcher import BrowserLauncher
+        self.writable_root = settings_repository.path.parent
+        if self.writable_root.name == "config":
+            self.writable_root = self.writable_root.parent
+        self.browser_launcher = BrowserLauncher(self.writable_root / "var", settings)
+        self.page = TaggingPage(catalog, settings, self.browser_launcher)
+        self.page.entity_profile_requested.connect(self.open_entity_profile)
         layout.addWidget(self.page, 1)
         self.log_view = QPlainTextEdit()
         self.log_view.setReadOnly(True)
@@ -102,6 +117,8 @@ class StandaloneTaggingWindow(QMainWindow):
         layout.addWidget(self.log_view)
         footer = QHBoxLayout()
         self.status = QLabel(self.catalog.text("standalone.ready"))
+        self.thumbnail_status = QLabel()
+        self.page.page_status.thumbnail_state_changed.connect(self._thumbnail_feedback)
         self.page.page_status.state_changed.connect(self._page_status_state)
         self.page.page_status.message_changed.connect(self._page_status_message)
         self.page.page_status.message_cleared.connect(
@@ -112,6 +129,7 @@ class StandaloneTaggingWindow(QMainWindow):
         self.clear_button = QPushButton(self.catalog.text("log.clear"))
         self.clear_button.clicked.connect(self.log_view.clear)
         footer.addWidget(self.status, 1)
+        footer.addWidget(self.thumbnail_status)
         footer.addWidget(self.log_button)
         footer.addWidget(self.clear_button)
         layout.addLayout(footer)
@@ -135,6 +153,12 @@ class StandaloneTaggingWindow(QMainWindow):
                 state=self.catalog.text(f"status.state.{state}"),
             )
         )
+
+    def _thumbnail_feedback(self, _page, loaded, total, failed, _tooltip):
+        self.thumbnail_status.setText(
+            self.catalog.text("status.thumbnails", loaded=loaded, total=total)
+            + (self.catalog.text("status.thumbnails_failed", failed=failed) if failed else "")
+            if total else "")
 
     def _page_status_message(
         self,
@@ -169,6 +193,25 @@ class StandaloneTaggingWindow(QMainWindow):
                 "api_key": self.api_key.text().strip(),
             }
         }
+
+    def open_entity_profile(self, tag: str, category: str) -> None:
+        from booruflow.application.database_paths import gelbooru_tag_database
+        from booruflow.presentation.pyside6.entity_profiles import EntityProfileDialog
+
+        try:
+            dialog = EntityProfileDialog(
+                self.writable_root, self.catalog, tag, category,
+                self.credentials, gelbooru_tag_database(self.settings_repository.load()),
+                self.browser_launcher, self.page.page_status, self,
+            )
+            self._entity_profile_dialog = dialog
+            dialog.setModal(True)
+            dialog.show()
+        except Exception as exc:  # noqa: BLE001 - standalone GUI action boundary
+            self.page.page_status.show_message(
+                self.catalog.text("entity.error", error=type(exc).__name__),
+                timeout_ms=0, log=True, global_message=True, level="ERROR",
+            )
 
     def start(self, request) -> None:
         credentials = self.credentials()["gelbooru"]
@@ -215,8 +258,18 @@ class StandaloneTaggingWindow(QMainWindow):
         self.settings_repository.save(settings)
 
     def closeEvent(self, event) -> None:
+        dialog = getattr(self, "_entity_profile_dialog", None)
+        if dialog is not None:
+            import shiboken6
+            if shiboken6.isValid(dialog):
+                running = dialog.worker is not None
+                dialog.close()
+                if running:
+                    event.ignore()
+                    return
         self.save_current_settings()
         self.controller.stop()
+        self.browser_launcher.close()
         super().closeEvent(event)
 
     def _toggle_api_key(self, visible: bool) -> None:

@@ -21,6 +21,8 @@
   "nav.group.wiki_tags": "WIKI & TAGS",
   "nav.group.local_tools": "OUTILS LOCAUX",
   "nav.group.settings": "PARAMÈTRES",
+  "nav.sidebar.collapse": "Réduire la navigation",
+  "nav.sidebar.expand": "Déployer la navigation",
   "grabber_tools.builder": "Créateur de listes de tags",
   "grabber_tools.launcher": "Lanceur Grabber",
   "image_finder.connected": "Pixiv : connecté",
@@ -93,6 +95,12 @@
   "status.saved": "Options — Enregistrées.",
   "status.save_failed": "Options — Échec de l’enregistrement.",
   "status.page_state": "{page} — {state}",
+  "status.thumbnails": "Miniatures : {loaded}/{total}",
+  "status.thumbnails_failed": " · {failed} en échec",
+  "status.analysis": "WD14 : {completed}/{total} · {cached} en cache · {analyzed} nouvelles · {failed} erreurs · {retrying} reprises",
+  "status.ram": "RAM : {value}",
+  "status.ram.tooltip": "RAM de BooruFlow : {value}",
+  "status.ram.available": "RAM système disponible : {value}",
   "status.state.ready": "Prêt",
   "status.state.loading": "Chargement",
   "status.state.failed": "Échec",
@@ -162,6 +170,7 @@
   "options.image_analysis": "Analyse d’images",
   "options.download_prefetch": "Préchargement des téléchargements (images) :",
   "options.analysis_prefetch": "Préchargement des analyses (images) :",
+  "options.wd14_batch_size": "Taille des lots WD14 :",
   "grabber.available": "Grabber : disponible",
   "grabber.unavailable": "Grabber : indisponible — {reason}",
   "page.review": "La révision par catégorie et depuis une liste TXT sera consolidée ici.",
@@ -220,8 +229,14 @@
   "options.storage_refresh": "Actualiser",
   "options.storage_open_models": "Ouvrir le dossier des modèles",
   "options.storage_models_summary": "{total} au total — WD14 {wd14}, e621 {e621}, autres {other}",
+  "options.legacy_cache_migrate": "Migrer l’ancien cache d’images",
+  "options.legacy_cache_migrate_tip": "Déplace les anciennes images individuelles vers le cache SQLite borné. Cette opération peut prendre du temps et ne démarre que lorsque vous appuyez sur le bouton.",
+  "options.legacy_cache_summary": "Ancien cache d’images : {count} fichier(s), {size}. Cache SQLite : {path}",
+  "options.legacy_cache_result": "Migration terminée : {imported} importé(s), {deleted} supprimé(s), {skipped} ignoré(s), {failed} échec(s), {remaining} restant(s) ({remaining_size}).",
+  "options.legacy_cache_error": "Échec de la migration de l’ancien cache d’images : {error}",
   "options.calculating_disk_usage": "Calcul du stockage des modèles…",
   "options.storage_failed": "Impossible de calculer les informations de stockage.",
+  "image_analysis.preview_unavailable": "Aperçu indisponible",
   "options.browser": "Navigateur",
   "options.browser_open_external": "Ouvrir les liens externes avec :",
   "options.browser_command": "Modèle de commande :",
@@ -262,6 +277,7 @@
   "options.wd14_store_threshold_tip": "Confiance minimale enregistrée lors des nouvelles analyses WD14. Une valeur plus basse conserve davantage de candidats.",
   "options.download_prefetch_tip": "Nombre d’images source préparées à l’avance (images).",
   "options.analysis_prefetch_tip": "Nombre maximal d’images mises en attente d’analyse (images).",
+  "options.wd14_batch_size_tip": "Nombre d’images fixes envoyées ensemble à une inférence WD14. Auto commence prudemment à 4 sur CUDA et 1 sur CPU.",
   "options.worker_heartbeat_tip": "Fréquence à laquelle le worker confirme qu’une analyse longue est toujours active (secondes).",
   "options.worker_stale_tip": "Après ce délai sans heartbeat, un travail interrompu peut être récupéré (secondes).",
   "options.worker_recycle_tip": "Redémarre le worker après ce nombre d’analyses ; 0 désactive le recyclage.",
@@ -448,6 +464,10 @@
   ,"tagging.group_site": "Repérer les posts {site} pauvres en tags"
   ,"tagging.query": "Recherche Gelbooru :"
   ,"tagging.search_label": "Recherche :"
+  ,"tagging.search.placeholder": "Saisir ou coller une requête..."
+  ,"tagging.search.editor_tip": "Les tags locaux connus deviennent des puces ; les tags inconnus et métatags restent du texte éditable."
+  ,"tagging.search.copy_tag": "Copier le tag"
+  ,"tagging.search.copy_full_query": "Copier la requête complète"
   ,"tagging.pages": "Pages par bloc :"
   ,"tagging.start": "Première page :"
   ,"tagging.minimum": "Tags minimum :"
@@ -495,15 +515,24 @@
   ,"tagging.section": "{priority} — {count} image(s)"
   ,"tagging.card": "#{id} · {count} tags"
   ,"tagging.bulk.title": "Tagging manuel en lot — enregistré localement pour revue"
+  ,"tagging.bulk.palette": "Palette de tags (+ ajouter / − retirer) :"
+  ,"tagging.bulk.checkbox_tip": "Inclure cette opération au prochain Apply"
+  ,"tagging.sort.title": "Trier"
+  ,"tagging.sort.id": "ID"
+  ,"tagging.sort.artist": "Nom (artiste)"
+  ,"tagging.sort.tags": "Tags"
+  ,"tagging.sort.all": "Tous les résultats ({count})"
+  ,"tagging.bulk.collapse": "Réduire le tagging manuel en lot"
+  ,"tagging.bulk.expand": "Déployer le tagging manuel en lot"
   ,"tagging.bulk.add": "Tags à ajouter :"
   ,"tagging.bulk.remove": "Tags à retirer :"
   ,"tagging.bulk.apply": "Appliquer aux {count} images sélectionnées"
-  ,"tagging.bulk.intent_help": "Tous les tags affichés seront appliqués ensemble."
+  ,"tagging.bulk.intent_help": "Seules les modifications cochées seront appliquées ensemble."
   ,"tagging.bulk.confirm_window": "Ajouter les modifications au Batch"
   ,"tagging.bulk.confirm_title": "Appliquer les modifications aux {count} images sélectionnées ?"
   ,"tagging.bulk.confirm_add": "Ajouter : {tags}"
   ,"tagging.bulk.confirm_remove": "Retirer : {tags}"
-  ,"tagging.bulk.confirm_help": "Tous les tags affichés seront appliqués ensemble.\nCes modifications seront ajoutées au Batch pour vérification avant publication."
+  ,"tagging.bulk.confirm_help": "Seules les modifications cochées seront appliquées ensemble.\nCes modifications seront ajoutées au Batch pour vérification avant publication."
   ,"tagging.bulk.confirm_accept": "Ajouter au Batch"
   ,"tagging.bulk.summary": "{queued} en attente · {skipped} ignoré(s)"
   ,"tagging.bulk.no_changes": "Aucune modification de tags nécessaire"
@@ -511,7 +540,9 @@
   ,"tagging.bulk.pending": "{count} modification(s) en attente"
   ,"tagging.bulk.tooltip": "À publier :"
   ,"tagging.bulk.selected": "{count} image(s) sélectionnée(s)"
-  ,"tagging.bulk.placeholder": "Saisir un tag, puis appuyer sur Entrée"
+  ,"tagging.bulk.placeholder": "Saisir un tag à ajouter..."
+  ,"tagging.bulk.add_placeholder": "Saisir un tag à ajouter..."
+  ,"tagging.bulk.remove_placeholder": "Saisir un tag à retirer..."
   ,"tagging.results.hide_queued": "Masquer les résultats déjà en file d’attente"
   ,"tagging.results.counts": "{total} résultats · {queued} déjà en file · {displayed} affichés"
   ,"tagging.card.status.processed": "✓ Traité"
@@ -1248,4 +1279,85 @@
   ,"options.runtime_installed": "Runtime GPU installé ; redémarrage du worker…"
   ,"options.wd14_installed": "WD14 installé ; redémarrage du worker…"
   ,"options.analysis_install_failed": "Échec de l'installation de WD14 ou du runtime GPU."
+  ,"wiki.check_gelbooru": "Vérifier sur Gelbooru"
+  ,"wiki.import_danbooru": "Importer depuis Danbooru"
+  ,"wiki.publish": "Publier"
+  ,"wiki.check_started": "Vérification du wiki Gelbooru pour {tag}…"
+  ,"wiki.import_started": "Import du wiki Danbooru pour {tag}…"
+  ,"wiki.publish_started": "Nouvelle vérification Gelbooru pour {tag} avant publication…"
+  ,"wiki.gelbooru_found": "Wiki Gelbooru trouvé"
+  ,"wiki.gelbooru_missing": "Aucun wiki Gelbooru trouvé"
+  ,"wiki.danbooru_missing": "Aucun wiki Danbooru trouvé"
+  ,"wiki.danbooru_imported": "Importé depuis Danbooru. Vérifiez le brouillon éditable et le rapport de conversion."
+  ,"wiki.network_error": "Erreur réseau ou de conversion du wiki : {error}. Le brouillon actuel a été conservé."
+  ,"wiki.stale_result": "Le tag a changé pendant la requête ; le résultat obsolète a été ignoré."
+  ,"wiki.replace_draft_title": "Remplacer le brouillon"
+  ,"wiki.replace_draft_confirm": "Remplacer le brouillon actuellement modifié par l’import Danbooru ?"
+  ,"wiki.import_cancelled": "Import Danbooru annulé ; le brouillon actuel a été conservé."
+  ,"wiki.report_imported": "Importé depuis Danbooru"
+  ,"wiki.report_modified": "{count} tags modifiés"
+  ,"wiki.report_unresolved": "{count} tags non résolus"
+  ,"wiki.report_reason": "Raison : {reason}"
+  ,"wiki.reason_gelbooru_alias": "Alias Gelbooru"
+  ,"wiki.reason_crossboard": "mapping inter-board vérifié"
+  ,"wiki.reason_normalized": "syntaxe normalisée"
+  ,"wiki.unresolved_preserved": "Absent de la base locale de tags Gelbooru. Lien original conservé."
+  ,"wiki.report_warnings": "Avertissements"
+  ,"wiki.opened_existing": "Le wiki Gelbooru existant a été ouvert. Cliquez vous-même sur Edit après vérification."
+  ,"tagging.wd14.active_tip": "Inclure cette analyse dans le groupement WD14"
+  ,"tagging.review.unscored": "Existants / manuels — sans score de confiance"
+  ,"entity.title": "Profils d’entités"
+  ,"entity.entity": "Tag de l’entité"
+  ,"entity.query": "Requête Gelbooru"
+  ,"entity.query_note": "Modifiez la requête avant analyse. Une requête différente crée un dataset cumulatif distinct. Les suggestions nécessitent votre confirmation."
+  ,"entity.new_posts": "Nouveaux posts uniques"
+  ,"entity.analyze": "Analyser / actualiser"
+  ,"entity.analyze_menu": "Ouvrir / créer un profil d’entité…"
+  ,"entity.cancel": "Annuler"
+  ,"entity.filter": "Filtrer les tags…"
+  ,"entity.all": "Tous"
+  ,"entity.keep": "Garder"
+  ,"entity.review": "À vérifier"
+  ,"entity.ignore": "Ignorer"
+  ,"entity.excluded": "Exclus globalement"
+  ,"entity.attribute": "Attributs"
+  ,"entity.relation": "Relations"
+  ,"entity.col.tag": "Tag"
+  ,"entity.col.count": "Occurrences"
+  ,"entity.col.frequency": "Fréquence (%)"
+  ,"entity.col.category": "Catégorie"
+  ,"entity.col.status": "Statut"
+  ,"entity.col.excluded": "Exclusion globale"
+  ,"entity.new_dataset": "Nouveau dataset"
+  ,"entity.summary": "Total : {sample_count} posts uniques · Dernier lot : +{last_run_new} · Actualisé (UTC) : {updated_at} · État : {last_run_state}"
+  ,"entity.started": "Analyse du profil démarrée."
+  ,"entity.progress": "{new} / {requested} nouveaux posts · page {page}"
+  ,"entity.retry": "Gelbooru : nouvelle tentative {attempt} pour la page {page}."
+  ,"entity.result": "{state} · +{new} nouveaux posts · {total} au total."
+  ,"entity.error": "Erreur du profil ({error}). Les posts enregistrés sont conservés ; une actualisation permet de reprendre."
+  ,"entity.cancelling": "Annulation après la requête en cours…"
+  ,"entity.ignore_global": "Toujours ignorer dans les profils d’entités"
+  ,"entity.blacklist": "Blacklist"
+  ,"entity.space": "Espace"
+  ,"entity.restore_global": "Retirer l’exclusion globale"
+  ,"entity.inspect": "Afficher les posts correspondants"
+  ,"entity.inspect_note": "Jusqu’à 100 posts témoins de l’échantillon. Miniatures à la demande. Double-cliquez pour ouvrir un post dans le navigateur configuré."
+  ,"entity.state.completed": "Terminé"
+  ,"entity.state.cancelled": "Annulé"
+  ,"entity.state.exhausted": "Recherche épuisée"
+  ,"entity.state.failed": "Échec"
+  ,"entity.confirmed": "Confirmé depuis un profil d’entité"
+  ,"entity.close": "Fermer"
+  ,"entity.state.ready": "Prêt"
+  ,"entity.state.running": "En cours"
+  ,"context.open": "Ouvrir"
+  ,"context.copy_url": "Copier l’URL"
+  ,"context.open_post": "Ouvrir le post"
+  ,"context.copy_post_id": "Copier l’ID du post"
+  ,"context.copy_post_url": "Copier l’URL du post"
+  ,"context.open_source": "Ouvrir la source"
+  ,"context.copy_source_url": "Copier l’URL de la source"
+  ,"context.remove_chip": "Retirer la chip"
+  ,"tagging.active_filters": "Filtres actifs"
+  ,"context.search_tag": "Rechercher ce tag"
 }

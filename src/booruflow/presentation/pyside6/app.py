@@ -46,6 +46,7 @@ def initial_settings(root: Path) -> dict[str, object]:
         "gelbooru_publish_backend": "embedded",
         "image_analysis_download_prefetch": 10,
         "image_analysis_analysis_prefetch": 2,
+        "image_analysis_wd14_batch_size": "auto",
         "image_analysis_worker_heartbeat_interval": 2,
         "image_analysis_worker_stale_timeout": 15,
         "image_analysis_wd14_enabled": True,

@@ -21,6 +21,8 @@
   "nav.group.wiki_tags": "WIKI & TAGS",
   "nav.group.local_tools": "LOCAL TOOLS",
   "nav.group.settings": "SETTINGS",
+  "nav.sidebar.collapse": "Collapse navigation",
+  "nav.sidebar.expand": "Expand navigation",
   "grabber_tools.builder": "Tag List Builder",
   "grabber_tools.launcher": "Grabber Launcher",
   "image_finder.connected": "Pixiv: connected",
@@ -93,6 +95,12 @@
   "status.saved": "Options — Saved.",
   "status.save_failed": "Options — Save failed.",
   "status.page_state": "{page} — {state}",
+  "status.thumbnails": "Thumbnails: {loaded}/{total}",
+  "status.thumbnails_failed": " · {failed} failed",
+  "status.analysis": "WD14: {completed}/{total} · {cached} cached · {analyzed} new · {failed} errors · {retrying} retrying",
+  "status.ram": "RAM: {value}",
+  "status.ram.tooltip": "BooruFlow RAM: {value}",
+  "status.ram.available": "System available RAM: {value}",
   "status.state.ready": "Ready",
   "status.state.loading": "Loading",
   "status.state.failed": "Failed",
@@ -162,6 +170,7 @@
   "options.image_analysis": "Image Analysis",
   "options.download_prefetch": "Download prefetch (images):",
   "options.analysis_prefetch": "Analysis prefetch (images):",
+  "options.wd14_batch_size": "WD14 batch size:",
   "grabber.available": "Grabber: available",
   "grabber.unavailable": "Grabber: unavailable — {reason}",
   "page.review": "Category review and TXT-list review will be consolidated here.",
@@ -220,8 +229,14 @@
   "options.storage_refresh": "Refresh",
   "options.storage_open_models": "Open models folder",
   "options.storage_models_summary": "{total} total — WD14 {wd14}, e621 {e621}, other {other}",
+  "options.legacy_cache_migrate": "Migrate legacy image cache",
+  "options.legacy_cache_migrate_tip": "Moves legacy loose images into the bounded SQLite cache. This may take time and runs only when you press the button.",
+  "options.legacy_cache_summary": "Legacy image cache: {count} file(s), {size}. SQLite cache: {path}",
+  "options.legacy_cache_result": "Migration complete: {imported} imported, {deleted} deleted, {skipped} skipped, {failed} failed, {remaining} remaining ({remaining_size}).",
+  "options.legacy_cache_error": "Legacy image cache migration failed: {error}",
   "options.calculating_disk_usage": "Calculating model storage…",
   "options.storage_failed": "Storage information could not be calculated.",
+  "image_analysis.preview_unavailable": "Preview unavailable",
   "options.browser": "Browser",
   "options.browser_open_external": "Open external links with:",
   "options.browser_command": "Command template:",
@@ -262,6 +277,7 @@
   "options.wd14_store_threshold_tip": "Minimum confidence persisted from new WD14 runs. Lower values retain more candidates.",
   "options.download_prefetch_tip": "Number of source images prepared ahead of time (images).",
   "options.analysis_prefetch_tip": "Maximum number of images queued ahead for analysis (images).",
+  "options.wd14_batch_size_tip": "Number of fixed images sent together to one WD14 inference. Auto starts conservatively at 4 on CUDA and 1 on CPU.",
   "options.worker_heartbeat_tip": "How often the worker confirms that a long analysis is still active (seconds).",
   "options.worker_stale_tip": "After this time without a heartbeat, an interrupted worker job can be recovered (seconds).",
   "options.worker_recycle_tip": "Restart the analysis worker after this many processed runs; 0 disables recycling.",
@@ -448,6 +464,10 @@
   ,"tagging.group_site": "Find poorly tagged {site} posts"
   ,"tagging.query": "Gelbooru search:"
   ,"tagging.search_label": "Search:"
+  ,"tagging.search.placeholder": "Type or paste a query..."
+  ,"tagging.search.editor_tip": "Known local tags become chips; unknown tags and metatags remain editable text."
+  ,"tagging.search.copy_tag": "Copy tag"
+  ,"tagging.search.copy_full_query": "Copy full query"
   ,"tagging.pages": "Pages per block:"
   ,"tagging.start": "First page:"
   ,"tagging.minimum": "Minimum tags:"
@@ -495,15 +515,24 @@
   ,"tagging.section": "{priority} — {count} image(s)"
   ,"tagging.card": "#{id} · {count} tags"
   ,"tagging.bulk.title": "Manual bulk tagging — saved locally for review"
+  ,"tagging.bulk.palette": "Tag palette (+ add / − remove):"
+  ,"tagging.bulk.checkbox_tip": "Include this operation in the next Apply"
+  ,"tagging.sort.title": "Sort"
+  ,"tagging.sort.id": "ID"
+  ,"tagging.sort.artist": "Name (artist)"
+  ,"tagging.sort.tags": "Tags"
+  ,"tagging.sort.all": "All results ({count})"
+  ,"tagging.bulk.collapse": "Collapse manual bulk tagging"
+  ,"tagging.bulk.expand": "Expand manual bulk tagging"
   ,"tagging.bulk.add": "Add tags:"
   ,"tagging.bulk.remove": "Remove tags:"
   ,"tagging.bulk.apply": "Apply to {count} selected"
-  ,"tagging.bulk.intent_help": "All listed tags will be applied together."
+  ,"tagging.bulk.intent_help": "Only checked changes will be applied together."
   ,"tagging.bulk.confirm_window": "Add changes to batch"
   ,"tagging.bulk.confirm_title": "Apply changes to {count} selected images?"
   ,"tagging.bulk.confirm_add": "Add: {tags}"
   ,"tagging.bulk.confirm_remove": "Remove: {tags}"
-  ,"tagging.bulk.confirm_help": "All listed tags will be applied together.\nThese changes will be added to the batch for review before publishing."
+  ,"tagging.bulk.confirm_help": "Only checked changes will be applied together.\nThese changes will be added to the batch for review before publishing."
   ,"tagging.bulk.confirm_accept": "Add to batch"
   ,"tagging.bulk.summary": "{queued} queued · {skipped} skipped"
   ,"tagging.bulk.no_changes": "No tag changes needed"
@@ -511,7 +540,9 @@
   ,"tagging.bulk.pending": "{count} pending change(s)"
   ,"tagging.bulk.tooltip": "To publish:"
   ,"tagging.bulk.selected": "{count} image(s) selected"
-  ,"tagging.bulk.placeholder": "Type a tag, then press Enter"
+  ,"tagging.bulk.placeholder": "Type to add a tag..."
+  ,"tagging.bulk.add_placeholder": "Type to add a tag..."
+  ,"tagging.bulk.remove_placeholder": "Type to remove a tag..."
   ,"tagging.results.hide_queued": "Hide results already queued"
   ,"tagging.results.counts": "{total} results · {queued} already queued · {displayed} displayed"
   ,"tagging.card.status.processed": "✓ Processed"
@@ -1248,4 +1279,85 @@
   ,"options.runtime_installed": "GPU runtime installed; restarting the worker…"
   ,"options.wd14_installed": "WD14 installed; restarting the worker…"
   ,"options.analysis_install_failed": "WD14 or GPU runtime installation failed."
+  ,"wiki.check_gelbooru": "Check on Gelbooru"
+  ,"wiki.import_danbooru": "Import from Danbooru"
+  ,"wiki.publish": "Publish"
+  ,"wiki.check_started": "Checking Gelbooru wiki for {tag}…"
+  ,"wiki.import_started": "Importing Danbooru wiki for {tag}…"
+  ,"wiki.publish_started": "Rechecking Gelbooru wiki for {tag} before publishing…"
+  ,"wiki.gelbooru_found": "Gelbooru wiki found"
+  ,"wiki.gelbooru_missing": "No Gelbooru wiki found"
+  ,"wiki.danbooru_missing": "No Danbooru wiki found"
+  ,"wiki.danbooru_imported": "Imported from Danbooru. Review the editable draft and conversion report."
+  ,"wiki.network_error": "Wiki network or conversion error: {error}. The current draft was kept."
+  ,"wiki.stale_result": "The tag changed while the request was running; the stale result was ignored."
+  ,"wiki.replace_draft_title": "Replace draft"
+  ,"wiki.replace_draft_confirm": "Replace the current edited draft with the Danbooru import?"
+  ,"wiki.import_cancelled": "Danbooru import cancelled; the current draft was kept."
+  ,"wiki.report_imported": "Imported from Danbooru"
+  ,"wiki.report_modified": "{count} tags modified"
+  ,"wiki.report_unresolved": "{count} unresolved tags"
+  ,"wiki.report_reason": "Reason: {reason}"
+  ,"wiki.reason_gelbooru_alias": "Gelbooru alias"
+  ,"wiki.reason_crossboard": "verified cross-board mapping"
+  ,"wiki.reason_normalized": "normalized syntax"
+  ,"wiki.unresolved_preserved": "Not found in local Gelbooru tag database. Original link preserved."
+  ,"wiki.report_warnings": "Warnings"
+  ,"wiki.opened_existing": "The existing Gelbooru wiki was opened. Use Edit yourself after reviewing it."
+  ,"tagging.wd14.active_tip": "Include this analysis in WD14 grouping"
+  ,"tagging.review.unscored": "Existing / manual — no confidence score"
+  ,"entity.title": "Entity profiles"
+  ,"entity.entity": "Entity tag"
+  ,"entity.query": "Gelbooru query"
+  ,"entity.query_note": "Edit the query before analysis. A different query creates a separate cumulative dataset. Suggestions require your confirmation."
+  ,"entity.new_posts": "New unique posts"
+  ,"entity.analyze": "Analyze / refresh"
+  ,"entity.analyze_menu": "Open / create entity profile…"
+  ,"entity.cancel": "Cancel"
+  ,"entity.filter": "Filter tags…"
+  ,"entity.all": "All"
+  ,"entity.keep": "Keep"
+  ,"entity.review": "Review"
+  ,"entity.ignore": "Ignore"
+  ,"entity.excluded": "Globally excluded"
+  ,"entity.attribute": "Attributes"
+  ,"entity.relation": "Relations"
+  ,"entity.col.tag": "Tag"
+  ,"entity.col.count": "Occurrences"
+  ,"entity.col.frequency": "Frequency (%)"
+  ,"entity.col.category": "Category"
+  ,"entity.col.status": "Status"
+  ,"entity.col.excluded": "Global exclusion"
+  ,"entity.new_dataset": "New dataset"
+  ,"entity.summary": "Total: {sample_count} unique posts · Last run: +{last_run_new} · Updated (UTC): {updated_at} · State: {last_run_state}"
+  ,"entity.started": "Entity profile analysis started."
+  ,"entity.progress": "{new} / {requested} new posts · page {page}"
+  ,"entity.retry": "Gelbooru: retry {attempt} for page {page}."
+  ,"entity.result": "{state} · +{new} new posts · {total} total."
+  ,"entity.error": "Entity profile error ({error}). Committed posts are preserved; refresh can resume."
+  ,"entity.cancelling": "Cancelling after the current bounded request…"
+  ,"entity.ignore_global": "Always ignore in entity profiles"
+  ,"entity.blacklist": "Blacklist"
+  ,"entity.space": "Space"
+  ,"entity.restore_global": "Remove global exclusion"
+  ,"entity.inspect": "Show matching posts"
+  ,"entity.inspect_note": "Up to 100 sampled witnesses. Thumbnails load on demand. Double-click to open a post in the configured browser."
+  ,"entity.state.completed": "Completed"
+  ,"entity.state.cancelled": "Cancelled"
+  ,"entity.state.exhausted": "Search exhausted"
+  ,"entity.state.failed": "Failed"
+  ,"entity.confirmed": "Confirmed from an entity profile"
+  ,"entity.close": "Close"
+  ,"entity.state.ready": "Ready"
+  ,"entity.state.running": "Running"
+  ,"context.open": "Open"
+  ,"context.copy_url": "Copy URL"
+  ,"context.open_post": "Open post"
+  ,"context.copy_post_id": "Copy post ID"
+  ,"context.copy_post_url": "Copy post URL"
+  ,"context.open_source": "Open source"
+  ,"context.copy_source_url": "Copy source URL"
+  ,"context.remove_chip": "Remove chip"
+  ,"tagging.active_filters": "Active filters"
+  ,"context.search_tag": "Search this tag"
 }

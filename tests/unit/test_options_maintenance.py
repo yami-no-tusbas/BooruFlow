@@ -1,7 +1,12 @@
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
-from booruflow.application.analysis_installation import analysis_installation_status
+from booruflow.application import analysis_installation
+from booruflow.application.analysis_installation import (
+    analysis_installation_status,
+    runtime_capabilities,
+)
 from booruflow.infrastructure.grabber import (
     grabber_availability,
     resolve_grabber_executable,
@@ -51,3 +56,77 @@ def test_analysis_installation_requires_complete_wd14_artifact_set(tmp_path: Pat
     assert not incomplete.wd14_installed
     assert not missing_metadata.wd14_installed
     assert complete.wd14_installed
+
+
+def test_runtime_capabilities_preloads_nvidia_dlls_before_cuda_provider(
+    tmp_path: Path,
+) -> None:
+    package = tmp_path / "onnxruntime"
+    capi = package / "capi"
+    capi.mkdir(parents=True)
+    provider = capi / "onnxruntime_providers_cuda.dll"
+    provider.touch()
+    runtime = SimpleNamespace(
+        __file__=str(package / "__init__.py"),
+        __version__="1.29.0",
+        get_available_providers=lambda: [
+            "CUDAExecutionProvider", "CPUExecutionProvider",
+        ],
+    )
+    events: list[str] = []
+    dll_directory = SimpleNamespace(close=lambda: None)
+
+    with (
+        patch.object(
+            analysis_installation.importlib,
+            "import_module",
+            return_value=runtime,
+        ),
+        patch.object(
+            analysis_installation,
+            "preload_nvidia_dlls",
+            side_effect=lambda _runtime: (
+                events.append("preload") or (True, True, "loaded")
+            ),
+        ),
+        patch.object(
+            analysis_installation.ctypes,
+            "WinDLL",
+            side_effect=lambda _path: events.append("provider") or object(),
+        ),
+        patch.object(
+            analysis_installation.os,
+            "add_dll_directory",
+            return_value=dll_directory,
+        ),
+    ):
+        assert runtime_capabilities() == (True, True, "1.29.0")
+
+    assert events == ["preload", "provider"]
+
+
+def test_runtime_capabilities_rejects_cuda_when_preload_fails(tmp_path: Path) -> None:
+    package = tmp_path / "onnxruntime"
+    package.mkdir()
+    runtime = SimpleNamespace(
+        __file__=str(package / "__init__.py"),
+        __version__="1.29.0",
+        get_available_providers=lambda: [
+            "CUDAExecutionProvider", "CPUExecutionProvider",
+        ],
+    )
+
+    with (
+        patch.object(
+            analysis_installation.importlib,
+            "import_module",
+            return_value=runtime,
+        ),
+        patch.object(
+            analysis_installation,
+            "preload_nvidia_dlls",
+            return_value=(True, False, "failed"),
+        ),
+        patch.object(analysis_installation.ctypes, "WinDLL"),
+    ):
+        assert runtime_capabilities() == (True, False, "1.29.0")

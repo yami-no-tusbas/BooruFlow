@@ -10,6 +10,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QPushButton,
     QTableWidgetItem,
     QVBoxLayout,
@@ -22,6 +23,7 @@ from booruflow.infrastructure.folder_artists import (
     parse_image_count_filter,
 )
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.presentation.pyside6.context_actions import add_action, exec_menu
 from booruflow.presentation.pyside6.ui_components import DataTable
 
 
@@ -83,6 +85,8 @@ class FolderArtistsPage(QWidget):
             0, self.table.horizontalHeader().ResizeMode.Stretch
         )
         self.table.doubleClicked.connect(lambda _index: self.open_selected())
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._artist_menu)
         self.table.itemSelectionChanged.connect(self._update_open_enabled)
         layout.addWidget(self.table, 1)
 
@@ -104,6 +108,17 @@ class FolderArtistsPage(QWidget):
         )
         if selected:
             self.folder.setText(selected)
+
+    def _artist_menu(self, position):
+        item = self.table.itemAt(position)
+        if item is None:
+            return
+        self.table.setCurrentCell(item.row(), 0)
+        self.table.selectRow(item.row())
+        menu = QMenu(self)
+        handlers = {}
+        add_action(menu, self.catalog.text("folder_artists.open"), self.open_selected, handlers)
+        exec_menu(menu, self.table.viewport().mapToGlobal(position), handlers)
 
     def choose_everything(self) -> str:
         selected, _filter = QFileDialog.getOpenFileName(

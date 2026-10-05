@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
     QListView,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QProgressBar,
     QPushButton,
     QSizePolicy,
@@ -35,7 +36,17 @@ from PySide6.QtWidgets import (
 from booruflow.domain.similar_artists import ArtistIdentity
 from booruflow.infrastructure.image_sources import post_page_url
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.presentation.pyside6.context_actions import (
+    add_action,
+    bind_browser_links,
+    exec_menu,
+    link_actions,
+    post_actions,
+    tag_actions,
+)
 from booruflow.presentation.pyside6.image_analysis_page import ScaledImageLabel
+from booruflow.presentation.pyside6.status_bar import PageStatus
+from booruflow.presentation.pyside6.theme import style_item_view
 
 
 def confidence_label(catalog: LanguageCatalog, value: str) -> str:
@@ -43,6 +54,7 @@ def confidence_label(catalog: LanguageCatalog, value: str) -> str:
 
 
 class SimilarArtistsPage(QWidget):
+    entity_profile_requested = Signal(str, str)
     language_refreshed = Signal()
     artist_search_requested = Signal(object)
     item_search_requested = Signal(int)
@@ -73,6 +85,7 @@ class SimilarArtistsPage(QWidget):
     def __init__(self, catalog: LanguageCatalog) -> None:
         super().__init__()
         self.catalog = catalog
+        self.page_status = PageStatus("similar_artists", self)
         self.setAcceptDrops(True)
         self.artist_options: list[dict] = []
         self.result_rows: list[dict] = []
@@ -246,6 +259,10 @@ class SimilarArtistsPage(QWidget):
         self.artist_search.textChanged.connect(self._filter_artists)
         self.artist_go.clicked.connect(self._emit_artist)
         self.artist_list.itemDoubleClicked.connect(lambda _item: self._emit_artist())
+        for view in (self.artist_list, self.results, self.references):
+            style_item_view(view)
+            view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            view.customContextMenuRequested.connect(lambda pos, view=view: self._view_menu(view, pos))
         self.choose_file.clicked.connect(self._choose)
         self.image_go.clicked.connect(self._emit_local)
         self.item_go.clicked.connect(lambda: self.item_search_requested.emit(self.item_id.value()))
@@ -537,6 +554,38 @@ class SimilarArtistsPage(QWidget):
         if artist:
             self.artist_search_requested.emit(artist)
 
+    def _view_menu(self, view, position):
+        menu = QMenu(self)
+        handlers = {}
+        launcher = getattr(self, "browser_launcher", None)
+        if view is self.results:
+            row = view.rowAt(position.y())
+            if row < 0:
+                return
+            view.setCurrentCell(row, 0)
+            view.selectRow(row)
+            artist = self._visible_rows[row]["artist"]
+            handlers = tag_actions(menu, self.catalog, artist.tag, site=artist.site,
+                                   category="artist", launcher=launcher, entity=self.entity_profile_requested.emit)
+            menu.addSeparator()
+            add_action(menu, self.catalog.text("similar.gallery_title"),
+                       lambda: self._emit_result(self.gallery_requested), handlers)
+        else:
+            item = view.itemAt(position)
+            if item is None:
+                return
+            view.setCurrentItem(item)
+            if view is self.artist_list:
+                artist = item.data(Qt.ItemDataRole.UserRole)
+                handlers = tag_actions(menu, self.catalog, artist.tag, site=artist.site,
+                                       category="artist", launcher=launcher, entity=self.entity_profile_requested.emit)
+                menu.addSeparator()
+                add_action(menu, self.artist_go.text(), self._emit_artist, handlers)
+            else:
+                add_action(menu, self.catalog.text("context.open"),
+                           lambda: self.reference_activated.emit(int(item.data(Qt.ItemDataRole.UserRole))), handlers)
+        exec_menu(menu, view.viewport().mapToGlobal(position), handlers)
+
     def _choose(self) -> None:
         value, _ = QFileDialog.getOpenFileName(
             self,
@@ -775,6 +824,9 @@ class ImageGalleryDialog(QDialog):
         root.addWidget(mode)
         split = QSplitter()
         thumbnails = QListWidget()
+        style_item_view(thumbnails)
+        thumbnails.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        thumbnails.customContextMenuRequested.connect(lambda pos: self._entry_menu(thumbnails, pos))
         thumbnails.setViewMode(QListWidget.ViewMode.IconMode)
         thumbnails.setResizeMode(QListWidget.ResizeMode.Adjust)
         thumbnails.setIconSize(QtCoreSize(120, 120))
@@ -783,6 +835,9 @@ class ImageGalleryDialog(QDialog):
         preview = ScaledImageLabel()
         self.details = QTextBrowser()
         self.details.setOpenExternalLinks(False)
+        self.details.setOpenLinks(False)
+        bind_browser_links(self.details, self.catalog,
+                           opener=lambda url: self._open_link(QUrl(url)))
         self.details.anchorClicked.connect(self._open_link)
         self.details.setMaximumHeight(150)
         preview_layout.addWidget(preview, 1)
@@ -875,6 +930,27 @@ class ImageGalleryDialog(QDialog):
                 url = post_page_url(str(row["site"]), str(row["post_id"]))
                 lines.append(f'<a href="{url}">{row["site"].title()} #{row["post_id"]}</a>')
         self.details.setHtml("<br>".join(lines))
+
+    def _entry_menu(self, thumbnails, position):
+        item = thumbnails.itemAt(position)
+        if item is None:
+            return
+        thumbnails.setCurrentItem(item)
+        entry = item.data(Qt.ItemDataRole.UserRole)
+        menu = QMenu(self)
+        handlers = {}
+        for row in entry.get("provenances", []):
+            if row.get("local_path") and Path(row["local_path"]).is_file():
+                handlers.update(link_actions(menu, self.catalog, QUrl.fromLocalFile(row["local_path"]).toString()))
+                menu.addSeparator()
+            elif row.get("site") and row.get("post_id"):
+                handlers.update(post_actions(menu, self.catalog, row["post_id"], site=row["site"],
+                                              launcher=self.browser_launcher))
+                menu.addSeparator()
+        if not handlers:
+            add_action(menu, self.catalog.text("context.open"),
+                       lambda: self._open_entry(entry, self.browser_launcher), handlers)
+        exec_menu(menu, thumbnails.viewport().mapToGlobal(position), handlers)
 
     def _open_link(self, url: QUrl) -> None:
         if self.browser_launcher and "gelbooru.com" in url.host().casefold():

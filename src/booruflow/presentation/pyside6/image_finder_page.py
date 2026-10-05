@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (
     QLineEdit,
     QListWidget,
     QListWidgetItem,
+    QMenu,
     QPushButton,
     QSplitter,
     QTextBrowser,
@@ -20,8 +21,16 @@ from PySide6.QtWidgets import (
 from shiboken6 import isValid
 
 from booruflow.domain.image_finder import RemoteArtwork, RemoteMediaType, SearchMode
+from booruflow.presentation.pyside6.context_actions import (
+    add_action,
+    bind_browser_links,
+    exec_menu,
+    link_actions,
+)
 from booruflow.presentation.pyside6.status_bar import PageStatus
+from booruflow.presentation.pyside6.theme import style_item_view
 from booruflow.presentation.pyside6.thumbnail_cache import ThumbnailCacheKey, ThumbnailMemoryCache
+from booruflow.presentation.pyside6.thumbnail_feedback import ThumbnailFeedback
 from booruflow.presentation.pyside6.thumbnail_loader import ThumbnailLoader
 
 
@@ -32,14 +41,17 @@ class ImageFinderPage(QWidget):
     disconnect_requested = Signal()
     download_requested = Signal(object)
 
-    def __init__(self, catalog, connected: bool = False, parent=None) -> None:
+    def __init__(self, catalog, connected: bool = False, parent=None, *, browser_launcher=None) -> None:
         super().__init__(parent)
         self.catalog = catalog
+        self.browser_launcher = browser_launcher
         self.page_status = PageStatus("image_finder", self)
         self.artworks: list[RemoteArtwork] = []
         self._thumbnail_items = {}
         self.thumbnail_loader = ThumbnailLoader(ThumbnailMemoryCache(64 * 1024 * 1024), self)
         self.thumbnail_loader.image_ready.connect(self._thumbnail_ready)
+        self.thumbnail_feedback = ThumbnailFeedback(
+            self.thumbnail_loader, self.page_status.set_thumbnail_state, self)
         self.current_page = 0
         layout = QVBoxLayout(self)
         self.title = QLabel()
@@ -76,8 +88,15 @@ class ImageFinderPage(QWidget):
         layout.addLayout(search)
         splitter = QSplitter(Qt.Orientation.Horizontal)
         self.results = QListWidget()
+        style_item_view(self.results)
+        self.results.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.results.customContextMenuRequested.connect(self._results_menu)
         self.results.currentRowChanged.connect(self._selection_changed)
         self.details = QTextBrowser(); self.details.setOpenExternalLinks(False)
+        self.details.setOpenLinks(False)
+        from booruflow.presentation.pyside6.context_actions import open_url
+        self.details.anchorClicked.connect(lambda url: open_url(url.toString(), self.browser_launcher))
+        bind_browser_links(self.details, catalog, launcher=self.browser_launcher)
         detail_panel = QWidget(); detail_layout = QVBoxLayout(detail_panel)
         detail_layout.setContentsMargins(0, 0, 0, 0)
         detail_layout.addWidget(self.details, 1)
@@ -115,6 +134,10 @@ class ImageFinderPage(QWidget):
     def set_busy(self, busy: bool) -> None:
         self.search_button.setEnabled(not busy and self._connected)
         self.next_button.setEnabled(not busy and self.next_button.property("available") is True)
+        if busy:
+            self.page_status.set_busy()
+        else:
+            self.page_status.clear_progress()
 
     def set_results(self, artworks: tuple[RemoteArtwork, ...], append: bool, has_next: bool) -> None:
         if not append:
@@ -185,12 +208,30 @@ class ImageFinderPage(QWidget):
         artwork = self.selected()
         if artwork:
             from PySide6.QtCore import QUrl
-            QDesktopServices.openUrl(QUrl(artwork.source_url))
+            url = QUrl(artwork.source_url)
+            if self.browser_launcher is not None and url.host().casefold() in {"gelbooru.com", "www.gelbooru.com"}:
+                self.browser_launcher.open(artwork.source_url)
+            else:
+                QDesktopServices.openUrl(url)
 
     def _download(self) -> None:
         image = self.selected_image()
         if image:
             self.download_requested.emit(image)
+
+    def _results_menu(self, position):
+        item = self.results.itemAt(position)
+        if item is None:
+            return
+        self.results.setCurrentItem(item)
+        artwork = self.selected()
+        menu = QMenu(self)
+        handlers = link_actions(menu, self.catalog, artwork.source_url,
+                                launcher=self.browser_launcher, opener=lambda _url: self._open_source())
+        menu.addSeparator()
+        action = add_action(menu, self.catalog.text("image_finder.download_original"), self._download, handlers)
+        action.setEnabled(self.download.isEnabled())
+        exec_menu(menu, self.results.viewport().mapToGlobal(position), handlers)
 
     def retranslate(self) -> None:
         text = self.catalog.text

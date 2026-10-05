@@ -118,8 +118,9 @@ class ReferencePrepareWorker(QThread):
         entries = []
         duplicates = invalid = 0
         try:
-            with ImageAnalysisRepository(self.database) as repository:
-                sources = ImageSourceService(repository, self.cache)
+            with ImageAnalysisRepository(self.database) as repository, ImageSourceService(
+                repository, self.cache
+            ) as sources:
                 seen = set()
                 for index, value in enumerate(self.paths, 1):
                     try:
@@ -188,6 +189,7 @@ class RemoteReferenceWorker(QThread):
                 if existing is None:
                     repository.suppress_analysis_request(item_id)
                 self.completed.emit(item_id, self.site, list(repository.artist_tags(item_id)))
+                sources.close()
         except Exception as exc:  # noqa: BLE001 - worker thread boundary
             self.failed.emit(str(exc))
 
@@ -197,15 +199,11 @@ def _encode_for_similarity(
 ) -> dict:
     reports = {}
     classic = ClassicImageAnalyzer()
+    sources = ImageSourceService(repository, root / "var" / "cache" / "image_analysis")
     unique_ids = tuple(dict.fromkeys(item_ids))
     for classic_done, item_id in enumerate(unique_ids, 1):
         item = repository.get_item(item_id)
-        if (
-            repository.statistics(item_id) is None
-            and item
-            and item.cached_path
-            and item.cached_path.is_file()
-        ):
+        if repository.statistics(item_id) is None and item:
             identity = classic.identity
             run = repository.begin_model_run(
                 item_id,
@@ -214,7 +212,12 @@ def _encode_for_similarity(
                 identity.version,
                 identity.configuration_hash,
             )
-            repository.save_statistics(item_id, run, classic.analyze(item.cached_path))
+            if run is not None:
+                try:
+                    with sources.materialize_item(item) as path:
+                        repository.save_statistics(item_id, run, classic.analyze(path))
+                except Exception as exc:  # noqa: BLE001 - unavailable pixel isolation
+                    repository.fail_model_run(run, str(exc))
         if progress:
             progress("Statistiques", classic_done, len(unique_ids))
     backends = []
@@ -236,6 +239,7 @@ def _encode_for_similarity(
                 progress(name, done, total) if progress else None
             ),
         )
+    sources.close()
     return reports
 
 
@@ -882,11 +886,18 @@ class SimilarArtistsController(QObject):
         entries = []
         for item_id in self.reference_ids:
             item = self.image_analysis.repository.get_item(item_id)
-            if item and item.cached_path:
+            if item:
+                try:
+                    path = self.remote_pixels.ensure(
+                        self.image_analysis.repository, item_id, self.providers
+                    )
+                except Exception as exc:  # noqa: BLE001 - unavailable preview stays omitted
+                    self.log(log_event("RemotePixels", f"Preview unavailable: {exc}", level="DEBUG"))
+                    continue
                 entries.append(
                     {
                         "item_id": item_id,
-                        "path": str(item.cached_path),
+                        "path": str(path),
                         "similarity": similarities.get(item_id),
                         "provenance": self._provenance_summary(item_id),
                     }
@@ -1056,8 +1067,12 @@ class SimilarArtistsController(QObject):
         body = QHBoxLayout()
         preview = ScaledImageLabel()
         preview.setMinimumSize(420, 420)
-        if item.cached_path and item.cached_path.is_file():
-            preview.set_image(item.cached_path)
+        try:
+            preview_path = self.remote_pixels.ensure(repo, item_id, self.providers)
+        except Exception:  # noqa: BLE001 - details remain useful without pixels
+            preview_path = None
+        if preview_path:
+            preview.set_image(preview_path)
         body.addWidget(preview, 1)
         details = QTextBrowser()
         lines = [
@@ -1129,11 +1144,11 @@ class SimilarArtistsController(QObject):
             self._text("similar.use_image_alone"), QDialogButtonBox.ButtonRole.ActionRole
         )
         close = actions.addButton(QDialogButtonBox.StandardButton.Close)
-        open_file.setEnabled(bool(item.cached_path and item.cached_path.is_file()))
+        open_file.setEnabled(bool(preview_path and preview_path.is_file()))
         remote = next((row for row in provenances if row.get("site") and row.get("post_id")), None)
         open_remote.setEnabled(remote is not None)
         open_file.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(item.cached_path)))
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(str(preview_path)))
         )
         open_remote.clicked.connect(
             lambda: (

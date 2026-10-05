@@ -34,6 +34,13 @@ from PySide6.QtWidgets import (
 
 from booruflow.application.taxonomy import iter_tag_paths
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.presentation.pyside6.context_actions import (
+    add_action,
+    bind_browser_links,
+    bind_post_menu,
+    exec_menu,
+    tag_actions,
+)
 from booruflow.presentation.pyside6.status_bar import PageStatus
 
 ROLE_NODE = Qt.ItemDataRole.UserRole
@@ -54,6 +61,7 @@ class NavigableTagList(QListWidget):
 
 
 class OrganizationPage(QWidget):
+    entity_profile_requested = Signal(str, str)
     save_requested = Signal(object)
     update_requested = Signal()
     stop_requested = Signal()
@@ -90,6 +98,10 @@ class OrganizationPage(QWidget):
         wiki_actions.addWidget(self.refresh_wiki_button); wiki_actions.addWidget(self.wiki_button); wiki_actions.addStretch(1); right_layout.addLayout(wiki_actions)
         self.recurring_label = QLabel(); self.recurring_label.setWordWrap(True); right_layout.addWidget(self.recurring_label)
         self.recurring = NavigableTagList(); self.recurring.setFlow(QListWidget.Flow.LeftToRight); self.recurring.setWrapping(True); self.recurring.setMaximumHeight(120); self.recurring.tag_clicked.connect(self._open_recurring); self.recurring.itemActivated.connect(self._open_recurring); right_layout.addWidget(self.recurring)
+        self.recurring.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.recurring.customContextMenuRequested.connect(self._recurring_menu)
+        bind_browser_links(self.definition, catalog,
+                           opener=lambda url: self._definition_link_clicked(QUrl(url)))
         self.send_recurring_review = QPushButton(); self.send_recurring_review.clicked.connect(self._send_recurring_to_review); right_layout.addWidget(self.send_recurring_review)
         self.samples = QWidget(); self.samples_grid = QGridLayout(self.samples); self.samples_grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft); right_layout.addWidget(self.samples)
         self.network = QNetworkAccessManager(self); self.details_generation = 0; self.wiki_url = ""; self.current_details_board = ""; self.current_details_tag = ""
@@ -261,6 +273,12 @@ class OrganizationPage(QWidget):
         if item is None: return
         self.tree.setCurrentItem(item)
         menu = QMenu(self)
+        handlers = {}
+        tag = item.data(0, ROLE_TAG)
+        if tag:
+            handlers = tag_actions(menu, self.catalog, str(tag), site=str(self.board.currentData()),
+                                   launcher=self.browser_launcher, entity=self.entity_profile_requested.emit)
+            menu.addSeparator()
         add_category = menu.addAction(self.catalog.text("organization.add_child_category"))
         add_children = menu.addAction(self.catalog.text("organization.add_child_tags"))
         wiki = menu.addAction(self.catalog.text("organization.set_wiki"))
@@ -269,12 +287,25 @@ class OrganizationPage(QWidget):
         rename = menu.addAction(self.catalog.text("organization.rename"))
         delete = menu.addAction(self.catalog.text("organization.delete"))
         selected = menu.exec(self.tree.viewport().mapToGlobal(position))
-        if selected is add_category: self._add_category()
+        if selected in handlers: handlers[selected]()
+        elif selected is add_category: self._add_category()
         elif selected is add_children: self._add_tags_to_item(item)
         elif selected is wiki: self._set_wiki(item)
         elif selected is prepare_wiki: self.wiki_draft_requested.emit(str(item.data(0, ROLE_TAG) or tuple(item.data(0, ROLE_PATH))[-1]))
         elif selected is rename: self._rename()
         elif selected is delete: self._delete()
+
+    def _recurring_menu(self, position):
+        item = self.recurring.itemAt(position)
+        if item is None:
+            return
+        menu = QMenu(self)
+        handlers = tag_actions(menu, self.catalog, str(item.data(ROLE_TAG)),
+                               site=str(self.board.currentData()), launcher=self.browser_launcher,
+                               entity=self.entity_profile_requested.emit)
+        menu.addSeparator()
+        add_action(menu, self.catalog.text("context.open"), lambda: self._open_recurring(item), handlers)
+        exec_menu(menu, self.recurring.viewport().mapToGlobal(position), handlers)
 
     def _set_wiki(self, item: QTreeWidgetItem) -> None:
         tag = str(item.data(0, ROLE_TAG) or tuple(item.data(0, ROLE_PATH))[-1])
@@ -590,6 +621,9 @@ class OrganizationPage(QWidget):
         for index, sample in enumerate(samples[:6]):
             button = QToolButton(); button.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon); button.setIconSize(QSize(115, 95)); button.setFixedSize(130, 125)
             button.setText(f"#{int(sample.get('id', 0))}"); url = str(sample.get("post_url", "")); button.clicked.connect(lambda _checked=False, value=url: self._open_remote_url(value))
+            button.post = sample
+            bind_post_menu(button, self.catalog, launcher=self.browser_launcher,
+                           site=self.current_details_board or str(self.board.currentData()))
             self.samples_grid.addWidget(button, index // 3, index % 3)
             preview = str(sample.get("preview_url", ""))
             if preview and load_previews:

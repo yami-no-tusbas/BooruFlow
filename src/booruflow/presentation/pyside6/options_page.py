@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QProgressBar,
     QPushButton,
     QSizePolicy,
     QSpinBox,
@@ -104,6 +105,7 @@ class OptionsPage(QWidget):
     gpu_runtime_install_requested = Signal()
     wd14_install_requested = Signal()
     storage_refresh_requested = Signal()
+    legacy_cache_migration_requested = Signal()
     hydra_install_requested = Signal()
     hydra_migrate_requested = Signal()
     hydra_remove_requested = Signal()
@@ -347,6 +349,9 @@ class OptionsPage(QWidget):
         self.download_prefetch.setRange(1, 100)
         self.analysis_prefetch_label = QLabel(); self.analysis_prefetch = QSpinBox()
         self.analysis_prefetch.setRange(1, 10)
+        self.wd14_batch_size_label = QLabel(); self.wd14_batch_size = QComboBox()
+        for value, label in (("auto", "Auto"), ("1", "1"), ("2", "2"), ("4", "4"), ("8", "8"), ("16", "16")):
+            self.wd14_batch_size.addItem(label, value)
         self.wd14_enabled = QCheckBox()
         self.wd14_threshold_label = QLabel()
         self.wd14_threshold = QDoubleSpinBox(); self.wd14_threshold.setRange(0, 100)
@@ -362,22 +367,25 @@ class OptionsPage(QWidget):
         advanced_form.addWidget(self.download_prefetch, 0, 1)
         advanced_form.addWidget(self.analysis_prefetch_label, 1, 0)
         advanced_form.addWidget(self.analysis_prefetch, 1, 1)
+        advanced_form.addWidget(self.wd14_batch_size_label, 2, 0)
+        advanced_form.addWidget(self.wd14_batch_size, 2, 1)
         self.store_threshold_label = QLabel(); self.store_threshold = QDoubleSpinBox(); self.store_threshold.setRange(0, 100); self.store_threshold.setSuffix(" %")
         self.heartbeat_label = QLabel(); self.heartbeat = QSpinBox(); self.heartbeat.setRange(1, 60)
         self.stale_timeout_label = QLabel(); self.stale_timeout = QSpinBox(); self.stale_timeout.setRange(2, 300)
         self.recycle_count_label = QLabel(); self.recycle_count = QSpinBox(); self.recycle_count.setRange(0, 100000)
-        advanced_form.addWidget(self.store_threshold_label, 2, 0)
-        advanced_form.addWidget(self.store_threshold, 2, 1)
-        advanced_form.addWidget(self.heartbeat_label, 3, 0)
-        advanced_form.addWidget(self.heartbeat, 3, 1)
-        advanced_form.addWidget(self.stale_timeout_label, 4, 0)
-        advanced_form.addWidget(self.stale_timeout, 4, 1)
-        advanced_form.addWidget(self.recycle_count_label, 5, 0)
-        advanced_form.addWidget(self.recycle_count, 5, 1)
+        advanced_form.addWidget(self.store_threshold_label, 3, 0)
+        advanced_form.addWidget(self.store_threshold, 3, 1)
+        advanced_form.addWidget(self.heartbeat_label, 4, 0)
+        advanced_form.addWidget(self.heartbeat, 4, 1)
+        advanced_form.addWidget(self.stale_timeout_label, 5, 0)
+        advanced_form.addWidget(self.stale_timeout, 5, 1)
+        advanced_form.addWidget(self.recycle_count_label, 6, 0)
+        advanced_form.addWidget(self.recycle_count, 6, 1)
         image_analysis_form.addWidget(self.image_advanced, 5, 0, 1, 2)
         self._advanced_widgets = [
             self.download_prefetch_label, self.download_prefetch,
             self.analysis_prefetch_label, self.analysis_prefetch,
+            self.wd14_batch_size_label, self.wd14_batch_size,
             self.store_threshold_label, self.store_threshold,
             self.heartbeat_label, self.heartbeat,
             self.stale_timeout_label, self.stale_timeout,
@@ -394,6 +402,18 @@ class OptionsPage(QWidget):
         self.hydra_status_label.setWordWrap(True)
         storage_form.addRow(self.model_storage_label, self.model_storage)
         storage_form.addRow("", self.hydra_status_label)
+        self.legacy_cache_status = QLabel()
+        self.legacy_cache_status.setWordWrap(True)
+        self.legacy_cache_note = QLabel()
+        self.legacy_cache_note.setWordWrap(True)
+        self.legacy_cache_migrate = QPushButton()
+        self.legacy_cache_progress = QProgressBar()
+        self.legacy_cache_progress.setTextVisible(True)
+        self.legacy_cache_progress.hide()
+        storage_form.addRow("", self.legacy_cache_status)
+        storage_form.addRow("", self.legacy_cache_note)
+        storage_form.addRow("", self.legacy_cache_progress)
+        storage_form.addRow("", self.legacy_cache_migrate)
         storage_actions = QHBoxLayout()
         self.refresh_storage = QPushButton()
         self.open_models = QPushButton()
@@ -414,6 +434,7 @@ class OptionsPage(QWidget):
             self.hydra_install,
             self.hydra_migrate,
             self.hydra_remove,
+            self.legacy_cache_migrate,
         ):
             action_button.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         storage_actions.addWidget(self.refresh_storage)
@@ -429,6 +450,7 @@ class OptionsPage(QWidget):
         self.hydra_install.clicked.connect(self.hydra_install_requested.emit)
         self.hydra_migrate.clicked.connect(self.hydra_migrate_requested.emit)
         self.hydra_remove.clicked.connect(self.hydra_remove_requested.emit)
+        self.legacy_cache_migrate.clicked.connect(self.legacy_cache_migration_requested.emit)
         self.note = QLabel()
         self.note.setWordWrap(True)
         layout.addWidget(self.note)
@@ -474,6 +496,8 @@ class OptionsPage(QWidget):
         self.grabber_executable.edit.setText(str(settings.get("grabber_executable", "")))
         self.download_prefetch.setValue(int(settings.get("image_analysis_download_prefetch", 10)))
         self.analysis_prefetch.setValue(int(settings.get("image_analysis_analysis_prefetch", 2)))
+        batch_index = self.wd14_batch_size.findData(str(settings.get("image_analysis_wd14_batch_size", "auto")))
+        self.wd14_batch_size.setCurrentIndex(max(0, batch_index))
         self.wd14_enabled.setChecked(bool(settings.get("image_analysis_wd14_enabled", True)))
         self.wd14_threshold.setValue(self._percent_from_setting(
             settings.get("image_analysis_wd14_display_threshold", 0.30), 0.30
@@ -581,6 +605,47 @@ class OptionsPage(QWidget):
         self.hydra_install.setEnabled(state != "installed")
         self.hydra_migrate.setVisible(bool(hydra.get("legacy")) and state != "installed")
         self.hydra_remove.setEnabled(state == "installed")
+
+    def show_legacy_cache_status(self, count: int, size: int, cache_db_path: Path) -> None:
+        self.legacy_cache_status.setText(self.catalog.text(
+            "options.legacy_cache_summary",
+            count=count,
+            size=format_size(size),
+            path=str(cache_db_path),
+        ))
+        self.legacy_cache_migrate.setEnabled(count > 0)
+        if count == 0:
+            self.legacy_cache_progress.hide()
+
+    def set_legacy_cache_migration_running(
+        self, running: bool, current: int = 0, total: int = 0
+    ) -> None:
+        self.legacy_cache_migrate.setEnabled(not running and total > 0)
+        self.legacy_cache_progress.setVisible(running)
+        if running:
+            self.legacy_cache_progress.setRange(0, max(total, 1))
+            self.legacy_cache_progress.setValue(min(current, max(total, 1)))
+            self.legacy_cache_progress.setFormat(f"{current} / {total}")
+
+    def show_legacy_cache_migration_result(self, report: dict[str, int]) -> None:
+        remaining = int(report.get("remaining", 0))
+        self.legacy_cache_progress.hide()
+        self.legacy_cache_migrate.setEnabled(remaining > 0)
+        self.legacy_cache_status.setText(self.catalog.text(
+            "options.legacy_cache_result",
+            imported=int(report.get("imported", 0)),
+            deleted=int(report.get("deleted", 0)),
+            skipped=int(report.get("skipped", 0)),
+            failed=int(report.get("failed", 0)),
+            remaining=remaining,
+            remaining_size=format_size(int(report.get("remaining_bytes", 0))),
+        ))
+
+    def show_legacy_cache_migration_error(self, error: str) -> None:
+        self.legacy_cache_progress.hide()
+        self.legacy_cache_status.setText(
+            self.catalog.text("options.legacy_cache_error", error=error)
+        )
 
     def set_model_operation_running(self, running: bool, message: str = "") -> None:
         for widget in (
@@ -756,6 +821,7 @@ class OptionsPage(QWidget):
             "grabber_executable": self.grabber_executable.edit.text().strip(),
             "image_analysis_download_prefetch": self.download_prefetch.value(),
             "image_analysis_analysis_prefetch": self.analysis_prefetch.value(),
+            "image_analysis_wd14_batch_size": str(self.wd14_batch_size.currentData() or "auto"),
             "image_analysis_worker_heartbeat_interval": self.heartbeat.value(),
             "image_analysis_worker_stale_timeout": self.stale_timeout.value(),
             "image_analysis_worker_recycle_after": self.recycle_count.value(),
@@ -795,11 +861,13 @@ class OptionsPage(QWidget):
         self.heartbeat_label.setText(text("options.worker_heartbeat")); self.stale_timeout_label.setText(text("options.worker_stale")); self.recycle_count_label.setText(text("options.worker_recycle"))
         self.download_prefetch_label.setText(text("options.download_prefetch"))
         self.analysis_prefetch_label.setText(text("options.analysis_prefetch"))
+        self.wd14_batch_size_label.setText(text("options.wd14_batch_size"))
         self.wd14_enabled.setToolTip(text("options.wd14_enabled_tip"))
         self.wd14_threshold.setToolTip(text("options.wd14_display_threshold_tip"))
         self.store_threshold.setToolTip(text("options.wd14_store_threshold_tip"))
         self.download_prefetch.setToolTip(text("options.download_prefetch_tip"))
         self.analysis_prefetch.setToolTip(text("options.analysis_prefetch_tip"))
+        self.wd14_batch_size.setToolTip(text("options.wd14_batch_size_tip"))
         self.heartbeat.setToolTip(text("options.worker_heartbeat_tip"))
         self.stale_timeout.setToolTip(text("options.worker_stale_tip"))
         self.recycle_count.setToolTip(text("options.worker_recycle_tip"))
@@ -842,6 +910,9 @@ class OptionsPage(QWidget):
         self.hydra_install.setText(text("cleanup.hydra_install"))
         self.hydra_migrate.setText(text("cleanup.hydra_migrate"))
         self.hydra_remove.setText(text("cleanup.hydra_remove"))
+        self.legacy_cache_migrate.setText(text("options.legacy_cache_migrate"))
+        self.legacy_cache_migrate.setToolTip(text("options.legacy_cache_migrate_tip"))
+        self.legacy_cache_note.setText(text("options.legacy_cache_migrate_tip"))
         self.browser_group.setTitle(text("options.browser")); self.browser_mode_label.setText(text("options.browser_open_external")); self.browser_command_label.setText(text("options.browser_command")); self.clear_browser_profile.setText(text("options.browser_clear_profile")); self.reset_browser_profile.setText(text("options.browser_reset")); self.test_browser.setText(text("options.browser_test")); self.browser_explanation.setText(text("options.browser_explanation"))
         self.publisher_group.setTitle(text("options.publisher")); self.open_embedded_session.setText(text("options.publisher_login")); self.test_embedded_session.setText(text("options.publisher_check")); self.reset_embedded_session.setText(text("options.publisher_reset"))
         status_kind, status_value = self._publisher_status

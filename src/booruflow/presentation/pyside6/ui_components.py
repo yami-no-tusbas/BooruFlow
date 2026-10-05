@@ -6,6 +6,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QPainter, QPalette
 from PySide6.QtWidgets import QAbstractItemView, QHeaderView, QTableWidget
 
+from booruflow.presentation.pyside6.theme import style_item_view
+
 
 class DataTable(QTableWidget):
     """Consistent read-only row table with a lightweight empty state.
@@ -16,6 +18,7 @@ class DataTable(QTableWidget):
 
     def __init__(self, rows: int, columns: int, parent=None) -> None:
         super().__init__(rows, columns, parent)
+        style_item_view(self)
         self._empty_text = ""
         self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)

@@ -6,7 +6,7 @@ import math
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QTimer, Signal
+from PySide6.QtCore import Qt, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
@@ -15,6 +15,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QListWidget,
+    QListWidgetItem,
     QPlainTextEdit,
     QProgressBar,
     QPushButton,
@@ -25,7 +26,9 @@ from PySide6.QtWidgets import (
 
 from booruflow.application.database_paths import gelbooru_tag_database
 from booruflow.application.review import ReviewRequest
+from booruflow.application.tag_autocomplete import TagSuggestion, parse_autocomplete_text
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.presentation.pyside6.tag_presentation import present_tag
 
 
 class ReviewPage(QWidget):
@@ -59,6 +62,7 @@ class ReviewPage(QWidget):
         self.site.addItem("Gelbooru", ("gelbooru",))
         self.site.addItem("e621", ("e621",))
         self.site.addItem("Gelbooru + e621", ("gelbooru", "e621"))
+        self.site.currentIndexChanged.connect(lambda _index: self.suggestions.hide())
         self.entity_label = QLabel()
         self.entity = QComboBox()
         for key in ("artists", "copyrights", "characters", "species"):
@@ -178,7 +182,7 @@ class ReviewPage(QWidget):
 
     def _request_autocomplete(self) -> None:
         token = self._current_token()
-        if len(token.lstrip("-")) < 3 or ":" in token:
+        if len(parse_autocomplete_text(token).text) < 3:
             self.suggestions.hide(); return
         self.autocomplete_requested.emit(token)
 
@@ -186,18 +190,30 @@ class ReviewPage(QWidget):
         if token != self._current_token() or not ranked:
             self.suggestions.hide(); return
         self.suggestions.clear()
-        for name, data in ranked:
+        for suggestion, sites in ranked:
+            if not isinstance(suggestion, TagSuggestion):
+                continue
             prefix = "-" if token.startswith("-") else ""
-            self.suggestions.addItem(
-                f"{prefix}{name} ({int(data['count']):,}) · {' + '.join(data['sites'])}"
+            item = QListWidgetItem(
+                f"{prefix}{suggestion.canonical_name} ({suggestion.post_count:,}) · "
+                f"{' + '.join(sites)}"
             )
-            self.suggestions.item(self.suggestions.count() - 1).setData(256, prefix + name)
+            item.setData(Qt.ItemDataRole.UserRole, prefix + suggestion.canonical_name)
+            presentation = present_tag(
+                suggestion.site,
+                suggestion.canonical_name,
+                suggestion.category,
+                self.palette(),
+            )
+            item.setForeground(presentation.style.color(self.palette()))
+            item.setToolTip(presentation.tooltip)
+            self.suggestions.addItem(item)
         self.suggestions.show()
 
     def _accept_suggestion(self, item) -> None:
         cursor = self.queries.textCursor(); position = cursor.position(); text = self.queries.toPlainText()
         token = self._current_token(); start = position - len(token)
-        replacement = str(item.data(256))
+        replacement = str(item.data(Qt.ItemDataRole.UserRole))
         self.queries.setPlainText(text[:start] + replacement + text[position:])
         cursor = self.queries.textCursor(); cursor.setPosition(start + len(replacement)); self.queries.setTextCursor(cursor)
         self.suggestions.hide(); self.queries.setFocus()

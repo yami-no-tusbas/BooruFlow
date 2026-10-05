@@ -1,15 +1,34 @@
 import importlib.util
 import os
+import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 PYSIDE6_AVAILABLE = importlib.util.find_spec("PySide6") is not None
 
 
 @unittest.skipUnless(PYSIDE6_AVAILABLE, "PySide6 is not installed")
 class GelbooruBackendRoutingTests(unittest.TestCase):
+    @pytest.fixture(autouse=True)
+    def isolated_workspace(self, tmp_path):
+        # WebEngine can retain profile files until QApplication exits. Let
+        # pytest manage their later cleanup instead of unlinking open files.
+        self.workspace_root = tmp_path
+
+    def tearDown(self) -> None:
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+
+        for widget in QApplication.topLevelWidgets():
+            widget.close()
+            widget.deleteLater()
+        QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+        self.app.processEvents()
+
     def test_tabbed_browser_home_and_account_follow_only_the_current_tab_site(self) -> None:
         from PySide6.QtCore import QUrl
 
@@ -47,18 +66,20 @@ class GelbooruBackendRoutingTests(unittest.TestCase):
 
         cls.app = QApplication.instance() or QApplication([])
 
-    @staticmethod
-    def window(settings_repository=None):
+    def window(self, settings_repository=None):
         from booruflow.application.capabilities import ApplicationCapabilities
         from booruflow.domain import ToolAvailability
         from booruflow.infrastructure.localization import LanguageCatalog
         from booruflow.presentation.pyside6.main_window import MainWindow
 
+        temporary = Path(tempfile.mkdtemp(dir=self.workspace_root))
         return MainWindow(
             ApplicationCapabilities(ToolAvailability(False)),
             LanguageCatalog(Path("resources/i18n")),
             start_image_worker=False,
             settings_repository=settings_repository,
+            project_root=temporary,
+            resource_root=Path(__file__).resolve().parents[2],
         )
 
     def open_feature(self, window, key: str) -> None:

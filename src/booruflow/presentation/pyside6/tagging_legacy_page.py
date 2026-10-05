@@ -5,7 +5,6 @@ from pathlib import Path
 
 from PySide6.QtCore import QEvent, QPoint, QSize, Qt, QThread, QTimer, QUrl, Signal
 from PySide6.QtGui import (
-    QDesktopServices,
     QIcon,
     QKeySequence,
     QMouseEvent,
@@ -45,18 +44,30 @@ from PySide6.QtWidgets import (
 )
 from shiboken6 import isValid
 
+from booruflow.application.tag_lookup import AUTOCOMPLETE_MIN_CHARS
 from booruflow.application.tagging import (
     TaggingRequest,
     build_final_tags_clipboard,
     parse_review_row_token,
 )
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.presentation.pyside6.context_actions import (
+    add_action,
+    bind_post_menu,
+    exec_menu,
+    open_url,
+    tag_actions,
+)
 from booruflow.presentation.pyside6.image_analysis_page import ScaledImageLabel
+from booruflow.presentation.pyside6.theme import style_item_view
 from booruflow.presentation.pyside6.thumbnail_cache import (
     ThumbnailCacheKey,
     ThumbnailMemoryCache,
 )
-from booruflow.presentation.pyside6.thumbnail_loader import ThumbnailLoader
+from booruflow.presentation.pyside6.thumbnail_loader import (
+    PersistentThumbnailSources,
+    ThumbnailLoader,
+)
 
 
 class SuggestionItem(QTableWidgetItem):
@@ -72,6 +83,7 @@ class CollapsibleResultGroup(QWidget):
 
     def __init__(self, title: str) -> None:
         super().__init__(); self.cards = []; self.title = title; self.thumbnail_size = 150
+        self._columns = 0
         layout = QVBoxLayout(self); layout.setContentsMargins(0, 0, 0, 0)
         header = QHBoxLayout(); self.toggle = QToolButton(text=title); self.toggle.setCheckable(True); self.toggle.setChecked(True)
         self.toggle.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextBesideIcon); self.toggle.setArrowType(Qt.ArrowType.DownArrow)
@@ -85,9 +97,33 @@ class CollapsibleResultGroup(QWidget):
         # the grid for every card made a 1000-result response repeatedly move
         # hundreds of native widgets during construction.
         self.cards.append(card)
-    def reflow(self) -> None:
-        columns = max(1, self.width() // (self.thumbnail_size + 35))
-        for index, card in enumerate(self.cards): self.grid.addWidget(card, index // columns, index % columns)
+    def reflow(self, available_width: int | None = None) -> None:
+        width = self.width() if available_width is None else max(1, available_width)
+        margins = self.grid.contentsMargins()
+        usable_width = max(1, width - margins.left() - margins.right())
+        card_width = self.thumbnail_size + 25
+        minimum_gap = 6
+        columns = max(1, (usable_width + minimum_gap) // (card_width + minimum_gap))
+        if columns == self._columns and self.grid.count() == len(self.cards):
+            if columns > 1:
+                remainder = max(0, usable_width - columns * card_width)
+                self.grid.setHorizontalSpacing(max(minimum_gap, remainder // (columns - 1)))
+            return
+        self._columns = columns
+        if columns > 1:
+            remainder = max(0, usable_width - columns * card_width)
+            self.grid.setHorizontalSpacing(max(minimum_gap, remainder // (columns - 1)))
+            self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignLeft)
+        else:
+            self.grid.setHorizontalSpacing(minimum_gap)
+            self.grid.setAlignment(Qt.AlignmentFlag.AlignTop | Qt.AlignmentFlag.AlignHCenter)
+        while self.grid.count():
+            self.grid.takeAt(0)
+        for index, card in enumerate(self.cards):
+            self.grid.addWidget(card, index // columns, index % columns)
+        self.grid.invalidate()
+        self.grid.activate()
+        self.content.updateGeometry()
     def set_thumbnail_size(self, size: int) -> None:
         self.thumbnail_size = size
         for card in self.cards:
@@ -148,11 +184,13 @@ class TaggingLegacyPage(QWidget):
     analyze_requested = Signal(int); decision_requested = Signal(object, object); mapping_requested = Signal(int)
     refresh_metadata_requested = Signal(int); activity_logged = Signal(str, str)
     diagnostic_logged = Signal(str, str, str)
+    thumbnail_state_changed = Signal(object)
     query_saved = Signal(str); manual_lookup_requested = Signal(str); manual_add_requested = Signal(str); tag_search_requested = Signal(str)
 
     def __init__(
         self, catalog: LanguageCatalog, settings: dict[str, object], browser_launcher=None,
         thumbnail_cache: ThumbnailMemoryCache | None = None,
+        persistent_thumbnail_sources: PersistentThumbnailSources | None = None,
     ) -> None:
         super().__init__(); self.catalog = catalog; self.settings = settings; self.browser_launcher = browser_launcher
         self.current_post_id = None; self.current_post = {}; self.result_posts = []; self.result_buttons = {}
@@ -163,6 +201,9 @@ class TaggingLegacyPage(QWidget):
         self._gif_path = None
         self.thumbnail_cache = thumbnail_cache or ThumbnailMemoryCache()
         self._thumbnail_targets: dict[ThumbnailCacheKey, tuple[QToolButton, int]] = {}
+        self._thumbnail_dataset_total = 0
+        self._thumbnail_loaded_ids: set[int] = set()
+        self._thumbnail_failed_ids: set[int] = set()
         self._review_origin = "tagging_grid"
         root = QVBoxLayout(self); root.setContentsMargins(18, 12, 18, 16); root.setSpacing(6)
         self.title = QLabel(); self.title.setStyleSheet("font-size:22px;font-weight:600"); root.addWidget(self.title)
@@ -171,13 +212,18 @@ class TaggingLegacyPage(QWidget):
         self.mode_stack.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Expanding)
         self.search_view = QWidget(); self.review = QWidget(); self.mode_stack.addWidget(self.search_view); self.mode_stack.addWidget(self.review)
         self._build_search(); self._build_review()
-        self.thumbnail_loader = ThumbnailLoader(self.thumbnail_cache, self)
+        self.thumbnail_loader = ThumbnailLoader(
+            self.thumbnail_cache,
+            self,
+            persistent_sources=persistent_thumbnail_sources,
+        )
         # ThumbnailLoader and this page are both GUI-thread QObjects. The
         # default direct connection keeps cached images available immediately;
         # _thumbnail_image_ready asserts the invariant before touching Qt UI.
         self.thumbnail_loader.image_ready.connect(self._thumbnail_image_ready)
         self.thumbnail_loader.failed.connect(self._thumbnail_failed)
         self.thumbnail_loader.diagnostic.connect(self._thumbnail_diagnostic)
+        self.thumbnail_loader.progress.connect(self._thumbnail_progress)
         self.start_button.clicked.connect(self._start); self.stop_button.clicked.connect(self.stop_requested.emit)
         self.zoom.currentIndexChanged.connect(lambda: self.preview.set_zoom(int(self.zoom.currentData())))
         self.analyze_button.clicked.connect(self._request_analysis); self.accept_button.clicked.connect(lambda: self._emit_decision("accepted"))
@@ -187,10 +233,16 @@ class TaggingLegacyPage(QWidget):
         self.open_button.clicked.connect(lambda: self._open_post(self.current_post_id or 0)); self.back_button.clicked.connect(self._back_from_review)
         self.previous_button.clicked.connect(lambda: self._navigate_result(-1)); self.next_button.clicked.connect(lambda: self._navigate_result(1))
         self.accept_shortcut = QShortcut(QKeySequence("A"), self.suggestions); self.reject_shortcut = QShortcut(QKeySequence("R"), self.suggestions)
+        self.accept_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
+        self.reject_shortcut.setContext(Qt.ShortcutContext.WidgetWithChildrenShortcut)
         self.accept_shortcut.activated.connect(lambda: self._emit_decision("accepted")); self.reject_shortcut.activated.connect(lambda: self._emit_decision("rejected"))
         self.installEventFilter(self)
         for widget in self.findChildren(QWidget): widget.installEventFilter(self)
         self.retranslate(); self.show_search()
+        style_item_view(self.suggestions)
+        if type(self) is TaggingLegacyPage:
+            self.suggestions.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+            self.suggestions.customContextMenuRequested.connect(self._tag_menu)
 
     def _build_search(self) -> None:
         layout = QVBoxLayout(self.search_view); layout.setContentsMargins(0, 0, 0, 0); layout.setSpacing(6)
@@ -232,7 +284,7 @@ class TaggingLegacyPage(QWidget):
         filter_row = QHBoxLayout(); self.review_section_label = QLabel(); filter_row.addWidget(self.review_section_label); filter_row.addStretch(1); self.decision_label = QLabel(); filter_row.addWidget(self.decision_label); self.decision_filter = QComboBox()
         for key, value in (("all","all"),("unreviewed","unreviewed"),("accepted","accepted"),("rejected","rejected")): self.decision_filter.addItem(self.catalog.text(f"tagging.review.filter.{key}"),value)
         self.decision_filter.setCurrentIndex(1); filter_row.addWidget(self.decision_filter); suggestions_layout.addLayout(filter_row)
-        self.suggestions = QTableWidget(0,5); self.suggestions.setHorizontalHeaderLabels(("Tag","Confidence","Decision","Origin / match","ID")); self.suggestions.setColumnHidden(4,True)
+        self.suggestions = getattr(self, "suggestion_table_type", QTableWidget)(0,5); self.suggestions.setHorizontalHeaderLabels(("Tag","Confidence","Decision","Origin / match","ID")); self.suggestions.setColumnHidden(4,True)
         self.suggestions.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows); self.suggestions.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
         self.suggestions.setSortingEnabled(True); self.suggestions.sortByColumn(1, Qt.SortOrder.DescendingOrder)
         self.suggestions.horizontalHeader().sortIndicatorChanged.connect(self._sort_changed); self.decision_filter.currentIndexChanged.connect(self._render_suggestions)
@@ -272,7 +324,9 @@ class TaggingLegacyPage(QWidget):
     def set_progress(self, page:int,current:int,total:int,examined:int,retained:int) -> None:
         self.progress.setRange(0,total); self.progress.setValue(current); self.progress.setFormat(f"{current}/{total}"); self.state.setText(self.catalog.text("tagging.progress",page=page,examined=examined,retained=retained))
 
-    def show_results(self, posts: list[dict]) -> None:
+    def show_results(self, posts: list[dict], *, presentation_only: bool = False) -> None:
+        if self._reuse_result_cards(posts, presentation_only=presentation_only):
+            return
         self._clear_results(); self.processed_in_session.clear(); ordered=[]; generation=self.result_generation; thumbnail_keys=[]
         for title, values in self._result_sections(posts):
             ordered.extend(values)
@@ -281,6 +335,9 @@ class TaggingLegacyPage(QWidget):
             for post in values:
                 pid=int(post.get("id",0)); card=ResultCard(post); card.setCheckable(True); card.setToolButtonStyle(Qt.ToolButtonStyle.ToolButtonTextUnderIcon)
                 card.setText(self.catalog.text("tagging.card",id=pid,count=int(post.get("tag_count",0)))); card.clicked.connect(lambda checked, value=post:self._result_clicked(value, checked)); card.checkbox_toggled.connect(self._checkbox_clicked); card.open_requested.connect(self._open_result_post); section.add_card(card); self.result_buttons[pid]=card
+                if type(self) is TaggingLegacyPage:
+                    bind_post_menu(card, self.catalog, launcher=self.browser_launcher,
+                                   opener=self._open_result_post)
                 preview=str(post.get("preview_url") or "")
                 if preview:
                     site = str(getattr(self, "active_site", "gelbooru"))
@@ -288,9 +345,110 @@ class TaggingLegacyPage(QWidget):
                     self._thumbnail_targets[cache_key]=(card,generation); thumbnail_keys.append(cache_key)
             section.reflow()
         self.result_posts=ordered; self.current_result_index=-1
+        self._reset_thumbnail_dataset(ordered)
         self.set_thumbnail_size(int(self.settings.get("tagging_thumbnail_size", 150))); self.show_search()
         self.thumbnail_loader.begin_wave(thumbnail_keys)
         QTimer.singleShot(0, self._prioritize_visible_thumbnails)
+
+    def _reuse_result_cards(self, posts: list[dict], *, presentation_only: bool = False) -> bool:
+        """Reorder an unchanged result set without recreating its cards."""
+        incoming = [int(post.get("id", 0)) for post in posts]
+        existing = [int(post.get("id", 0)) for post in self.result_posts]
+        if not incoming or len(incoming) != len(set(incoming)) or set(incoming) != set(existing):
+            return False
+        cards = dict(self.result_buttons)
+        old_preview = {
+            post_id: str(card.post.get("preview_url") or "")
+            for post_id, card in cards.items()
+        }
+        selected = {post_id for post_id, card in cards.items() if card.isChecked()}
+        expanded = {group.title: group.toggle.isChecked() for group in self.result_groups}
+        scroll_value = self.results_scroll.verticalScrollBar().value()
+        # Re-grouping must not cancel requests already associated with these
+        # cards. The loader can extend the active wave for genuinely new keys.
+        for group in self.result_groups:
+            self.results_layout.removeWidget(group)
+            group.hide()
+            for card in group.cards:
+                card.setParent(None)
+            group.deleteLater()
+        self.result_groups = []
+        self.results_layout.invalidate()
+        self.result_posts = []
+        self.result_buttons = {}
+        thumbnail_keys = []
+        ordered = []
+        for title, values in self._result_sections(posts):
+            section = CollapsibleResultGroup(title)
+            self.results_layout.addWidget(section)
+            self.result_groups.append(section)
+            section.selection_requested.connect(
+                lambda checked, group=section: self._select_group(group, checked)
+            )
+            for post in values:
+                post_id = int(post.get("id", 0))
+                card = cards[post_id]
+                card.post = post
+                card.setText(self.catalog.text("tagging.card", id=post_id, count=int(post.get("tag_count", 0))))
+                try:
+                    card.clicked.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+                card.clicked.connect(lambda checked, value=post: self._result_clicked(value, checked))
+                try:
+                    card.open_requested.disconnect()
+                except (RuntimeError, TypeError):
+                    pass
+                card.open_requested.connect(lambda value=post: self._open_result_post(value))
+                section.add_card(card)
+                self.result_buttons[post_id] = card
+                ordered.append(post)
+                preview = str(post.get("preview_url") or "")
+                if preview:
+                    key = ThumbnailCacheKey(str(getattr(self, "active_site", "gelbooru")), post_id, preview)
+                    self._thumbnail_targets[key] = (card, self.result_generation)
+                    if not (old_preview.get(post_id) == preview and not card.icon().isNull()):
+                        thumbnail_keys.append(key)
+            section.reflow()
+            section.set_thumbnail_size(int(self.settings.get("tagging_thumbnail_size", 150)))
+            section.toggle.setChecked(expanded.get(title, True))
+        self.result_posts = ordered
+        self._reset_thumbnail_dataset(ordered, preserve=True)
+        for post_id in selected:
+            if post_id in self.result_buttons:
+                self.result_buttons[post_id].setChecked(True)
+        self._selection_changed()
+        self._set_card_tooltips()
+        if not presentation_only:
+            self.thumbnail_loader.extend_wave(thumbnail_keys)
+        QTimer.singleShot(0, lambda value=scroll_value: self.results_scroll.verticalScrollBar().setValue(value))
+        if not presentation_only:
+            QTimer.singleShot(0, self._prioritize_visible_thumbnails)
+        return True
+
+    def _reset_thumbnail_dataset(self, posts: list[dict], *, preserve: bool = False) -> None:
+        self._thumbnail_dataset_total = len({int(post.get("id", 0)) for post in posts})
+        valid_ids = set()
+        for post in posts:
+            post_id = int(post.get("id", 0))
+            card = self.result_buttons.get(post_id)
+            if card is not None and not card.icon().isNull():
+                valid_ids.add(post_id)
+        if preserve:
+            self._thumbnail_loaded_ids &= {int(post.get("id", 0)) for post in posts}
+            self._thumbnail_loaded_ids |= valid_ids
+            self._thumbnail_failed_ids &= {int(post.get("id", 0)) for post in posts}
+        else:
+            self._thumbnail_loaded_ids = valid_ids
+            self._thumbnail_failed_ids = set()
+        self._emit_thumbnail_state()
+
+    def _emit_thumbnail_state(self) -> None:
+        self.thumbnail_state_changed.emit({
+            "total": self._thumbnail_dataset_total,
+            "loaded": len(self._thumbnail_loaded_ids),
+            "failed": len(self._thumbnail_failed_ids),
+        })
     def _clear_results(self) -> None:
         if hasattr(self,"thumbnail_loader"):self.thumbnail_loader.cancel()
         self._thumbnail_targets.clear()
@@ -362,6 +520,9 @@ class TaggingLegacyPage(QWidget):
                     return
                 self._thumbnail_diagnostic("DEBUG", f"Thumbnail pixmap conversion end wave={generation} post_id={key.post_id}")
                 button.setIcon(QIcon(pixmap))
+                self._thumbnail_loaded_ids.add(int(key.post_id))
+                self._thumbnail_failed_ids.discard(int(key.post_id))
+                self._emit_thumbnail_state()
                 self._thumbnail_diagnostic("DEBUG", f"Thumbnail widget apply end wave={generation} post_id={key.post_id}")
         except RuntimeError: pass
 
@@ -370,12 +531,20 @@ class TaggingLegacyPage(QWidget):
         if target is None:return
         button,generation=target
         if generation!=self.result_generation or not isValid(button):return
+        self._thumbnail_failed_ids.add(int(key.post_id))
+        self._emit_thumbnail_state()
         from PySide6.QtWidgets import QStyle
         button.setIcon(QApplication.style().standardIcon(QStyle.StandardPixmap.SP_MessageBoxWarning))
         button.setToolTip(f"{button.toolTip()}\nThumbnail unavailable ({reason})".strip())
 
     def _thumbnail_diagnostic(self,level:str,message:str)->None:
         self.diagnostic_logged.emit(level,"Thumbnail",message)
+
+    def _thumbnail_progress(self, metrics: dict[str, int]) -> None:
+        total = int(metrics.get("total", 0))
+        done = int(metrics.get("done", 0))
+        if total:
+            self.state.setText(f"Thumbnails: {done}/{total}")
 
     def _prioritize_visible_thumbnails(self)->None:
         viewport=self.results_scroll.viewport(); viewport_rect=viewport.rect(); visible=[]; nearby=[]
@@ -410,8 +579,22 @@ class TaggingLegacyPage(QWidget):
         self.result_counter.setText(self.catalog.text("tagging.review.counter", current=current, total=total, remaining=remaining)); self.previous_button.setEnabled(total>1); self.next_button.setEnabled(total>1)
     def _open_post(self,post_id:int)->None:
         self.activity_logged.emit("Open",f"Gelbooru #{post_id}"); url=f"https://gelbooru.com/index.php?page=post&s=view&id={post_id}"
-        if self.browser_launcher:self.browser_launcher.open(url)
-        else:QDesktopServices.openUrl(QUrl(url))
+        open_url(url, self.browser_launcher)
+
+    def _tag_menu(self, position):
+        from PySide6.QtWidgets import QMenu
+        item = self.suggestions.itemAt(position)
+        if item is None:
+            return
+        self.suggestions.setCurrentCell(item.row(), 0)
+        self.suggestions.selectRow(item.row())
+        tag = self.suggestions.item(item.row(), 0).text()
+        menu = QMenu(self)
+        handlers = tag_actions(menu, self.catalog, tag, launcher=self.browser_launcher)
+        menu.addSeparator()
+        add_action(menu, self.catalog.text("context.search_tag"),
+                   lambda: self.tag_search_requested.emit(tag), handlers)
+        exec_menu(menu, self.suggestions.viewport().mapToGlobal(position), handlers)
     def _open_current_post(self)->None:
         if self.current_post_id:
             self._open_post(self.current_post_id)
@@ -465,9 +648,12 @@ class TaggingLegacyPage(QWidget):
         from PySide6.QtWidgets import QApplication
         QApplication.clipboard().setText(value)
 
-    def show_local_review(self,state,image_path,source_tags,rows,suggested_additions,final_tags)->None:
+    def show_local_review(
+        self, state, image_path, source_tags, rows, suggested_additions, final_tags,
+        *, preview_data: bytes | None = None,
+    ) -> None:
         self.mode_stack.setCurrentWidget(self.review)
-        self.analysis_state.setText(state); self._set_preview_media(image_path); self._all_suggestion_rows=list(rows); self._render_suggestions()
+        self.analysis_state.setText(state); self._set_preview_media(image_path, preview_data=preview_data); self._all_suggestion_rows=list(rows); self._render_suggestions()
         self._review_ready=state.startswith((self.catalog.text("tagging.analysis.ready"),self.catalog.text("tagging.analysis.reviewed")));busy=state.startswith((self.catalog.text("tagging.analysis.pending"),self.catalog.text("tagging.analysis.processing")))
         failed = state.startswith((self.catalog.text("tagging.error_prefix"), self.catalog.text("tagging.analysis.failed", error="").strip()))
         self.analyze_button.setEnabled(bool(self.current_post_id) and not self._review_ready and not busy);self.analyze_button.setText(self.catalog.text("tagging.review.retry") if failed else self.catalog.text("tagging.analysis.processing") if busy else self.catalog.text("tagging.review.analyze"))
@@ -496,7 +682,7 @@ class TaggingLegacyPage(QWidget):
         selected=bool(self.suggestions.selectedItems()); has_post=bool(self.current_post_id)
         self.accept_button.setEnabled(self._review_ready and selected);self.reject_button.setEnabled(self._review_ready and selected);self.map_button.setEnabled(self._review_ready and selected)
         self.refresh_button.setEnabled(has_post);self.copy_open_button.setEnabled(has_post);self.open_button.setEnabled(has_post)
-    def _set_preview_media(self,path)->None:
+    def _set_preview_media(self, path, *, preview_data: bytes | None = None) -> None:
         video_source = str(self.current_post.get("file_url", ""))
         is_video = path is not None and path.suffix.casefold() in {".webm", ".mp4", ".mov", ".mkv"}
         is_video = is_video or video_source.casefold().split("?", 1)[0].endswith((".webm", ".mp4", ".mov", ".mkv"))
@@ -505,7 +691,10 @@ class TaggingLegacyPage(QWidget):
         if is_video:
             source = QUrl(video_source) if video_source else QUrl.fromLocalFile(str(path))
             self._log_video_diagnostic("source", source); self.video_player.setSource(source); self.video_play.setText(self.catalog.text("tagging.review.play"))
-        else: self.preview.set_animated_image(path) or self.preview.set_image(path)
+        elif preview_data:
+            self.preview.set_image_bytes(preview_data)
+        else:
+            self.preview.set_animated_image(path) or self.preview.set_image(path)
     def _toggle_video(self)->None:
         if self.video_player.playbackState() == QMediaPlayer.PlaybackState.PlayingState:self.video_player.pause();self.video_play.setText(self.catalog.text("tagging.review.play"))
         else:self.video_player.play();self.video_play.setText(self.catalog.text("tagging.review.pause"))
@@ -540,7 +729,7 @@ class TaggingLegacyPage(QWidget):
         )
     def _schedule_manual_lookup(self,text:str)->None:
         self.manual_lookup_timer.stop()
-        if len(text.strip()) >= 2:self.manual_lookup_timer.start()
+        if len(text.strip()) >= AUTOCOMPLETE_MIN_CHARS:self.manual_lookup_timer.start()
         else:self.manual_suggestions.setStringList([])
     def set_manual_suggestions(self,names:list[str])->None:self.manual_suggestions.setStringList(names)
     def _emit_manual_add(self)->None:

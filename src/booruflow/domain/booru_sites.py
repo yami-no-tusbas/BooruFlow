@@ -60,3 +60,18 @@ def category_name(site: str, category: int | str | None) -> str:
         name = str(category or "unknown").casefold()
         return {"metadata": "meta"}.get(name, name)
     return site_definition(site).categories.get(category_id, "unknown")
+
+
+def resolve_category(site: str, semantic_role: str) -> int | None:
+    """Resolve a semantic category for one explicit site without numeric assumptions."""
+    role = {
+        "char": "character",
+        "copy": "copyright",
+        "arti": "artist",
+        "spec": "species",
+        "metadata": "meta",
+    }.get(semantic_role.casefold(), semantic_role.casefold())
+    for category_id, name in site_definition(site).categories.items():
+        if category_name(site, name) == role:
+            return category_id
+    return None

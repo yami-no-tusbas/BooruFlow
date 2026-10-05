@@ -467,6 +467,34 @@ class GelbooruAliasRepository:
         except (OSError, sqlite3.Error):
             return []
 
+    def active_source_names(self, names: list[str]) -> set[str]:
+        """Return active alias sources from a bounded candidate batch, read-only."""
+        normalized = list(dict.fromkeys(normalize_alias_name(name) for name in names if name))
+        if not normalized or not self.database.is_file():
+            return set()
+        try:
+            connection = sqlite3.connect(
+                f"file:{self.database.resolve().as_posix()}?mode=ro", uri=True
+            )
+            try:
+                active: set[str] = set()
+                for offset in range(0, len(normalized), 500):
+                    chunk = normalized[offset : offset + 500]
+                    placeholders = ",".join("?" for _value in chunk)
+                    active.update(
+                        str(row[0]).casefold()
+                        for row in connection.execute(
+                            "SELECT source_name FROM gelbooru_aliases "
+                            f"WHERE status='active' AND source_name IN ({placeholders})",
+                            chunk,
+                        )
+                    )
+                return active
+            finally:
+                connection.close()
+        except (OSError, sqlite3.Error):
+            return set()
+
     def pending(self) -> list[AliasRelation]:
         self.migrate()
         connection = sqlite3.connect(self.database)

@@ -148,12 +148,12 @@ class TagBrowserUiTests(unittest.TestCase):
 
     def test_double_click_opens_raw_tag_on_selected_site(self) -> None:
         from booruflow.infrastructure.tag_browser import TagRow
-        from booruflow.presentation.pyside6 import tag_browser_page
+        from booruflow.presentation.pyside6 import context_actions
 
         page = self.page()
         page.site.setCurrentIndex(page.site.findData("e621"))
         page._show_rows([TagRow(1, "raw tag", 5, 4, 0, None, "canonical_tag")])
-        with patch.object(tag_browser_page.QDesktopServices, "openUrl") as opened:
+        with patch.object(context_actions.QDesktopServices, "openUrl") as opened:
             page._open_row(0, canonical=False)
         self.assertEqual(opened.call_args.args[0].toString(), "https://e621.net/posts?tags=raw+tag")
         page.close()

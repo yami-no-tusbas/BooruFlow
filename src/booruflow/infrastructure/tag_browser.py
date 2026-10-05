@@ -217,7 +217,7 @@ def search_tags(
             order = (
                 "CASE WHEN name = ? COLLATE NOCASE THEN 0 "
                 "WHEN name LIKE ? ESCAPE '\\' COLLATE NOCASE THEN 1 ELSE 2 END, "
-                "name COLLATE NOCASE, name"
+                "post_count DESC, name COLLATE NOCASE, name"
             )
             values.extend((request.text, f"{escaped}%"))
         sql = (

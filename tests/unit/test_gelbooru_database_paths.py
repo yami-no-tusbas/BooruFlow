@@ -23,7 +23,7 @@ def _tags(path: Path, name: str) -> None:
         connection.execute(
             "CREATE TABLE tags(id INTEGER PRIMARY KEY,name TEXT,post_count INTEGER,category INTEGER,ambiguous INTEGER)"
         )
-        connection.execute("INSERT INTO tags VALUES(1,?,1,0,0)", (name,))
+        connection.execute("INSERT INTO tags VALUES(1,?,5,0,0)", (name,))
 
 
 def test_explicit_tag_database_wins_over_a_newer_neighbor(tmp_path: Path) -> None:

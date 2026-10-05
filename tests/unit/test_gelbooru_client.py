@@ -42,3 +42,24 @@ def test_normalize_posts_accepts_list_single_post_and_empty_shapes():
     assert gelbooru_client.normalize_posts([{"id": 1}, "invalid"]) == [{"id": 1}]
     assert gelbooru_client.normalize_posts({"post": {"id": 2}}) == [{"id": 2}]
     assert gelbooru_client.normalize_posts({"post": []}) == []
+
+
+def test_search_posts_keeps_explicit_page_limit_at_one_hundred():
+    calls = []
+
+    def page_fetcher(query, page, limit, user_id, api_key):
+        calls.append((query, page, limit, user_id, api_key))
+        return ([{"id": page * 100 + 1}], 201)
+
+    client = gelbooru_client.GelbooruDapiClient(
+        "user", "key", page_fetcher=page_fetcher
+    )
+    first = client.search_posts("artist", limit=100, page=0)
+    second = client.search_posts("artist", limit=100, page=1)
+
+    assert first == [{"id": 1}]
+    assert second == [{"id": 101}]
+    assert calls == [
+        ("artist", 0, 100, "user", "key"),
+        ("artist", 1, 100, "user", "key"),
+    ]

@@ -7,13 +7,15 @@ import os
 import re
 import urllib.parse
 from datetime import UTC, datetime
+from enum import Enum
 from pathlib import Path
 
-from PySide6.QtCore import QSize, Qt, QTimer, QUrl, Signal
-from PySide6.QtGui import QDesktopServices, QKeySequence, QShortcut
+from PySide6.QtCore import QModelIndex, QSize, Qt, QThread, QTimer, QUrl, Signal
+from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QApplication,
     QComboBox,
+    QCompleter,
     QFileDialog,
     QFrame,
     QHBoxLayout,
@@ -30,6 +32,7 @@ from PySide6.QtWidgets import (
 )
 
 from booruflow.application.ports import SettingsRepository
+from booruflow.application.tag_autocomplete import TagAutocompleteService
 from booruflow.application.wiki import (
     TEMPLATES,
     missing_local_tags,
@@ -37,12 +40,65 @@ from booruflow.application.wiki import (
     render_wiki_preview,
     validate_wiki_source,
 )
+from booruflow.application.wiki_import import (
+    DanbooruToGelbooruConverter,
+    DanbooruWikiParser,
+    GelbooruTagResolver,
+    WikiImportResult,
+)
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.infrastructure.wiki_clients import (
+    DanbooruWikiClient,
+    GelbooruWikiClient,
+    RemoteWikiPage,
+)
+from booruflow.infrastructure.wiki_tag_importer import WikiPageNotFoundError
+from booruflow.presentation.pyside6.context_actions import (
+    bind_browser_links,
+    bind_tag_popup,
+    exec_menu,
+    open_url,
+    tag_actions,
+)
 from booruflow.presentation.pyside6.icons import wiki_tool_icon
 from booruflow.presentation.pyside6.status_bar import PageStatus
+from booruflow.presentation.pyside6.tag_autocomplete import TagAutocompleteCoordinator
+from booruflow.presentation.pyside6.tag_presentation import (
+    CANONICAL_TAG_ROLE,
+    TagSuggestionListModel,
+    configure_tag_completer,
+    show_tag_completer,
+)
+
+
+class WikiTagState(str, Enum):
+    UNKNOWN = "unknown"
+    NEW_GELBOORU_WIKI = "new_gelbooru_wiki"
+    EXISTING_GELBOORU_WIKI = "existing_gelbooru_wiki"
+
+
+class WikiNetworkWorker(QThread):
+    completed = Signal(str, int, str, object)
+    failed = Signal(str, int, str, object)
+
+    def __init__(self, operation: str, generation: int, tag: str, callback) -> None:
+        super().__init__()
+        self.operation = operation
+        self.generation = generation
+        self.tag = tag
+        self.callback = callback
+
+    def run(self) -> None:
+        try:
+            result = self.callback(self.tag)
+        except Exception as exc:  # noqa: BLE001 - thread boundary
+            self.failed.emit(self.operation, self.generation, self.tag, exc)
+        else:
+            self.completed.emit(self.operation, self.generation, self.tag, result)
 
 
 class WikiPage(QWidget):
+    entity_profile_requested = Signal(str, str)
     organization_tag_requested = Signal(str)
     LAST_LOAD_DIRECTORY_KEY = "wiki_last_load_directory"
 
@@ -53,18 +109,59 @@ class WikiPage(QWidget):
         tag_database_path: Path | None = None,
         settings_repository: SettingsRepository | None = None,
         browser_launcher=None,
+        alias_database_path: Path | None = None,
+        gelbooru_wiki_client: GelbooruWikiClient | None = None,
+        danbooru_wiki_client: DanbooruWikiClient | None = None,
+        context_launcher=None,
     ) -> None:
         super().__init__(); self.catalog = catalog; self.drafts_directory = drafts_directory; self.tag_database_path = tag_database_path
         self.page_status = PageStatus("wiki", self)
         self.settings_repository = settings_repository
         self.browser_launcher = browser_launcher
+        self.context_launcher = context_launcher if context_launcher is not None else browser_launcher
         self._active_draft_path: Path | None = None
         self._active_draft_tag = ""
+        self.wiki_state = WikiTagState.UNKNOWN
+        self._checked_wiki: RemoteWikiPage | None = None
+        self._tag_generation = 0
+        self.worker: WikiNetworkWorker | None = None
+        self.gelbooru_wiki_client = gelbooru_wiki_client or GelbooruWikiClient()
+        self.danbooru_wiki_client = danbooru_wiki_client or DanbooruWikiClient()
+        self.danbooru_parser = DanbooruWikiParser()
+        self.danbooru_converter = DanbooruToGelbooruConverter(
+            GelbooruTagResolver(tag_database_path, alias_database_path)
+        )
+        self.autocomplete_service = TagAutocompleteService(
+            {"gelbooru": tag_database_path}, {"gelbooru": alias_database_path}
+        )
+        self.autocomplete = TagAutocompleteCoordinator(self.autocomplete_service, self)
+        self.autocomplete.suggestions_ready.connect(self._autocomplete_ready)
         layout = QVBoxLayout(self); layout.setContentsMargins(28, 20, 28, 24); layout.setSpacing(10)
         self.title = QLabel(); self.title.setStyleSheet("font-size: 22px; font-weight: 600;"); layout.addWidget(self.title)
-        setup = QHBoxLayout(); self.tag_label = QLabel(); self.tag = QLineEdit(); self.template_label = QLabel(); self.template = QComboBox()
+        setup = QHBoxLayout(); self.tag_label = QLabel(); self.tag = QLineEdit(); self.check_gelbooru = QPushButton(); self.import_danbooru = QPushButton(); self.template_label = QLabel(); self.template = QComboBox()
+        self.suggestion_model = TagSuggestionListModel(self, detailed=True)
+        self.completer = QCompleter(self.suggestion_model, self)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
+        configure_tag_completer(self.completer)
+        self.tag.setCompleter(self.completer)
+        bind_tag_popup(self.completer, catalog, launcher=self.context_launcher,
+                       entity=self.entity_profile_requested.emit)
+        self.tag.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.tag.customContextMenuRequested.connect(self._tag_menu)
+        self.autocomplete_timer = QTimer(self)
+        self.autocomplete_timer.setSingleShot(True)
+        self.autocomplete_timer.setInterval(200)
+        self.tag.textEdited.connect(lambda _value: self.autocomplete_timer.start())
+        self.autocomplete_timer.timeout.connect(
+            lambda: self.autocomplete.request(
+                "wiki.tag", "gelbooru", self.tag.text().strip()
+            )
+        )
+        self.completer.activated[QModelIndex].connect(self._autocomplete_activated)
         for key in TEMPLATES: self.template.addItem("", key)
-        self.apply_template = QPushButton(); setup.addWidget(self.tag_label); setup.addWidget(self.tag, 1); setup.addWidget(self.template_label); setup.addWidget(self.template); setup.addWidget(self.apply_template); layout.addLayout(setup)
+        self.apply_template = QPushButton(); setup.addWidget(self.tag_label); setup.addWidget(self.tag, 1); setup.addWidget(self.check_gelbooru); setup.addWidget(self.import_danbooru); layout.addLayout(setup)
+        template_setup = QHBoxLayout(); template_setup.addWidget(self.template_label); template_setup.addWidget(self.template); template_setup.addWidget(self.apply_template); template_setup.addStretch(1); layout.addLayout(template_setup)
         ribbon = QHBoxLayout(); ribbon.setSpacing(8); self.ribbon_labels: dict[str, QLabel] = {}; self.tool_buttons: dict[str, QToolButton] = {}
         style_group, style_row = self._ribbon_group("style"); self.heading_selector = QComboBox(); self.heading_selector.setMinimumWidth(125); style_row.addWidget(self.heading_selector)
         for key in ("bold", "italic"): style_row.addWidget(self._tool_button(key))
@@ -79,15 +176,20 @@ class WikiPage(QWidget):
         self.source_label = QLabel(); self.source = QPlainTextEdit(); self.source.setTabChangesFocus(True); source_layout.addWidget(self.source_label); source_layout.addWidget(self.source)
         preview_box = QWidget(); preview_layout = QVBoxLayout(preview_box); preview_layout.setContentsMargins(0, 0, 0, 0)
         self.preview_label = QLabel(); self.preview = QTextBrowser(); self.preview.setOpenLinks(False); self.preview.anchorClicked.connect(self._open_preview_link); preview_layout.addWidget(self.preview_label); preview_layout.addWidget(self.preview)
+        bind_browser_links(self.preview, catalog,
+                           opener=lambda url: self._open_preview_link(QUrl(url)))
         source_box.setMinimumWidth(300); preview_box.setMinimumWidth(300)
         splitter.addWidget(source_box); splitter.addWidget(preview_box); splitter.setStretchFactor(0, 1); splitter.setStretchFactor(1, 1); splitter.setSizes([500, 500]); layout.addWidget(splitter, 1)
+        self.operation_status = QLabel(); self.operation_status.setWordWrap(True); self.operation_status.setContentsMargins(8, 6, 8, 6); layout.addWidget(self.operation_status)
+        self.import_report = QTextBrowser(); self.import_report.setMaximumHeight(150); self.import_report.setVisible(False); layout.addWidget(self.import_report)
         self.validation = QLabel(); self.validation.setWordWrap(True); self.validation.setContentsMargins(8, 6, 8, 6); layout.addWidget(self.validation)
         actions = QHBoxLayout(); self.load = QPushButton(); self.save = QPushButton(); self.copy = QPushButton(); self.open_create = QPushButton()
         actions.addWidget(self.load); actions.addWidget(self.save); actions.addStretch(1); actions.addWidget(self.copy); actions.addWidget(self.open_create); layout.addLayout(actions)
         self.preview_timer = QTimer(self); self.preview_timer.setSingleShot(True); self.preview_timer.setInterval(180); self.preview_timer.timeout.connect(self._refresh)
         self.autosave_timer = QTimer(self); self.autosave_timer.setSingleShot(True); self.autosave_timer.setInterval(900); self.autosave_timer.timeout.connect(lambda: self._save_draft(silent=True))
-        self.source.textChanged.connect(self._changed); self.tag.textChanged.connect(self._changed)
-        self.apply_template.clicked.connect(self._apply_template); self.load.clicked.connect(self._load_draft); self.save.clicked.connect(self._save_draft); self.copy.clicked.connect(self._copy_source); self.open_create.clicked.connect(self._open_create)
+        self.source.textChanged.connect(self._changed); self.tag.textChanged.connect(self._tag_changed)
+        self.check_gelbooru.clicked.connect(self._check_on_gelbooru); self.import_danbooru.clicked.connect(self._import_from_danbooru)
+        self.apply_template.clicked.connect(self._apply_template); self.load.clicked.connect(self._load_draft); self.save.clicked.connect(self._save_draft); self.copy.clicked.connect(self._copy_source); self.open_create.clicked.connect(self._publish)
         self.tool_buttons["bold"].clicked.connect(lambda: self._wrap("[b]", "[/b]")); self.tool_buttons["italic"].clicked.connect(lambda: self._wrap("[i]", "[/i]"))
         self.heading_selector.activated.connect(self._heading_selected)
         self.tool_buttons["tag_link"].clicked.connect(lambda: self._wrap("[[", "]]", "tag_name")); self.tool_buttons["search_link"].clicked.connect(lambda: self._wrap("{{", "}}", "tag_name"))
@@ -99,6 +201,219 @@ class WikiPage(QWidget):
         for level in range(1, 6): self._add_shortcut(f"Ctrl+Alt+{level}", lambda value=level: self._wrap(f"[h{value}]", f"[/h{value}]", "Heading"))
         self.retranslate(); self._refresh()
 
+    def closeEvent(self, event) -> None:
+        self.autocomplete.shutdown()
+        if self.worker is not None and self.worker.isRunning():
+            self.worker.wait(2_000)
+        super().closeEvent(event)
+
+    def _autocomplete_ready(self, owner: str, _request: object, suggestions: object) -> None:
+        if owner != "wiki.tag" or not isinstance(suggestions, list):
+            return
+        self.suggestion_model.set_suggestions(suggestions, self.palette())
+        if suggestions and self.tag.hasFocus():
+            show_tag_completer(self.completer)
+
+    def _autocomplete_activated(self, index: QModelIndex) -> None:
+        value = str(index.data(CANONICAL_TAG_ROLE) or "")
+        if value:
+            self.tag.setText(value)
+            QTimer.singleShot(0, lambda value=value: self.tag.setText(value))
+
+    def _tag_changed(self, _value: str = "") -> None:
+        self._tag_generation += 1
+        self.wiki_state = WikiTagState.UNKNOWN
+        self._checked_wiki = None
+        self.operation_status.clear()
+        self.import_report.setVisible(False)
+        self._changed()
+
+    def _current_tag(self) -> str:
+        return self.tag.text().strip()
+
+    def _check_on_gelbooru(self) -> None:
+        self._start_network_operation("check", self.gelbooru_wiki_client.fetch)
+
+    def _import_from_danbooru(self) -> None:
+        self._start_network_operation("import", self._fetch_and_convert_danbooru)
+
+    def _publish(self) -> None:
+        # Deliberately recheck every time: the remote wiki may have changed.
+        self._start_network_operation("publish", self.gelbooru_wiki_client.fetch)
+
+    def _fetch_and_convert_danbooru(self, tag: str) -> WikiImportResult:
+        remote = self.danbooru_wiki_client.fetch(tag)
+        document = self.danbooru_parser.parse(remote.text)
+        return self.danbooru_converter.convert(document, tag, source_url=remote.source_url)
+
+    def _start_network_operation(self, operation: str, callback) -> None:
+        tag = self._current_tag()
+        if not tag:
+            self._set_operation_status(self.catalog.text("wiki.tag_required"), error=True)
+            return
+        if self.worker is not None and self.worker.isRunning():
+            return
+        self._set_busy(True)
+        self._set_operation_status(self.catalog.text(f"wiki.{operation}_started", tag=tag))
+        worker = WikiNetworkWorker(operation, self._tag_generation, tag, callback)
+        worker.completed.connect(self._network_completed)
+        worker.failed.connect(self._network_failed)
+        self.worker = worker
+        worker.start()
+
+    def _network_completed(
+        self, operation: str, generation: int, tag: str, result: object
+    ) -> None:
+        self._set_busy(False)
+        if generation != self._tag_generation or tag != self._current_tag():
+            self._set_operation_status(self.catalog.text("wiki.stale_result"))
+            self._release_worker()
+            return
+        if operation == "check" and isinstance(result, RemoteWikiPage):
+            self.wiki_state = WikiTagState.EXISTING_GELBOORU_WIKI
+            self._checked_wiki = result
+            self.source.setPlainText(result.text)
+            self._refresh()
+            message = self.catalog.text("wiki.gelbooru_found")
+            if result.warnings:
+                message += "\n" + "\n".join(f"• {warning}" for warning in result.warnings)
+            self._set_operation_status(message)
+        elif operation == "import" and isinstance(result, WikiImportResult):
+            if not self._confirm_draft_replacement():
+                self._set_operation_status(self.catalog.text("wiki.import_cancelled"))
+                self._release_worker()
+                return
+            self.source.setPlainText(result.text)
+            self._refresh()
+            self._show_import_report(result)
+            self._set_operation_status(self.catalog.text("wiki.danbooru_imported"))
+        elif operation == "publish" and isinstance(result, RemoteWikiPage):
+            self.wiki_state = WikiTagState.EXISTING_GELBOORU_WIKI
+            self._checked_wiki = result
+            self._open_existing_wiki(result)
+        self._release_worker()
+
+    def _network_failed(
+        self, operation: str, generation: int, tag: str, error: object
+    ) -> None:
+        self._set_busy(False)
+        if generation != self._tag_generation or tag != self._current_tag():
+            self._set_operation_status(self.catalog.text("wiki.stale_result"))
+            self._release_worker()
+            return
+        if isinstance(error, WikiPageNotFoundError):
+            if operation == "check":
+                self.wiki_state = WikiTagState.NEW_GELBOORU_WIKI
+                self._checked_wiki = None
+                self._set_operation_status(self.catalog.text("wiki.gelbooru_missing"))
+            elif operation == "import":
+                self._set_operation_status(self.catalog.text("wiki.danbooru_missing"))
+            elif operation == "publish":
+                self.wiki_state = WikiTagState.NEW_GELBOORU_WIKI
+                self._checked_wiki = None
+                self._open_new_wiki()
+        else:
+            self._set_operation_status(
+                self.catalog.text("wiki.network_error", error=error), error=True
+            )
+        self._release_worker()
+
+    def _set_busy(self, busy: bool) -> None:
+        for button in (self.check_gelbooru, self.import_danbooru, self.open_create):
+            button.setEnabled(not busy)
+
+    def _release_worker(self) -> None:
+        if self.worker is not None:
+            self.worker.deleteLater()
+            self.worker = None
+
+    def _set_operation_status(self, message: str, *, error: bool = False) -> None:
+        self.operation_status.setText(message)
+        self.operation_status.setStyleSheet(
+            "color:palette(bright-text);" if error else "color:palette(text);"
+        )
+        self.page_status.show_message(
+            message,
+            timeout_ms=0 if error else 8_000,
+            log=True,
+            global_message=error,
+            level="ERROR" if error else "NORMAL",
+        )
+
+    def _confirm_draft_replacement(self) -> bool:
+        if not self.source.toPlainText().strip():
+            return True
+        answer = QMessageBox.question(
+            self,
+            self.catalog.text("wiki.replace_draft_title"),
+            self.catalog.text("wiki.replace_draft_confirm"),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel,
+            QMessageBox.StandardButton.Cancel,
+        )
+        return answer == QMessageBox.StandardButton.Yes
+
+    def _show_import_report(self, result: WikiImportResult) -> None:
+        visible = [item for item in result.tag_conversions if item.reason != "same_name"]
+        modified = [item for item in visible if item.reason != "unresolved"]
+        unresolved = [item for item in visible if item.reason == "unresolved"]
+        lines = [self.catalog.text("wiki.report_imported")]
+        if result.source_url:
+            lines.append(result.source_url)
+        if modified:
+            lines.append(self.catalog.text("wiki.report_modified", count=len(modified)))
+        if unresolved:
+            lines.append(self.catalog.text("wiki.report_unresolved", count=len(unresolved)))
+        reason_labels = {
+            "gelbooru_alias": self.catalog.text("wiki.reason_gelbooru_alias"),
+            "known_crossboard_mapping": self.catalog.text("wiki.reason_crossboard"),
+            "normalized_syntax": self.catalog.text("wiki.reason_normalized"),
+        }
+        for item in visible:
+            if item.reason == "unresolved":
+                lines.extend(("", item.source, self.catalog.text("wiki.unresolved_preserved")))
+            else:
+                lines.extend((
+                    "", f"{item.source} → {item.target}",
+                    self.catalog.text("wiki.report_reason", reason=reason_labels[item.reason]),
+                ))
+        if result.warnings:
+            lines.extend(("", self.catalog.text("wiki.report_warnings")))
+            lines.extend(f"• {warning}" for warning in result.warnings)
+        self.import_report.setPlainText("\n".join(lines))
+        self.import_report.setVisible(True)
+
+    def _open_existing_wiki(self, page: RemoteWikiPage) -> None:
+        url = page.source_url
+        if not url and page.wiki_id is not None:
+            url = "https://gelbooru.com/index.php?" + urllib.parse.urlencode(
+                {"page": "wiki", "s": "view", "id": page.wiki_id}
+            )
+        self._open_browser(url)
+        self._set_operation_status(self.catalog.text("wiki.opened_existing"))
+
+    def _open_new_wiki(self) -> None:
+        QApplication.clipboard().setText(self.source.toPlainText())
+        url = "https://gelbooru.com/index.php?" + urllib.parse.urlencode(
+            {"page": "wiki", "s": "create", "title": self._current_tag()}
+        )
+        self._open_browser(url)
+        self._set_operation_status(self.catalog.text("wiki.opened_create"))
+
+    def _open_browser(self, url: str) -> None:
+        if self.browser_launcher:
+            self.browser_launcher.open(url)
+        else:
+            open_url(url)
+
+    def _tag_menu(self, position):
+        menu = self.tag.createStandardContextMenu()
+        handlers = {}
+        if self._current_tag():
+            menu.addSeparator()
+            handlers = tag_actions(menu, self.catalog, self._current_tag(),
+                                   launcher=self.context_launcher, entity=self.entity_profile_requested.emit)
+        exec_menu(menu, self.tag.mapToGlobal(position), handlers)
+
     def _ribbon_group(self, key: str) -> tuple[QFrame, QHBoxLayout]:
         frame = QFrame(); frame.setFrameShape(QFrame.Shape.StyledPanel); outer = QVBoxLayout(frame); outer.setContentsMargins(6, 4, 6, 3); outer.setSpacing(2)
         row = QHBoxLayout(); row.setSpacing(3); label = QLabel(); label.setAlignment(Qt.AlignmentFlag.AlignCenter); label.setStyleSheet("color:palette(placeholder-text);font-size:10px;")
@@ -107,6 +422,12 @@ class WikiPage(QWidget):
     def _tool_button(self, key: str) -> QToolButton:
         button = QToolButton(); button.setIcon(wiki_tool_icon(key)); button.setIconSize(QSize(24, 24)); button.setFixedSize(34, 34)
         self.tool_buttons[key] = button; return button
+
+    def refresh_theme(self) -> None:
+        """Regenerate palette-colored toolbar icons for the current theme."""
+        for key, button in self.tool_buttons.items():
+            button.setIcon(wiki_tool_icon(key))
+        self.suggestion_model.refresh_palette(self.palette())
 
     def _heading_selected(self, index: int) -> None:
         level = int(self.heading_selector.itemData(index) or 0)
@@ -229,21 +550,15 @@ class WikiPage(QWidget):
         )
 
     def _open_create(self) -> None:
-        QApplication.clipboard().setText(self.source.toPlainText())
-        url = "https://gelbooru.com/index.php?page=wiki&s=create"
-        if self.browser_launcher: self.browser_launcher.open(url)
-        else: QDesktopServices.openUrl(QUrl(url))
-        self.page_status.show_message(
-            self.catalog.text("wiki.opened_create"), timeout_ms=6_000, log=True
-        )
+        """Compatibility entry point: publication now always performs a fresh check."""
+        self._publish()
 
     def _open_preview_link(self, url: QUrl) -> None:
         if url.scheme() == "booruflow-tag": self.organization_tag_requested.emit(urllib.parse.unquote(url.path()))
-        elif self.browser_launcher and "gelbooru.com" in url.host().casefold(): self.browser_launcher.open(url.toString())
-        else: QDesktopServices.openUrl(url)
+        else: open_url(url.toString(), self.context_launcher)
 
     def retranslate(self) -> None:
-        text = self.catalog.text; self.title.setText(text("nav.wiki")); self.tag_label.setText(text("wiki.tag")); self.tag.setPlaceholderText(text("wiki.tag_placeholder")); self.template_label.setText(text("wiki.template")); self.apply_template.setText(text("wiki.apply_template")); self.source_label.setText(text("wiki.source")); self.preview_label.setText(text("wiki.preview")); self.load.setText(text("wiki.load")); self.save.setText(text("wiki.save")); self.copy.setText(text("wiki.copy")); self.open_create.setText(text("wiki.open_create"))
+        text = self.catalog.text; self.title.setText(text("nav.wiki")); self.tag_label.setText(text("wiki.tag")); self.tag.setPlaceholderText(text("wiki.tag_placeholder")); self.check_gelbooru.setText(text("wiki.check_gelbooru")); self.import_danbooru.setText(text("wiki.import_danbooru")); self.template_label.setText(text("wiki.template")); self.apply_template.setText(text("wiki.apply_template")); self.source_label.setText(text("wiki.source")); self.preview_label.setText(text("wiki.preview")); self.load.setText(text("wiki.load")); self.save.setText(text("wiki.save")); self.copy.setText(text("wiki.copy")); self.open_create.setText(text("wiki.publish"))
         for key in TEMPLATES:
             index = self.template.findData(key)
             if index >= 0: self.template.setItemText(index, text(f"wiki.template_{key}"))

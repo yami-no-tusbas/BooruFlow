@@ -6,16 +6,17 @@ import urllib.parse
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
-from PySide6.QtCore import Qt, QThread, QUrl, Signal
-from PySide6.QtGui import QDesktopServices
+from PySide6.QtCore import QModelIndex, Qt, QThread, QTimer, Signal
 from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
+    QCompleter,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QMenu,
     QProgressBar,
     QPushButton,
     QSpinBox,
@@ -26,6 +27,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from booruflow.application.tag_autocomplete import TagAutocompleteService
 from booruflow.domain.booru_sites import site_definition
 from booruflow.infrastructure.gelbooru_client import (
     GelbooruAuthenticationError,
@@ -43,6 +45,23 @@ from booruflow.infrastructure.wiki_audit import (
 )
 from booruflow.infrastructure.wiki_html import sanitize_wiki_html
 from booruflow.infrastructure.wiki_page_cache import WikiPageCache
+from booruflow.presentation.pyside6.context_actions import (
+    add_action,
+    bind_browser_links,
+    bind_tag_popup,
+    exec_menu,
+    open_url,
+    tag_actions,
+)
+from booruflow.presentation.pyside6.status_bar import PageStatus
+from booruflow.presentation.pyside6.tag_autocomplete import TagAutocompleteCoordinator
+from booruflow.presentation.pyside6.tag_presentation import (
+    CANONICAL_TAG_ROLE,
+    TagSuggestionListModel,
+    configure_tag_completer,
+    present_tag,
+    show_tag_completer,
+)
 from booruflow.presentation.pyside6.ui_components import DataTable
 
 ROW_ROLE = Qt.ItemDataRole.UserRole + 20
@@ -95,6 +114,7 @@ class RandomPostWorker(QThread):
 
 
 class WikiAuditPage(QWidget):
+    entity_profile_requested = Signal(str, str)
     def __init__(
         self,
         catalog: LanguageCatalog,
@@ -109,6 +129,7 @@ class WikiAuditPage(QWidget):
         self.catalog, self.tag_database = catalog, tag_database
         self.alias_database, self.cache_database = alias_database, cache_database
         self.browser_launcher = browser_launcher
+        self.page_status = PageStatus("wiki_audit", self)
         self.credentials_provider = credentials_provider or dict
         self.log = log or (lambda _message: None)
         self._dapi_operation = ""
@@ -116,6 +137,11 @@ class WikiAuditPage(QWidget):
         self.worker: AuditWorker | RandomPostWorker | None = None
         self._reader_url = ""
         self._scan_generation = 0
+        self.autocomplete_service = TagAutocompleteService(
+            {"gelbooru": tag_database}, {"gelbooru": alias_database}
+        )
+        self.autocomplete = TagAutocompleteCoordinator(self.autocomplete_service, self)
+        self.autocomplete.suggestions_ready.connect(self._autocomplete_ready)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(22, 18, 22, 22)
@@ -152,6 +178,24 @@ class WikiAuditPage(QWidget):
         for key in ("all", "empty", "short", "non_empty"):
             self.length_filter.addItem("", key)
         self.search = QLineEdit()
+        self.suggestion_model = TagSuggestionListModel(self)
+        self.completer = QCompleter(self.suggestion_model, self)
+        self.completer.setCaseSensitivity(Qt.CaseSensitivity.CaseInsensitive)
+        self.completer.setCompletionMode(QCompleter.CompletionMode.UnfilteredPopupCompletion)
+        configure_tag_completer(self.completer)
+        self.search.setCompleter(self.completer)
+        bind_tag_popup(self.completer, catalog, launcher=self.browser_launcher,
+                       entity=self.entity_profile_requested.emit)
+        self.autocomplete_timer = QTimer(self)
+        self.autocomplete_timer.setSingleShot(True)
+        self.autocomplete_timer.setInterval(200)
+        self.search.textEdited.connect(lambda _value: self.autocomplete_timer.start())
+        self.autocomplete_timer.timeout.connect(
+            lambda: self.autocomplete.request(
+                "wiki_audit.search", "gelbooru", self.search.text().strip()
+            )
+        )
+        self.completer.activated[QModelIndex].connect(self._autocomplete_activated)
         self.ignore_metadata = QCheckBox()
         self.ignore_deprecated = QCheckBox()
         self.state_filter.currentIndexChanged.connect(self.apply_filters)
@@ -186,6 +230,8 @@ class WikiAuditPage(QWidget):
         self.table = DataTable(0, 9)
         self.table.setSortingEnabled(True)
         self.table.cellDoubleClicked.connect(lambda _row, _column: self.read_selected())
+        self.table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.table.customContextMenuRequested.connect(self._tag_menu)
         splitter.addWidget(self.table)
         reader = QWidget()
         reader_layout = QVBoxLayout(reader)
@@ -203,6 +249,9 @@ class WikiAuditPage(QWidget):
         actions.addStretch(1)
         reader_layout.addLayout(actions)
         self.reader = QTextBrowser()
+        self.reader.setOpenLinks(False)
+        self.reader.anchorClicked.connect(lambda url: open_url(url.toString(), self.browser_launcher))
+        bind_browser_links(self.reader, catalog, launcher=self.browser_launcher)
         reader_layout.addWidget(self.reader)
         splitter.addWidget(reader)
         splitter.setStretchFactor(0, 3)
@@ -216,6 +265,48 @@ class WikiAuditPage(QWidget):
         bottom.addWidget(self.progress_bar)
         layout.addLayout(bottom)
         self.retranslate()
+
+    def closeEvent(self, event) -> None:
+        self.autocomplete.shutdown()
+        super().closeEvent(event)
+
+    def _autocomplete_ready(self, owner: str, _request: object, suggestions: object) -> None:
+        if owner != "wiki_audit.search" or not isinstance(suggestions, list):
+            return
+        self.suggestion_model.set_suggestions(suggestions, self.palette())
+        if suggestions and self.search.hasFocus():
+            show_tag_completer(self.completer)
+
+    def _autocomplete_activated(self, index: QModelIndex) -> None:
+        value = str(index.data(CANONICAL_TAG_ROLE) or "")
+        if value:
+            self.search.setText(value)
+            QTimer.singleShot(0, lambda value=value: self.search.setText(value))
+
+    def refresh_theme(self) -> None:
+        self.suggestion_model.refresh_palette(self.palette())
+        for row in range(self.table.rowCount()):
+            value = self.table.item(row, 0).data(ROW_ROLE)
+            for column in (0, 1):
+                self.table.item(row, column).setForeground(present_tag(
+                    "gelbooru", value.name, value.category, self.palette()
+                ).style.color(self.palette()))
+
+    def _tag_menu(self, position):
+        item = self.table.itemAt(position)
+        if item is None:
+            return
+        self.table.setCurrentCell(item.row(), 0)
+        self.table.selectRow(item.row())
+        row = self._selected()
+        menu = QMenu(self)
+        handlers = tag_actions(menu, self.catalog, row.name,
+                               canonical=row.canonical_name, category=row.category,
+                               launcher=self.browser_launcher, entity=self.entity_profile_requested.emit)
+        menu.addSeparator()
+        add_action(menu, self.catalog.text("wiki_audit.read"), self.read_selected, handlers)
+        add_action(menu, self.catalog.text("wiki_audit.open"), self.open_selected, handlers)
+        exec_menu(menu, self.table.viewport().mapToGlobal(position), handlers)
 
     def _service(self) -> GelbooruWikiAuditService:
         if self.tag_database is None or not self.tag_database.is_file():
@@ -310,7 +401,14 @@ class WikiAuditPage(QWidget):
         self.refresh_button.setEnabled(not busy and self.result is not None)
         self.progress_bar.setVisible(busy)
         if busy:
+            self.progress_bar.setRange(0, 0)
             self.status.setText(self.catalog.text("wiki_audit.loading"))
+            self.page_status.set_state("working")
+            self.page_status.set_busy()
+            self.page_status.show_message(self.catalog.text("wiki_audit.loading"), timeout_ms=0)
+        else:
+            self.page_status.set_state("ready")
+            self.page_status.clear_progress()
 
     def _progress(
         self, completed: int, total: int, tag: str, generation: int | None = None
@@ -319,9 +417,11 @@ class WikiAuditPage(QWidget):
             return
         self.progress_bar.setRange(0, max(total, 1))
         self.progress_bar.setValue(completed)
+        self.page_status.set_progress(completed, total)
         self.status.setText(
             self.catalog.text("wiki_audit.progress", completed=completed, total=total, tag=tag)
         )
+        self.page_status.show_message(self.status.text(), timeout_ms=0)
 
     def _completed(self, result: object, generation: int | None = None) -> None:
         if generation is not None and generation != self._scan_generation:
@@ -330,6 +430,7 @@ class WikiAuditPage(QWidget):
             self.result = result
             self.reference.setText(str(result.post_id))
             self.apply_filters()
+            self.page_status.show_message(self.status.text(), timeout_ms=0)
 
     def _failed(self, error, generation: int | None = None) -> None:
         if generation is not None and generation != self._scan_generation:
@@ -347,6 +448,8 @@ class WikiAuditPage(QWidget):
             f"authenticated={str(client.authenticated).lower()}"
         )
         self.status.setText(self.catalog.text("wiki_audit.error", error=message))
+        self.page_status.show_message(self.status.text(), timeout_ms=0,
+                                      global_message=True, level="ERROR")
 
     def _scan_finished(self, worker: AuditWorker) -> None:
         if self.worker is worker:
@@ -434,6 +537,11 @@ class WikiAuditPage(QWidget):
                         )
                 if row.wiki.error:
                     item.setToolTip(row.wiki.error)
+                if column in {0, 1}:
+                    presentation = present_tag(
+                        "gelbooru", row.name, row.category, self.palette()
+                    )
+                    item.setForeground(presentation.style.color(self.palette()))
                 self.table.setItem(row_index, column, item)
         self.table.setHorizontalHeaderLabels(
             [self.catalog.text(f"wiki_audit.column_{key}") for key in headers]
@@ -482,10 +590,7 @@ class WikiAuditPage(QWidget):
         else:
             query = urllib.parse.urlencode({"page": "wiki", "s": "list", "search": row.name})
             url = f"https://gelbooru.com/index.php?{query}"
-        if self.browser_launcher:
-            self.browser_launcher.open(url)
-        else:
-            QDesktopServices.openUrl(QUrl(url))
+        open_url(url, self.browser_launcher)
 
     def retranslate(self) -> None:
         text = self.catalog.text

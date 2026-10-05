@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import sys
+from hashlib import sha256
 from pathlib import Path
 
-from PySide6.QtCore import QAbstractTableModel, QEvent, Qt, Signal
-from PySide6.QtGui import QAction, QKeySequence, QMovie, QPixmap, QShortcut
+from PySide6.QtCore import QAbstractTableModel, QEvent, QRunnable, Qt, QThreadPool, Signal
+from PySide6.QtGui import QAction, QImage, QKeySequence, QMovie, QPixmap, QShortcut
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QAbstractSpinBox,
@@ -37,9 +38,25 @@ from PySide6.QtWidgets import (
 
 from booruflow.domain.image_analysis import DecisionState, TagObservation
 from booruflow.infrastructure.localization import LanguageCatalog
+from booruflow.presentation.pyside6.thumbnail_cache import ThumbnailCacheKey, ThumbnailMemoryCache
+
+
+class _DecodePreview(QRunnable):
+    def __init__(self, key, data: bytes, generation: int, completed) -> None:
+        super().__init__()
+        self.key, self.data, self.generation, self.completed = key, data, generation, completed
+
+    def run(self) -> None:
+        image = QImage.fromData(self.data)
+        try:
+            self.completed.emit(self.key, image, self.generation)
+        except RuntimeError:
+            pass  # The view was destroyed while CPU decoding finished.
 
 
 class ScaledImageLabel(QScrollArea):
+    _decoded_ready = Signal(object, object, int)
+
     def __init__(self) -> None:
         super().__init__()
         self.label = QLabel(); self.label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -50,8 +67,55 @@ class ScaledImageLabel(QScrollArea):
         self._source_path: Path | None = None
         self._movie: QMovie | None = None
         self._zoom = 0
+        self._decoded_cache = None
+        self._decode_generation = 0
+        self._decoding = set()
+        self._requested_image_key = None
+        self._decode_pool = None
+        self._decoded_ready.connect(self._image_prepared)
+
+    def enable_preparation(self) -> None:
+        self._decoded_cache = ThumbnailMemoryCache(96 * 1024 * 1024, max_items=3)
+        self._decode_pool = QThreadPool(self)
+        self._decode_pool.setMaxThreadCount(1)
+
+    @staticmethod
+    def _image_key(data: bytes) -> ThumbnailCacheKey:
+        return ThumbnailCacheKey("review", 0, sha256(data).hexdigest())
+
+    def prepare_image_bytes(self, data: bytes) -> None:
+        if self._decoded_cache is None or len(data) > 64 * 1024 * 1024:
+            return
+        key = self._image_key(data)
+        if key in self._decoding or self._decoded_cache.get(key) is not None:
+            return
+        # At most the current decode and one speculative decode may be in flight.
+        if len(self._decoding) >= 2:
+            return
+        self._decoding.add(key)
+        self._decode_pool.start(
+            _DecodePreview(key, data, self._decode_generation, self._decoded_ready)
+        )
+
+    def _image_prepared(self, key, image: QImage, generation: int) -> None:
+        if generation != self._decode_generation:
+            return
+        self._decoding.discard(key)
+        if self._decoded_cache is not None:
+            self._decoded_cache.put(key, image)
+        if key == self._requested_image_key:
+            self._source = QPixmap.fromImage(image)
+            self._render()
+
+    def cancel_preparation(self) -> None:
+        if self._decode_pool is not None:
+            self._decode_pool.clear()
+        self._decode_generation += 1
+        self._decoding.clear()
+        self._requested_image_key = None
 
     def set_image(self, path: Path | None) -> None:
+        self._requested_image_key = None
         if self._movie is not None:
             self._movie.stop(); self._movie = None; self.label.setMovie(None)
         if path is not None and path == self._source_path and not self._source.isNull():
@@ -59,6 +123,36 @@ class ScaledImageLabel(QScrollArea):
         self._source_path = path
         self._source = QPixmap(str(path)) if path else QPixmap()
         self._render()
+
+    def set_image_bytes(self, data: bytes) -> bool:
+        """Replace the current preview from owned Qt image data, without a loose file."""
+        if self._movie is not None:
+            self._movie.stop(); self._movie = None; self.label.setMovie(None)
+        self._source_path = None
+        self._source = QPixmap()
+        if self._decoded_cache is not None:
+            key = self._image_key(data)
+            self._requested_image_key = key
+            image = self._decoded_cache.get(key)
+            if image is not None:
+                self._source = QPixmap.fromImage(image)
+                self._render()
+                return True
+            if key in self._decoding:
+                self._render()
+                return True  # Attach the view to the existing CPU task.
+            image = QImage.fromData(data)
+            self._decoded_cache.put(key, image)
+            self._source = QPixmap.fromImage(image)
+            self._render()
+            return not image.isNull()
+        loaded = self._source.loadFromData(data)
+        self._render()
+        return loaded
+
+    def set_unavailable(self, message: str) -> None:
+        self.set_image(None)
+        self.label.setText(message)
 
     def set_animated_image(self, path: Path | None) -> bool:
         if path is not None and path == self._source_path and self._movie is not None:
@@ -394,6 +488,8 @@ class ImageAnalysisPage(QWidget):
         self.skip_button.clicked.connect(self.skip_requested.emit)
         self.retry_button.clicked.connect(self._retry_selected)
         self.source_table.cellDoubleClicked.connect(self._open_source_row)
+        self.source_table.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
+        self.source_table.customContextMenuRequested.connect(self._source_menu)
         self.queue_filter.currentIndexChanged.connect(self._filter_source_rows)
         self.queue_filter.currentIndexChanged.connect(
             lambda: self.queue_filter_changed.emit(str(self.queue_filter.currentData()))
@@ -427,6 +523,9 @@ class ImageAnalysisPage(QWidget):
         self.wd14_install.clicked.connect(self.wd14_install_requested.emit)
         self.gpu_runtime_install.clicked.connect(self.gpu_runtime_install_requested.emit)
         self.retranslate()
+        from booruflow.presentation.pyside6.theme import style_item_view
+        style_item_view(self.source_table)
+        style_item_view(self.observations)
         button_height = max(
             button.sizeHint().height() for button in (
                 self.manual_add, self.accept, self.reject, self.accept_above,
@@ -518,6 +617,18 @@ class ImageAnalysisPage(QWidget):
     def _open_source_row(self, row: int, _column: int) -> None:
         item = self.source_table.item(row, 0)
         if item: self.item_open_requested.emit(int(item.text()))
+
+    def _source_menu(self, position):
+        from booruflow.presentation.pyside6.context_actions import add_action, exec_menu
+        item = self.source_table.itemAt(position)
+        if item is None:
+            return
+        self.source_table.setCurrentCell(item.row(), 0)
+        menu = QMenu(self)
+        handlers = {}
+        add_action(menu, self.catalog.text("context.open"),
+                   lambda: self._open_source_row(item.row(), 0), handlers)
+        exec_menu(menu, self.source_table.viewport().mapToGlobal(position), handlers)
 
     def _navigate_source(self, offset: int) -> None:
         if not self._visible_source_ids: return
@@ -616,9 +727,25 @@ class ImageAnalysisPage(QWidget):
         else: self.queue_empty.clear()
         self._update_current_banner()
 
-    def show_review(self, item, tags, observations, statistics) -> None:
+    def clear_preview(self) -> None:
+        self.image.set_image(None)
+
+    def show_review(
+        self, item, tags, observations, statistics, *, preview_data: bytes | None = None
+    ) -> bool:
         self.current_item_id = item.id if item else None
-        self.image.set_image(item.cached_path if item else None)
+        preview_loaded = bool(preview_data) and self.image.set_image_bytes(preview_data)
+        if item is None:
+            self.image.set_image(None)
+        elif (
+            not preview_loaded
+            and getattr(item, "cached_path", None) is not None
+            and item.cached_path.is_file()
+        ):
+            self.image.set_image(item.cached_path)
+            preview_loaded = not self.image._source.isNull()
+        elif not preview_loaded:
+            self.image.set_unavailable(self.catalog.text("image_analysis.preview_unavailable"))
         self.source_tags.clear()
         for tag in tags:
             self.source_tags.addItem(f"{tag.source.value} · {tag.category or '—'} · {tag.name}")
@@ -644,6 +771,7 @@ class ImageAnalysisPage(QWidget):
         self.requeue_item.setVisible(True)
         self._update_action_states()
         self._filter_source_rows(); self._update_current_banner(item)
+        return preview_loaded
 
     def _update_current_banner(self, item=None) -> None:
         if item is None and self.current_item_id is None:

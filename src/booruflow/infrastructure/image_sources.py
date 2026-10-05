@@ -3,15 +3,17 @@
 from __future__ import annotations
 
 import hashlib
+import io
 import json
 import mimetypes
-import os
 import urllib.error
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
+from typing import Self
 
 from PIL import Image, ImageOps, UnidentifiedImageError
 
@@ -29,9 +31,24 @@ from booruflow.domain.image_analysis import (
 from booruflow.infrastructure.gelbooru_client import API_URL as GELBOORU_API_URL
 from booruflow.infrastructure.gelbooru_client import DEFAULT_USER_AGENT, normalize_posts
 from booruflow.infrastructure.http_config import BOORUFLOW_USER_AGENT
+from booruflow.infrastructure.image_analysis_cache import (
+    ImageAnalysisCache,
+    image_cache_database_path,
+)
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
 
 E621_API_URL = "https://e621.net/posts"
+WD14_MIN_SAMPLE_SIZE = 448
+VIDEO_SUFFIXES = frozenset({".webm", ".mp4", ".mov", ".mkv", ".avi"})
+
+
+def analysis_cache_directory_for_repository(repository: ImageAnalysisRepository) -> Path:
+    parent = repository.path.parent
+    return (
+        parent.parent / "cache" / "image_analysis"
+        if parent.name == "state"
+        else parent / "cache"
+    )
 
 
 def post_page_url(site: str, post_id: str) -> str:
@@ -65,6 +82,15 @@ class NormalizedPost:
     file_url: str
     tags: tuple[SourceTag, ...]
     artist_tags: tuple[str, ...]
+    original_url: str = ""
+    preview_url: str = ""
+    sample_url: str = ""
+    sample_width: int = 0
+    sample_height: int = 0
+    width: int = 0
+    height: int = 0
+    md5: str = ""
+    media_type: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,15 +139,22 @@ def _default_bytes_fetcher(url: str, headers: Mapping[str, str]) -> bytes:
 
 def inspect_image(path: Path) -> ImageMetadata:
     try:
-        digest = hashlib.sha256(path.read_bytes()).hexdigest()
-        with Image.open(path) as image:
+        return inspect_image_bytes(path.read_bytes(), filename=path.name)
+    except OSError as exc:
+        raise ImageSourceError(f"invalid or unreadable image {path}: {exc}") from exc
+
+
+def inspect_image_bytes(data: bytes, *, filename: str = "image") -> ImageMetadata:
+    try:
+        digest = hashlib.sha256(data).hexdigest()
+        with Image.open(io.BytesIO(data)) as image:
             image.seek(0)
             oriented = ImageOps.exif_transpose(image)
             prepared = oriented.convert("RGBA" if "A" in oriented.getbands() else "RGB")
             width, height = prepared.size
-            mime_type = Image.MIME.get(image.format or "") or mimetypes.guess_type(path.name)[0]
+            mime_type = Image.MIME.get(image.format or "") or mimetypes.guess_type(filename)[0]
     except (OSError, UnidentifiedImageError, ValueError) as exc:
-        raise ImageSourceError(f"invalid or unreadable image {path}: {exc}") from exc
+        raise ImageSourceError(f"invalid or unreadable image bytes: {exc}") from exc
     if not mime_type or not mime_type.startswith("image/"):
         mime_type = "application/octet-stream"
     return ImageMetadata(digest, mime_type, width, height)
@@ -209,7 +242,22 @@ class GelbooruPostProvider:
             SourceTag(name, ObservationSource.GELBOORU, categories.get(name)) for name in names
         )
         artists = tuple(name for name in names if categories.get(name) == "artist")
-        return NormalizedPost("gelbooru", str(post.get("id", post_id)), file_url, tags, artists)
+        return NormalizedPost(
+            "gelbooru", str(post.get("id", post_id)), file_url, tags, artists,
+            original_url=str(post.get("file_url") or "").strip(),
+            preview_url=str(post.get("preview_url") or "").strip(),
+            sample_url=str(post.get("sample_url") or "").strip(),
+            sample_width=int(post.get("sample_width") or 0),
+            sample_height=int(post.get("sample_height") or 0),
+            width=int(post.get("width") or 0),
+            height=int(post.get("height") or 0),
+            md5=str(post.get("md5") or "").strip(),
+            media_type=str(post.get("image") or post.get("type") or "").strip().casefold(),
+        )
+
+    def normalize_search_post(self, post: dict, post_id: str = "") -> NormalizedPost:
+        """Normalize a post already returned by a Gelbooru search page."""
+        return self._normalize(post, post_id or str(post.get("id", "")))
 
     def search_posts(self,tags:list[str],limit:int)->list[NormalizedPost]:
         parameters={"page":"dapi","s":"post","q":"index","json":"1","limit":str(max(1,min(limit,100))),"tags":" ".join(tags)}
@@ -312,7 +360,30 @@ class ImageSourceService:
     ) -> None:
         self.repository = repository
         self.cache_directory = cache_directory
+        self._cache_path = image_cache_database_path(cache_directory)
+        self._cache: ImageAnalysisCache | None = None
         self.bytes_fetcher = bytes_fetcher
+
+    def __enter__(self) -> Self:
+        return self
+
+    def __exit__(self, *_args: object) -> None:
+        self.close()
+
+    @property
+    def cache(self) -> ImageAnalysisCache:
+        if self._cache is None:
+            self._cache = ImageAnalysisCache(self._cache_path)
+        return self._cache
+
+    @property
+    def cache_path(self) -> Path:
+        return self._cache_path
+
+    def close(self) -> None:
+        if self._cache is not None:
+            self._cache.close()
+            self._cache = None
 
     def add_local(self, path: Path) -> int:
         return self.add_local_with_result(path).item_id
@@ -432,9 +503,62 @@ class ImageSourceService:
             item_id, detected.site, detected.post_id, tags, artists
         )
 
-    def add_post(self, provider: GelbooruPostProvider | E621PostProvider, post_id: str, *, request_analysis: bool = True) -> int:
+    def add_post(
+        self,
+        provider: GelbooruPostProvider | E621PostProvider,
+        post_id: str,
+        *,
+        request_analysis: bool = True,
+        trace: Callable[[str, object], None] | None = None,
+    ) -> int:
+        started = perf_counter()
         post = provider.fetch_post(post_id)
-        item = self._download_post(post)
+        if trace:
+            trace("metadata_fetch_ms", (perf_counter() - started) * 1000)
+        if trace:
+            trace("fallback_fetch", True)
+        item = self._download_post(post, source_kind="original", trace=trace)
+        return self._store_remote_item(item, post, request_analysis=request_analysis)
+
+    def add_post_data(
+        self,
+        provider: GelbooruPostProvider,
+        raw_post: dict,
+        post_id: str,
+        *,
+        request_analysis: bool = True,
+        trace: Callable[[str, object], None] | None = None,
+    ) -> int:
+        """Acquire a search result without refetching its metadata when possible."""
+        raw_urls = (
+            str(raw_post.get("file_url") or "").strip(),
+            str(raw_post.get("sample_url") or "").strip(),
+            str(raw_post.get("preview_url") or "").strip(),
+        )
+        fallback = not any(raw_urls)
+        if fallback:
+            started = perf_counter()
+            post = provider.fetch_post(post_id)
+            if trace:
+                trace("metadata_fetch_ms", (perf_counter() - started) * 1000)
+                trace("fallback_fetch", True)
+        else:
+            post = provider.normalize_search_post(raw_post, post_id)
+            if trace:
+                trace("fallback_fetch", False)
+        selected, source_kind = self._select_wd14_source(post)
+        if trace:
+            trace("source_kind", source_kind)
+        item = self._download_post(selected, source_kind=source_kind, trace=trace)
+        return self._store_remote_item(item, post, request_analysis=request_analysis)
+
+    def _store_remote_item(
+        self,
+        item: AnalysisItem,
+        post: NormalizedPost,
+        *,
+        request_analysis: bool,
+    ) -> int:
         existing = self.repository.item_by_sha256(str(item.content_sha256))
         if existing is not None:
             self.repository.reuse_item(existing.id, item.source, post.tags, post.artist_tags, queue_visible=True if request_analysis else None)
@@ -446,30 +570,123 @@ class ImageSourceService:
         item_id: int,
         provider: GelbooruPostProvider | E621PostProvider,
         post_id: str,
+        *,
+        trace: Callable[[str, object], None] | None = None,
     ) -> None:
+        started = perf_counter()
         post = provider.fetch_post(post_id)
-        item = self._download_post(post)
+        if trace:
+            trace("metadata_fetch_ms", (perf_counter() - started) * 1000)
+        if trace:
+            trace("fallback_fetch", True)
+        item = self._download_post(post, source_kind="original", trace=trace)
         self.repository.resolve_item(item_id, item, post.tags, post.artist_tags)
 
-    def _download_post(self, post: NormalizedPost) -> AnalysisItem:
+    def resolve_post_data(
+        self,
+        item_id: int,
+        provider: GelbooruPostProvider,
+        raw_post: dict,
+        post_id: str,
+        *,
+        trace: Callable[[str, object], None] | None = None,
+    ) -> None:
+        raw_urls = (
+            str(raw_post.get("file_url") or "").strip(),
+            str(raw_post.get("sample_url") or "").strip(),
+            str(raw_post.get("preview_url") or "").strip(),
+        )
+        if any(raw_urls):
+            post = provider.normalize_search_post(raw_post, post_id)
+            if trace:
+                trace("fallback_fetch", False)
+        else:
+            started = perf_counter()
+            post = provider.fetch_post(post_id)
+            if trace:
+                trace("metadata_fetch_ms", (perf_counter() - started) * 1000)
+                trace("fallback_fetch", True)
+        selected, source_kind = self._select_wd14_source(post)
+        if trace:
+            trace("source_kind", source_kind)
+        item = self._download_post(selected, source_kind=source_kind, trace=trace)
+        self.repository.resolve_item(item_id, item, post.tags, post.artist_tags)
+
+    def _select_wd14_source(self, post: NormalizedPost) -> tuple[NormalizedPost, str]:
+        original_url = post.original_url or post.file_url
+        original_suffix = Path(urllib.parse.urlparse(original_url).path).suffix.casefold()
+        if original_suffix in VIDEO_SUFFIXES or post.media_type in {"webm", "mp4", "mov", "mkv", "avi"}:
+            if not post.preview_url:
+                raise ImageSourceError("video post has no preview image for WD14")
+            return self._with_download_url(post, post.preview_url), "preview"
+        if (
+            post.sample_url
+            and post.sample_width >= WD14_MIN_SAMPLE_SIZE
+            and post.sample_height >= WD14_MIN_SAMPLE_SIZE
+        ):
+            return self._with_download_url(post, post.sample_url), "sample"
+        if original_url:
+            return self._with_download_url(post, original_url), "original"
+        if post.preview_url:
+            return self._with_download_url(post, post.preview_url), "preview"
+        raise ImageSourceError("post has no usable static image URL")
+
+    @staticmethod
+    def _with_download_url(post: NormalizedPost, url: str) -> NormalizedPost:
+        return NormalizedPost(
+            post.site, post.post_id, url, post.tags, post.artist_tags,
+            post.original_url, post.preview_url, post.sample_url,
+            post.sample_width, post.sample_height, post.width, post.height, post.md5,
+            post.media_type,
+        )
+
+    def _download_post(
+        self,
+        post: NormalizedPost,
+        *,
+        source_kind: str = "original",
+        trace: Callable[[str, object], None] | None = None,
+    ) -> AnalysisItem:
         headers = {
             "User-Agent": DEFAULT_USER_AGENT if post.site == "gelbooru" else E621_USER_AGENT,
             "Referer": "https://gelbooru.com/" if post.site == "gelbooru" else "https://e621.net/",
         }
+        started = perf_counter()
         data = self.bytes_fetcher(post.file_url, headers)
+        if trace:
+            trace("download_bytes_ms", (perf_counter() - started) * 1000)
+            trace("download_size_bytes", len(data))
+        started = perf_counter()
         digest = hashlib.sha256(data).hexdigest()
-        self.cache_directory.mkdir(parents=True, exist_ok=True)
+        if trace:
+            trace("hash_ms", (perf_counter() - started) * 1000)
         suffix = Path(urllib.parse.urlparse(post.file_url).path).suffix.lower() or ".img"
-        cached = self.cache_directory / f"{digest}{suffix}"
-        if not cached.exists():
-            temporary = cached.with_suffix(cached.suffix + ".part")
-            temporary.write_bytes(data)
-            os.replace(temporary, cached)
-        metadata = inspect_image(cached)
+        started = perf_counter()
+        metadata = inspect_image_bytes(data, filename=f"image{suffix}")
+        if trace:
+            trace("inspect_image_ms", (perf_counter() - started) * 1000)
+        started = perf_counter()
+        stored = self.cache.put(
+            digest, data, site=post.site, post_id=post.post_id,
+            source_kind=source_kind, mime_type=metadata.mime_type,
+            width=metadata.width, height=metadata.height, sha256=metadata.sha256,
+        )
+        if not stored.stored:
+            raise ImageSourceError(
+                f"image exceeds analysis cache limit ({len(data)} bytes)"
+            )
+        if trace:
+            trace("cache_write_ms", (perf_counter() - started) * 1000)
+            trace("cache_db_path", str(self._cache_path))
+            trace("cache_entry_stored", True)
+            trace("cache_key", digest)
+            trace("cache_logical_bytes", stored.logical_bytes)
+            trace("cache_entry_count", stored.entry_count)
+            trace("cache_evicted", stored.evicted)
         kind = InputKind.GELBOORU_POST if post.site == "gelbooru" else InputKind.E621_POST
         item = AnalysisItem(
             SourceReference(kind, site=post.site, post_id=post.post_id),
-            cached_path=cached,
+            cached_path=None,
             content_sha256=metadata.sha256,
             mime_type=metadata.mime_type,
             width=metadata.width,
@@ -487,3 +704,146 @@ class ImageSourceService:
                 "source image content changed after import; add it again as a new source"
             )
         return path
+
+    def cached_bytes(
+        self, item: AnalysisItem, *, trace: Callable[[str, object], None] | None = None
+    ) -> bytes:
+        cache_key = str(item.content_sha256 or "")
+        if cache_key:
+            entry = self.cache.get(cache_key)
+            if entry is not None:
+                if trace:
+                    trace("preview_source", "blob")
+                    trace("cache_hit", cache_key)
+                    trace("cache_read_bytes", entry.byte_size)
+                if entry.sha256 != cache_key:
+                    raise ImageSourceError("source image cache hash mismatch")
+                return entry.data
+            if trace:
+                trace("cache_miss", cache_key)
+        if item.cached_path is not None and item.cached_path.is_file():
+            if trace:
+                trace("preview_source", "legacy_path")
+                trace("cache_hit", "legacy_path")
+            return item.cached_path.read_bytes()
+        if trace:
+            trace("preview_source", "unavailable")
+        if cache_key:
+            raise ImageSourceError(
+                f"source image unavailable: cache miss {cache_key} and missing legacy path"
+            )
+        raise ImageSourceError(
+            f"source image is missing: {item.cached_path or item.source.original_path}"
+        )
+
+    def cached_items_for_posts(
+        self, sources: list[tuple[str, str]] | tuple[tuple[str, str], ...]
+    ) -> dict[tuple[str, str], AnalysisItem]:
+        """Resolve posts whose source bytes are currently available locally."""
+        items = self.repository.items_by_remote_sources(sources)
+        blob_keys = [str(item.content_sha256) for item in items.values() if item.content_sha256]
+        available_blobs = self.cache.contains_many(blob_keys) if blob_keys else set()
+        return {
+            key: item
+            for key, item in items.items()
+            if (
+                bool(item.content_sha256 and str(item.content_sha256) in available_blobs)
+                or bool(item.cached_path is not None and item.cached_path.is_file())
+            )
+        }
+
+    def materialize_item(self, item: AnalysisItem):
+        """Yield a real local path, deleting cache-backed temporaries on exit."""
+        if item.cached_path is not None:
+            if not item.cached_path.is_file():
+                raise ImageSourceError(f"source image is missing: {item.cached_path}")
+            from contextlib import nullcontext
+
+            return nullcontext(item.cached_path)
+        if not item.content_sha256:
+            raise ImageSourceError("source image has no cache key")
+        suffix = mimetypes.guess_extension(item.mime_type or "") or ".img"
+        return self.cache.materialize(item.content_sha256, suffix=suffix)
+
+    def migrate_legacy_cache(
+        self,
+        *,
+        limit: int | None = None,
+        logger: Callable[[str], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+        progress: Callable[[int, int], None] | None = None,
+    ) -> dict[str, int]:
+        """Import only DB-linked loose files; delete each one after both commits."""
+        log = logger or (lambda _message: None)
+        report = {"imported": 0, "discarded": 0, "deleted": 0, "skipped": 0,
+                  "failed": 0, "remaining": 0, "remaining_bytes": 0}
+        if not self.cache_directory.is_dir():
+            return report
+        files = sorted(path for path in self.cache_directory.iterdir() if path.is_file())
+        selected = files if limit is None else files[:max(0, int(limit))]
+        total = len(selected)
+        if progress:
+            progress(0, total)
+        for index, path in enumerate(selected, start=1):
+            if cancelled and cancelled():
+                break
+            rows = self.repository.connection.execute(
+                """SELECT id,source_site,source_post_id,content_sha256,mime_type,width,height
+                   FROM analysis_items WHERE cached_path=? ORDER BY id""",
+                (str(path),),
+            ).fetchall()
+            if not rows:
+                # A crash after committing the DB updates but before unlinking
+                # leaves an orphan named with its content hash.  Delete it only
+                # when both the filename and the already committed cache row
+                # prove that it is the same payload.
+                try:
+                    data = path.read_bytes()
+                    digest = hashlib.sha256(data).hexdigest()
+                    if path.stem == digest and self.cache.contains(digest):
+                        path.unlink()
+                        report["deleted"] += 1
+                    else:
+                        report["skipped"] += 1
+                except OSError as exc:
+                    report["failed"] += 1
+                    log(f"legacy image cache cleanup failed path={path.name}: {exc}")
+                if progress:
+                    progress(index, total)
+                continue
+            try:
+                data = path.read_bytes()
+                metadata = inspect_image_bytes(data, filename=path.name)
+                expected = {str(row["content_sha256"] or "") for row in rows}
+                if expected != {metadata.sha256}:
+                    raise ImageSourceError("legacy cache hash does not match analysis item")
+                first = rows[0]
+                result = self.cache.put(
+                    metadata.sha256, data, site=str(first["source_site"] or ""),
+                    post_id=str(first["source_post_id"] or ""), source_kind="legacy",
+                    mime_type=metadata.mime_type, width=metadata.width,
+                    height=metadata.height, sha256=metadata.sha256,
+                )
+                if not result.stored:
+                    raise ImageSourceError("legacy file exceeds cache limit")
+                with self.repository.connection:
+                    self.repository.connection.execute(
+                        "UPDATE analysis_items SET cached_path=NULL WHERE cached_path=?",
+                        (str(path),),
+                    )
+                report["imported"] += 1
+                path.unlink()
+                report["deleted"] += 1
+            except Exception as exc:  # noqa: BLE001 - preserve loose file on any failure
+                report["failed"] += 1
+                log(f"legacy image cache migration failed path={path.name}: {exc}")
+            if progress:
+                progress(index, total)
+        remaining = [path for path in self.cache_directory.iterdir() if path.is_file()]
+        report["remaining"] = len(remaining)
+        report["remaining_bytes"] = sum(path.stat().st_size for path in remaining)
+        log(
+            "legacy image cache migration "
+            + " ".join(f"{key}={value}" for key, value in report.items())
+        )
+        return report

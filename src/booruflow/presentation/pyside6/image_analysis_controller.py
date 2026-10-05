@@ -222,9 +222,38 @@ class DroppedSourceScanWorker(QThread):
         self.completed.emit(result, ignored)
 
 
+class LegacyImageCacheMigrationWorker(QThread):
+    completed = Signal(dict)
+    failed = Signal(str)
+    progress_changed = Signal(int, int)
+
+    def __init__(self, database: Path, cache_directory: Path) -> None:
+        super().__init__()
+        self.database = database
+        self.cache_directory = cache_directory
+
+    def run(self) -> None:
+        messages: list[str] = []
+        try:
+            with ImageAnalysisRepository(self.database) as repository, ImageSourceService(
+                repository, self.cache_directory
+            ) as sources:
+                report = sources.migrate_legacy_cache(
+                    logger=messages.append,
+                    cancelled=self.isInterruptionRequested,
+                    progress=self.progress_changed.emit,
+                )
+            report["messages"] = messages
+            self.completed.emit(report)
+        except Exception as exc:  # noqa: BLE001 - background maintenance boundary
+            self.failed.emit(str(exc))
+
+
 class ImageAnalysisController(QObject):
     worker_state_changed = Signal(str, str)
     activity_changed = Signal(str, str, str, int, int)
+    sources_changed = Signal()
+    analysis_changed = Signal()
 
     def __init__(
         self,
@@ -262,6 +291,9 @@ class ImageAnalysisController(QObject):
         self.pending_local_paths: list[Path] = []
         self.source_worker: SourcePreparationWorker | None = None
         self.drop_scan_worker: DroppedSourceScanWorker | None = None
+        self.legacy_cache_migration_worker: LegacyImageCacheMigrationWorker | None = None
+        self._legacy_cache_migration_requested = False
+        self._restart_after_legacy_cache_migration = False
         self.drop_ignored = 0
         self.drop_expected = 0
         self.process = QProcess(self)
@@ -334,16 +366,112 @@ class ImageAnalysisController(QObject):
             self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_stopped"))
         self.refresh()
 
+    def start_legacy_cache_migration(self) -> None:
+        """Run an explicitly requested migration after stopping the analysis worker."""
+        if self.legacy_cache_migration_worker is not None or self._legacy_cache_migration_requested:
+            return
+        count, size = self._legacy_cache_inventory()
+        self.log(log_event(
+            "ImageCache",
+            f"Legacy cache scan files={count} bytes={size} cache_db={self.sources.cache_path}",
+        ))
+        if count == 0:
+            self._refresh_legacy_cache_status()
+            return
+        if self.source_worker is not None and self.source_worker.isRunning():
+            message = "finish the active image source import before migrating the legacy cache"
+            self.log(log_event("ImageCache", message, level="WARNING"))
+            if self.installation_page is not None:
+                self.installation_page.show_legacy_cache_migration_error(message)
+            return
+        running = self.process.state() != QProcess.ProcessState.NotRunning
+        self._restart_after_legacy_cache_migration = running
+        if self.installation_page is not None:
+            self.installation_page.set_legacy_cache_migration_running(True, 0, count)
+        if running:
+            self._legacy_cache_migration_requested = True
+            self._set_worker_state("stopping", "ImageAnalysis stopping for cache migration")
+            self.log(log_event("ImageCache", "Stopping ImageAnalysis worker before migration"))
+            self.process.write(b"STOP\n")
+            return
+        self._launch_legacy_cache_migration()
+
+    def _launch_legacy_cache_migration(self) -> None:
+        self.log(log_event("ImageCache", "Legacy cache migration started"))
+        worker = LegacyImageCacheMigrationWorker(self.database, self.cache)
+        self.legacy_cache_migration_worker = worker
+        worker.progress_changed.connect(self._legacy_cache_migration_progress)
+        worker.completed.connect(self._legacy_cache_migration_completed)
+        worker.failed.connect(self._legacy_cache_migration_failed)
+        worker.start()
+
+    def _legacy_cache_inventory(self) -> tuple[int, int]:
+        if not self.cache.is_dir():
+            return 0, 0
+        files = [path for path in self.cache.iterdir() if path.is_file()]
+        return len(files), sum(path.stat().st_size for path in files)
+
+    def _refresh_legacy_cache_status(self) -> None:
+        if self.installation_page is None:
+            return
+        count, size = self._legacy_cache_inventory()
+        self.installation_page.show_legacy_cache_status(count, size, self.sources.cache_path)
+
+    def _legacy_cache_migration_progress(self, current: int, total: int) -> None:
+        if self.installation_page is not None:
+            self.installation_page.set_legacy_cache_migration_running(True, current, total)
+
+    def _legacy_cache_migration_completed(self, report: dict) -> None:
+        self.log(
+            log_event(
+                "ImageCache",
+                "Legacy cache migration completed "
+                + " ".join(
+                    f"{key}={int(report.get(key, 0))}"
+                    for key in (
+                        "imported", "discarded", "deleted", "skipped", "failed", "remaining",
+                        "remaining_bytes",
+                    )
+                ),
+                level="WARNING" if report.get("failed") else "INFO",
+            )
+        )
+        self.legacy_cache_migration_worker.deleteLater()
+        self.legacy_cache_migration_worker = None
+        self._refresh_legacy_cache_status()
+        if self.installation_page is not None:
+            self.installation_page.show_legacy_cache_migration_result(report)
+        self._restart_worker_after_legacy_cache_migration()
+
+    def _legacy_cache_migration_failed(self, error: str) -> None:
+        self.log(log_event("ImageCache", f"Legacy cache migration failed: {error}", level="ERROR"))
+        self.legacy_cache_migration_worker.deleteLater()
+        self.legacy_cache_migration_worker = None
+        self._refresh_legacy_cache_status()
+        if self.installation_page is not None:
+            self.installation_page.show_legacy_cache_migration_error(error)
+        self._restart_worker_after_legacy_cache_migration()
+
+    def _restart_worker_after_legacy_cache_migration(self) -> None:
+        restart = self._restart_after_legacy_cache_migration
+        self._restart_after_legacy_cache_migration = False
+        if restart and not self._shutting_down:
+            self.start_worker()
+
     def bind_installation_page(self, page) -> None:
         """Expose the existing installer through Options without duplicating it."""
+        if self.installation_page is not page:
+            page.legacy_cache_migration_requested.connect(self.start_legacy_cache_migration)
         self.installation_page = page
         page.refresh_analysis_status()
+        self._refresh_legacy_cache_status()
 
     def apply_settings(self, settings: dict[str, object]) -> None:
         """Apply saved analysis settings to this live controller and worker."""
         restart_keys = {
             "image_analysis_wd14_enabled", "image_analysis_wd14_model_directory",
             "image_analysis_wd14_model_id", "image_analysis_wd14_store_threshold",
+            "image_analysis_wd14_batch_size",
             "image_analysis_worker_heartbeat_interval", "image_analysis_worker_recycle_after",
             "gelbooru_tag_database", "gelbooru_alias_database",
             "image_analysis_hydra_enabled", "image_analysis_hydra_source_directory",
@@ -440,6 +568,30 @@ class ImageAnalysisController(QObject):
                 return
             self._schedule_worker_restart(reason, immediate=True)
 
+    def prepare_navigation_item(self, site: str, post_id: str) -> tuple[int, bool]:
+        """Use the normal persistent job for one speculative neighbour.
+
+        Return whether this request is ours to cancel. Already requested jobs,
+        processing jobs and completed reviews retain their existing ownership.
+        Model-run deduplication remains in the worker (image + model + config).
+        """
+        item = self.repository.item_by_remote_source(site, post_id)
+        owned = item is None
+        if item is None:
+            kind = InputKind.GELBOORU_POST if site == "gelbooru" else InputKind.E621_POST
+            item_id = self.repository.add_unresolved_remote(kind, post_id, priority=50)
+            item = self.repository.get_item(item_id)
+        elif item.state.value == "pending":
+            row = self.repository.connection.execute(
+                "SELECT analysis_requested FROM analysis_items WHERE id=?", (item.id,)
+            ).fetchone()
+            owned = not bool(row[0])
+            self.repository.request_analysis(item.id, priority=50)
+        if item.state.value == "pending":
+            self._start_source_preparation()
+            self.ensure_worker_available("Tagging next image")
+        return item.id, owned
+
     def reanalyze_item(self, item_id: int) -> None:
         """Queue one existing item for a fresh run with the current worker settings."""
         self.repository.reanalyze(item_id, priority=100)
@@ -497,6 +649,7 @@ class ImageAnalysisController(QObject):
             self.drop_ignored = 0
         self.refresh()
         self.log(log_event("ImageAnalysis", f"Source preparation finished; errors={len(errors)}"))
+        self.sources_changed.emit()
         if len(reused_ids) == 1:
             self.open_item(reused_ids[0])
             state = self.current.state.value if self.current else "known"
@@ -554,6 +707,10 @@ class ImageAnalysisController(QObject):
             self._worker_session_id,
             ],
         )
+        arguments.extend([
+            "--wd14-batch-size",
+            str(self.settings.get("image_analysis_wd14_batch_size", "auto")),
+        ])
         alias_database = gelbooru_alias_database(self.settings)
         if alias_database:
             arguments.extend(["--gelbooru-alias-database", str(alias_database)])
@@ -672,6 +829,10 @@ class ImageAnalysisController(QObject):
         clean = line.strip()
         if not clean:
             return
+        if "[Worker]" in clean and any(marker in clean for marker in (
+            "] Item ready", "] Item failed:", "] batch failed:",
+        )):
+            self.analysis_changed.emit()
         if clean.startswith("BOOTSTRAP WD14 init begin"):
             self._set_worker_state("initializing", "ImageAnalysis WD14 initialization")
             self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_initializing"))
@@ -729,6 +890,10 @@ class ImageAnalysisController(QObject):
                 level=level,
             )
         )
+        if self._legacy_cache_migration_requested:
+            self._legacy_cache_migration_requested = False
+            QTimer.singleShot(0, self._launch_legacy_cache_migration)
+            return
         if self._exclusive_database_operation is not None:
             QTimer.singleShot(0, self._run_exclusive_database_operation)
             return
@@ -1018,10 +1183,14 @@ class ImageAnalysisController(QObject):
         items = self.repository.list_items()
         after_repository = time.perf_counter()
         signature = tuple(
-            (row["id"], row["state"], str(row["cached_path"] or ""), row["last_error"])
+            (
+                row["id"], row["state"], str(row["cached_path"] or ""),
+                str(row["content_sha256"] or ""), row["last_error"],
+            )
             for row in items
         )
-        if signature != self._last_queue_signature:
+        queue_changed = signature != self._last_queue_signature
+        if queue_changed:
             self._last_queue_signature = signature
             self.page.show_sources(items)
         after_model = time.perf_counter()
@@ -1038,6 +1207,15 @@ class ImageAnalysisController(QObject):
                 failed=status.failed,
             )
         )
+        if self.current is not None and queue_changed:
+            fresh = self.repository.get_item(self.current.id)
+            if fresh is not None and (
+                fresh.state != self.current.state
+                or fresh.cached_path != self.current.cached_path
+                or fresh.content_sha256 != self.current.content_sha256
+            ):
+                self.current = fresh
+                self._show_current()
         if self.current is None:
             self.current = self.workflow.next_for_review()
             if self.current:
@@ -1086,12 +1264,37 @@ class ImageAnalysisController(QObject):
             self._slow_refresh_samples.append(elapsed_ms)
 
     def _show_current(self) -> None:
-        self.page.show_review(
-            self.current,
-            self.repository.source_tags(self.current.id),
-            self.repository.observations(self.current.id),
-            self.repository.statistics(self.current.id),
-        )
+        fresh = self.repository.get_item(self.current.id)
+        if fresh is not None:
+            self.current = fresh
+        tags = self.repository.source_tags(self.current.id)
+        observations = self.repository.observations(self.current.id)
+        statistics = self.repository.statistics(self.current.id)
+        self.page.clear_preview()
+        trace: dict[str, object] = {}
+        try:
+            preview_data = self.sources.cached_bytes(self.current, trace=trace.__setitem__)
+            loaded = self.page.show_review(
+                self.current, tags, observations, statistics, preview_data=preview_data
+            )
+            source = str(trace.get("preview_source", "unknown"))
+            cache_key = str(self.current.content_sha256 or "")[:12] or "none"
+            level = "INFO" if loaded else "WARNING"
+            self.log(log_event(
+                "ImagePreview",
+                f"item_id={self.current.id} post_id={self.current.source.post_id or 'none'} "
+                f"source={source} cache_key={cache_key} decode={'success' if loaded else 'failure'}",
+                level=level,
+            ))
+        except Exception as exc:  # noqa: BLE001 - a cache miss must not crash the UI
+            cache_key = str(self.current.content_sha256 or "")[:12] or "none"
+            self.log(log_event(
+                "ImagePreview",
+                f"item_id={self.current.id} post_id={self.current.source.post_id or 'none'} "
+                f"source=unavailable cache_key={cache_key} decode=failure error={exc}",
+                level="WARNING",
+            ))
+            self.page.show_review(self.current, tags, observations, statistics)
 
     def complete(self) -> None:
         if not self.current:
@@ -1228,6 +1431,9 @@ class ImageAnalysisController(QObject):
         if self.drop_scan_worker and self.drop_scan_worker.isRunning():
             self.drop_scan_worker.requestInterruption()
             self.drop_scan_worker.wait(3000)
+        if self.legacy_cache_migration_worker and self.legacy_cache_migration_worker.isRunning():
+            self.legacy_cache_migration_worker.requestInterruption()
+            self.legacy_cache_migration_worker.wait(30000)
         if self.process.state() != QProcess.ProcessState.NotRunning:
             launcher_pid = int(self.process.processId())
             pid = self._worker_pid or launcher_pid
@@ -1274,4 +1480,5 @@ class ImageAnalysisController(QObject):
         if self.model_process.state() != QProcess.ProcessState.NotRunning:
             self.model_process.terminate()
             self.model_process.waitForFinished(2000)
+        self.sources.close()
         self.repository.close()

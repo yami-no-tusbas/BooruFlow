@@ -33,6 +33,7 @@ class ImageSourceTests(unittest.TestCase):
         )
 
     def tearDown(self) -> None:
+        self.service.close()
         self.repository.close()
         self.temporary.cleanup()
 
@@ -57,6 +58,21 @@ class ImageSourceTests(unittest.TestCase):
     def test_remote_metadata_wins_over_conflicting_filename(self)->None:
         md5="9fed177a4599ae9acba6bc6ba6423c1a";payload=[{"id":42,"file_url":"https://img.example/42.png","tags":"artist_b","tag_string_artist":"artist_b"}];item_id=self.service.add_post(GelbooruPostProvider(json_fetcher=lambda *_args:payload),"42")
         local=Path(self.temporary.name)/f"artist_a - 42 - general - {md5}.png";local.write_bytes(png_bytes());self.assertEqual(self.service.add_local(local),item_id);self.assertEqual(self.repository.artist_tags(item_id),("artist_b",));state=self.repository.connection.execute("SELECT state FROM local_filename_metadata WHERE item_id=?",(item_id,)).fetchone()[0];self.assertEqual(state,"conflict")
+
+    def test_duplicate_remote_tags_are_idempotent_on_import_and_reimport(self) -> None:
+        provider = GelbooruPostProvider(json_fetcher=lambda *_args: [{
+            "id": 42,
+            "file_url": "https://img.example/42.png",
+            "tags": "1girl solo 1girl",
+            "tag_string_general": "1girl solo",
+        }])
+        first_id = self.service.add_post(provider, "42", request_analysis=False)
+        second_id = self.service.add_post(provider, "42", request_analysis=False)
+        self.assertEqual(second_id, first_id)
+        self.assertEqual(
+            [tag.name for tag in self.repository.source_tags(first_id)],
+            ["1girl", "solo"],
+        )
 
     def test_same_content_reuses_item_and_keeps_every_local_path(self) -> None:
         first = Path(self.temporary.name) / "A.png"; first.write_bytes(png_bytes())
@@ -166,6 +182,83 @@ class ImageSourceTests(unittest.TestCase):
         self.assertEqual(tags["artist_name"].source, "gelbooru")
         self.assertEqual(tags["artist_name"].category, "artist")
 
+    def test_wd14_search_post_uses_sample_without_fetching_metadata_again(self) -> None:
+        calls = []
+        urls = []
+        provider = GelbooruPostProvider(
+            json_fetcher=lambda *_args: calls.append(1) or [],
+        )
+        self.service.bytes_fetcher = lambda url, _headers: urls.append(url) or png_bytes((850, 566))
+        trace = {}
+        item_id = self.service.add_post_data(
+            provider,
+            {
+                "id": 42,
+                "file_url": "https://img.example/original.png",
+                "sample_url": "https://img.example/sample.jpg",
+                "sample_width": 850,
+                "sample_height": 566,
+                "width": 3000,
+                "height": 2000,
+            },
+            "42",
+            trace=trace.__setitem__,
+        )
+        self.assertGreater(item_id, 0)
+        self.assertEqual(calls, [])
+        self.assertEqual(urls, ["https://img.example/sample.jpg"])
+        self.assertEqual(trace["source_kind"], "sample")
+        self.assertGreater(trace["download_size_bytes"], 0)
+        item = self.repository.get_item(item_id)
+        self.assertEqual(self.service.cache.get(item.content_sha256).source_kind, "sample")
+
+    def test_wd14_search_post_uses_original_when_sample_is_missing_or_small(self) -> None:
+        urls = []
+        provider = GelbooruPostProvider(json_fetcher=lambda *_args: [])
+        self.service.bytes_fetcher = lambda url, _headers: urls.append(url) or png_bytes()
+        item_id = self.service.add_post_data(
+            provider,
+            {
+                "id": 43,
+                "file_url": "https://img.example/original.png",
+                "sample_url": "https://img.example/tiny.jpg",
+                "sample_width": 350,
+                "sample_height": 200,
+            },
+            "43",
+        )
+        self.assertEqual(urls, ["https://img.example/original.png"])
+        item = self.repository.get_item(item_id)
+        self.assertEqual(self.service.cache.get(item.content_sha256).source_kind, "original")
+
+    def test_wd14_video_uses_preview_and_never_downloads_video(self) -> None:
+        urls = []
+        provider = GelbooruPostProvider(json_fetcher=lambda *_args: [])
+        self.service.bytes_fetcher = lambda url, _headers: urls.append(url) or png_bytes()
+        item_id = self.service.add_post_data(
+            provider,
+            {
+                "id": 44,
+                "file_url": "https://img.example/video.mp4",
+                "preview_url": "https://img.example/preview.jpg",
+                "sample_url": "",
+            },
+            "44",
+        )
+        self.assertEqual(urls, ["https://img.example/preview.jpg"])
+        item = self.repository.get_item(item_id)
+        self.assertEqual(self.service.cache.get(item.content_sha256).source_kind, "preview")
+
+    def test_wd14_search_post_falls_back_to_fetch_when_urls_are_absent(self) -> None:
+        calls = []
+        provider = GelbooruPostProvider(
+            json_fetcher=lambda *_args: calls.append(1) or [{
+                "id": 45, "file_url": "https://img.example/original.png",
+            }],
+        )
+        self.service.add_post_data(provider, {"id": 45}, "45")
+        self.assertEqual(calls, [1])
+
     def test_e621_post_normalizes_categories_and_reuses_cached_bytes(self) -> None:
         calls = []
         self.service.bytes_fetcher = lambda url, _headers: calls.append(url) or png_bytes()
@@ -178,7 +271,10 @@ class ImageSourceTests(unittest.TestCase):
         tags = {tag.name: tag.category for tag in self.repository.source_tags(item_id)}
         self.assertEqual(tags, {"maker": "artist", "tail": "general"})
         self.assertEqual(self.repository.artist_tags(item_id), ("maker",))
-        self.assertEqual(len(list((Path(self.temporary.name) / "cache").glob("*.png"))), 1)
+        cache_directory = Path(self.temporary.name) / "cache"
+        self.assertFalse(cache_directory.exists())
+        self.assertTrue((Path(self.temporary.name) / "cache_cache.db").is_file())
+        self.assertEqual(self.service.cached_bytes(self.repository.get_item(item_id)), png_bytes())
         self.assertEqual(len(calls), 1)
 
     def test_missing_post_and_url_are_readable_errors(self) -> None:

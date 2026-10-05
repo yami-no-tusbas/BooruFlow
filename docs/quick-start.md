@@ -124,6 +124,9 @@ The results are grouped/sorted by confidence.
 
 This is useful when reviewing many images for one particular tag.
 
+With cached WD14 scores, changing the active tags can regroup the visible
+results without running the model again.
+
 Long targeted scans can be cancelled.
 
 Previously completed analyses may be loaded from the local cache.
@@ -183,7 +186,15 @@ It displays information such as:
 
 You can also read the remote wiki text directly inside BooruFlow.
 
-## 9. Tag Browser
+## 9. Wiki Editor
+
+Use `Wiki Editor` to check whether a Gelbooru wiki exists or to import a
+Danbooru wiki into an editable draft. These are separate actions. If you choose
+the Gelbooru wiki action, BooruFlow opens the new-wiki form or the existing wiki
+page so you can edit and paste the draft yourself. It does not submit wiki
+changes automatically.
+
+## 10. Tag Browser
 
 The `Tag Browser` provides access to the local Gelbooru tag database.
 
@@ -195,7 +206,14 @@ It can be used to inspect:
 - aliases;
 - deprecated tags.
 
-## 10. Image Finder and other tools
+## 11. Entity Profiles
+
+Open an Entity Profile from a tag in Tag Browser or Tagging to review recurring
+tags for a character, copyright or artist. Profile suggestions can be kept,
+ignored or reviewed later. Matching posts are available as examples; suggested
+tags are not published automatically.
+
+## 12. Image Finder and other tools
 
 BooruFlow also contains experimental and local-library tools such as:
 
@@ -211,7 +229,7 @@ Some of these features are still experimental or marked Beta.
 Imgbrd-Grabber is optional and is not required for the main Gelbooru tagging
 workflow.
 
-## 11. Reporting bugs
+## 13. Reporting bugs
 
 BooruFlow is currently an Alpha release, so bugs are expected.
 

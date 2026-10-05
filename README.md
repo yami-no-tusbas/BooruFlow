@@ -41,7 +41,8 @@ assistant.
 
 - Analyze individual images.
 - Search for a specific tag across the visible result set.
-- Sort images by WD14 confidence.
+- Group and sort images by WD14 confidence, then change the active tags without
+  running the model again when cached scores are available.
 - Cache completed analyses locally.
 - Cancel long targeted scans.
 
@@ -68,6 +69,18 @@ an autonomous tagging bot.
 
 Browse the local Gelbooru tag database with categories, aliases and deprecated
 tag information.
+
+### Entity Profiles
+
+Build local profiles for characters, copyrights and artists from matching posts.
+Review recurring tags and relationships, keep or ignore suggestions, and open
+sample posts. Profile suggestions remain under user review.
+
+### Wiki Editor
+
+Check Gelbooru wiki status or import a Danbooru wiki into an editable draft.
+The wiki action opens the relevant Gelbooru form or page for manual editing;
+BooruFlow does not publish wiki changes automatically.
 
 ### Wiki Audit
 

@@ -14,6 +14,7 @@ from booruflow.application.publish_preparation import (
     PublishVerificationError,
 )
 from booruflow.domain.image_analysis import PublishState
+from booruflow.domain.publication_retry import MAX_AUTO_PUBLISH_ATTEMPTS, can_retry_publication
 from booruflow.infrastructure.gelbooru_edit_transport import (
     GelbooruAuthenticatedSession,
     GelbooruEditTransport,
@@ -26,7 +27,7 @@ from booruflow.infrastructure.gelbooru_edit_transport import (
 )
 
 PUBLISH_DELAY_SECONDS = 12.0
-MAX_PUBLISH_ATTEMPTS = 3
+MAX_PUBLISH_ATTEMPTS = MAX_AUTO_PUBLISH_ATTEMPTS
 VERIFICATION_ATTEMPTS = 4
 VERIFICATION_RETRY_DELAY_SECONDS = 2.0
 TRANSPORT_WRAPPER_DEPTH = 2
@@ -147,19 +148,20 @@ class BatchPublisher:
         event_callback: Callable[[BatchPublishProgress], None] | None = None,
     ) -> BatchPublishSummary:
         self.repository.recover_interrupted_publishes()
-        retry_limit = MAX_PUBLISH_ATTEMPTS if self.site == "gelbooru" else 2**31 - 1
-        self.repository.retry_failed_publishes(item_ids, retry_limit)
         wanted = {int(item_id) for item_id in item_ids}
+        eligible = {
+            int(entry["item_id"])
+            for entry in self.repository.list_batch_entries(PublishState.FAILED)
+            if int(entry["item_id"]) in wanted and entry["site"] == self.site
+            and can_retry_publication(entry)
+        }
+        self.repository.retry_failed_publishes(eligible)
         entries = [
             entry
             for entry in self.repository.list_batch_entries(PublishState.PENDING_PUBLISH)
-            if int(entry["item_id"]) in wanted
+            if int(entry["item_id"]) in eligible
             and entry["site"] == self.site
             and entry["post_id"]
-            and (
-                self.site != "gelbooru"
-                or int(entry.get("publish_attempts", 0)) < MAX_PUBLISH_ATTEMPTS
-            )
         ]
         return self._publish(entries, progress, event_callback)
 
@@ -244,6 +246,7 @@ class BatchPublisher:
                     duration_seconds=elapsed(),
                 )
             item_id, post_id = int(entry["item_id"]), str(entry["post_id"])
+            initial_attempts = int(entry.get("publish_attempts", 0))
             emit("sending", index, index - 1, post_id, last_result)
             if progress:
                 progress(index, total, post_id)
@@ -268,10 +271,11 @@ class BatchPublisher:
                 raise RuntimeError("Diagnostic Embedded terminé sans résultat bloqué.")
             while True:
                 attempt = self.repository.begin_publish_attempt(item_id)
+                cycle_attempt = attempt - initial_attempts
                 try:
                     prepared = self.preparation.prepare(item_id)
                     self.log(
-                        f"Publish {self.site} #{post_id} attempt={attempt}/{MAX_PUBLISH_ATTEMPTS} original={len(prepared.original_tags)} fresh={len(prepared.fresh_tags)} add={len(prepared.additions)} remove={len(prepared.removals)} external_add={len(prepared.external_additions)} external_remove={len(prepared.external_removals)} final={len(prepared.publish_tags)}"
+                        f"Publish {self.site} #{post_id} attempt={cycle_attempt}/{MAX_PUBLISH_ATTEMPTS} original={len(prepared.original_tags)} fresh={len(prepared.fresh_tags)} add={len(prepared.additions)} remove={len(prepared.removals)} external_add={len(prepared.external_additions)} external_remove={len(prepared.external_removals)} final={len(prepared.publish_tags)}"
                     )
                     self.log(
                         f"Publish payload {self.site} #{post_id}: "
@@ -287,7 +291,7 @@ class BatchPublisher:
                         result = "no_op"
                         self.log(
                             f"{self.site.capitalize()} publish succeeded post_id={post_id} "
-                            f"attempt={attempt}/{MAX_PUBLISH_ATTEMPTS} result=no_op"
+                            f"attempt={cycle_attempt}/{MAX_PUBLISH_ATTEMPTS} result=no_op"
                         )
                     else:
                         self._submit_prepared(prepared)
@@ -297,7 +301,7 @@ class BatchPublisher:
                         result = "published"
                         self.log(
                             f"{self.site.capitalize()} publish succeeded post_id={post_id} "
-                            f"attempt={attempt}/{MAX_PUBLISH_ATTEMPTS}"
+                            f"attempt={cycle_attempt}/{MAX_PUBLISH_ATTEMPTS}"
                         )
                     break
                 except GelbooruPublishDeferredError as exc:
@@ -339,18 +343,18 @@ class BatchPublisher:
                     can_retry = (
                         self.site == "gelbooru"
                         and inherently_retryable
-                        and attempt < MAX_PUBLISH_ATTEMPTS
+                        and cycle_attempt < MAX_PUBLISH_ATTEMPTS
                     )
                     if can_retry:
                         self.repository.publish_deferred(item_id, str(exc))
                         self.log(
                             f"{self.site.capitalize()} publish attempt failed "
-                            f"post_id={post_id} attempt={attempt}/{MAX_PUBLISH_ATTEMPTS} "
+                            f"post_id={post_id} attempt={cycle_attempt}/{MAX_PUBLISH_ATTEMPTS} "
                             f"reason={reason} retryable=true"
                         )
                         self.log(
                             f"{self.site.capitalize()} publish retry scheduled "
-                            f"post_id={post_id} attempt={attempt + 1}/{MAX_PUBLISH_ATTEMPTS}"
+                            f"post_id={post_id} attempt={cycle_attempt + 1}/{MAX_PUBLISH_ATTEMPTS}"
                         )
                         if self.delay_seconds:
                             emit(
@@ -364,7 +368,7 @@ class BatchPublisher:
                         item_id,
                         str(exc),
                         reason=reason,
-                        retryable=(self.site != "gelbooru" and inherently_retryable),
+                        retryable=inherently_retryable,
                     )
                     failed += 1
                     result = "failed"
@@ -376,8 +380,8 @@ class BatchPublisher:
                     else:
                         self.log(
                             f"{self.site.capitalize()} publish failed post_id={post_id} "
-                            f"attempt={attempt}/{MAX_PUBLISH_ATTEMPTS} reason={reason} "
-                            f"retryable={str(self.site != 'gelbooru' and inherently_retryable).lower()}"
+                            f"attempt={cycle_attempt}/{MAX_PUBLISH_ATTEMPTS} reason={reason} "
+                            f"retryable={str(inherently_retryable).lower()}"
                         )
                     break
             emit("result", index, index, post_id, result)

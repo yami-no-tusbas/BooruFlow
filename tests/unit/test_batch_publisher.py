@@ -7,6 +7,7 @@ from booruflow.application.batch_publisher import (
 )
 from booruflow.application.publish_preparation import PublishPreparationService
 from booruflow.domain.image_analysis import PublishState
+from booruflow.domain.publication_retry import can_retry_publication
 from booruflow.infrastructure.gelbooru_edit_transport import (
     GelbooruLockedImageError,
     GelbooruPublishDeferredError,
@@ -39,7 +40,10 @@ class Repo:
         count=0
         for item_id in ids:
             entry = self.entries[item_id]
-            if entry["publish_state"] == PublishState.FAILED and entry.get("failure_retryable") is not False and entry["publish_attempts"] < max_attempts: entry["publish_state"]=PublishState.PENDING_PUBLISH; count+=1
+            if can_retry_publication(entry):
+                entry["publish_state"] = PublishState.PENDING_PUBLISH
+                entry["failure_retryable"] = True
+                count += 1
         return count
 
 
@@ -316,7 +320,7 @@ def test_unexpected_redirect_retries_at_most_three_times() -> None:
     assert len(transport.calls) == MAX_PUBLISH_ATTEMPTS
     assert sleeps == [1, 1]
     assert repo.entries[1]["failure_reason"] == "unexpected_global_redirect"
-    assert repo.entries[1]["failure_retryable"] is False
+    assert repo.entries[1]["failure_retryable"] is True
 
 
 def test_retryable_failure_then_success_publishes_on_second_attempt() -> None:

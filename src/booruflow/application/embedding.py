@@ -7,6 +7,10 @@ from pathlib import Path
 from typing import Protocol
 
 from booruflow.domain.similar_artists import EmbeddingSpace
+from booruflow.infrastructure.image_sources import (
+    ImageSourceService,
+    analysis_cache_directory_for_repository,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -29,6 +33,9 @@ class EmbeddingIndexService:
     def __init__(self, repository, logger=None) -> None:
         self.repository = repository
         self.log = logger or (lambda _message: None)
+        self.sources = ImageSourceService(
+            repository, analysis_cache_directory_for_repository(repository)
+        )
 
     def eligible_item_ids(self, artist=None) -> list[int]:
         if artist is None:
@@ -59,7 +66,7 @@ class EmbeddingIndexService:
             if missing: backend.prepare()
             for item_id in missing:
                 item = self.repository.get_item(item_id)
-                if item is None or item.cached_path is None or not item.cached_path.is_file():
+                if item is None:
                     skipped += 1
                     if progress_callback:progress_callback(computed+skipped+failed,len(missing))
                     continue
@@ -71,7 +78,8 @@ class EmbeddingIndexService:
                 if run_id is None:
                     skipped += 1; self.log(f"embedding cache hit: item {item_id}"); continue
                 try:
-                    result = backend.encode(item.cached_path)
+                    with self.sources.materialize_item(item) as path:
+                        result = backend.encode(path)
                     values = array("f", result.vector)
                     self.repository.save_embedding(
                         item_id, run_id, values.tobytes(), len(values), "float32", True
@@ -83,6 +91,7 @@ class EmbeddingIndexService:
                 if progress_callback:progress_callback(computed+skipped+failed,len(missing))
         finally:
             backend.close()
+            self.sources.close()
         elapsed = time.perf_counter() - started
         return {"images_eligible": len(requested), "embeddings_missing": len(missing),
                 "embeddings_computed": computed, "images_skipped": skipped,

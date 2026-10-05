@@ -212,7 +212,14 @@ class ArtistProfileService:
             counts["metadata_available"]+=int(row["metadata_available"])
             counts["metadata_missing"]+=int(bool(sites) and not row["metadata_available"])
             counts["multiple_provenances"]+=int(len(row["provenances"])>1)
-            path=Path(row["cached_path"]);counts["filename_parsable"]+=int(detect_local_source(path) is not None)
+            path = next(
+                (Path(str(value["local_path"])) for value in row["provenances"]
+                 if value.get("local_path")),
+                None,
+            )
+            counts["filename_parsable"] += int(
+                path is not None and detect_local_source(path) is not None
+            )
         status=self.corpus_status()
         return {"total":status["images_eligible"]+status["images_skipped"],"with_artist":status["images_eligible"],"without_artist":len(rows),"counts":counts,"items":rows}
 

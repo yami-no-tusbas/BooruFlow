@@ -9,7 +9,10 @@ from time import sleep
 from booruflow.application.similar_artists import ArtistProfileService
 from booruflow.domain.similar_artists import ArtistIdentity, SimilarityQueryProfile
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
-from booruflow.infrastructure.image_sources import ImageSourceService
+from booruflow.infrastructure.image_sources import (
+    ImageSourceService,
+    analysis_cache_directory_for_repository,
+)
 from booruflow.infrastructure.remote_pixels import RemotePixelSession
 
 GENERIC_TAGS = {"1girl", "1boy", "solo", "looking_at_viewer", "male", "female", "general", "safe"}
@@ -272,7 +275,9 @@ class RemoteDiscoveryService:
                 )
             return []
         sources = ImageSourceService(
-            self.repository, self.pixels.directory, bytes_fetcher=self.pixels.bytes_fetcher
+            self.repository,
+            analysis_cache_directory_for_repository(self.repository),
+            bytes_fetcher=self.pixels.bytes_fetcher,
         )
         images = 0
         for processed, identity in enumerate(identities, 1):
@@ -360,6 +365,7 @@ class RemoteDiscoveryService:
                         "network_errors": network_errors,
                     }
                 )
+        sources.close()
         rankings = {
             row.artist: row
             for row in self.profiles.rank_artists_for_query(query, backend, limit=100000)

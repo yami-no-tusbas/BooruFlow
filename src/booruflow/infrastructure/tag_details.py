@@ -11,6 +11,8 @@ from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
 
+from booruflow.infrastructure.gelbooru_client import normalize_posts
+from booruflow.infrastructure.gelbooru_normalization import post_tags
 from booruflow.infrastructure.wiki_page_cache import WikiPageCache, WikiPageRecord
 from booruflow.infrastructure.wiki_tag_importer import (
     WikiPageNotFoundError,
@@ -51,10 +53,7 @@ def _recurring_tags(posts: list[dict], current_tag: str, extractor, excluded: se
 
 
 def _gelbooru_post_tags(post: dict) -> list[str]:
-    values = post.get("tags", post.get("tag_string", ""))
-    if isinstance(values, str):
-        return values.split()
-    return [str(value) for value in values] if isinstance(values, list) else []
+    return post_tags(post)
 
 
 def _e621_post_tags(post: dict) -> list[str]:
@@ -96,7 +95,7 @@ def _gelbooru_samples(tag: str, user_id: str, api_key: str, database_path: Path 
         "https://gelbooru.com/index.php?" + urllib.parse.urlencode(parameters),
         "https://gelbooru.com/",
     )
-    posts = payload if isinstance(payload, list) else payload.get("post", []) if isinstance(payload, dict) else []
+    posts = normalize_posts(payload)
     samples = [
         {
             "id": int(post.get("id", 0)),

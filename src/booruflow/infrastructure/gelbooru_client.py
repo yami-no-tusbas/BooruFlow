@@ -9,6 +9,8 @@ import urllib.request
 from collections.abc import Callable
 from typing import Any
 
+from booruflow.infrastructure.gelbooru_normalization import normalize_post
+
 API_URL = "https://gelbooru.com/index.php"
 DEFAULT_USER_AGENT = "ArtistTagScanner/1.0 (personal Gelbooru library tool)"
 
@@ -23,14 +25,14 @@ PageFetcher = Callable[[str, int, int, str, str], tuple[list[dict[str, Any]], in
 def normalize_posts(data: Any) -> list[dict[str, Any]]:
     """Accept the JSON shapes returned by Gelbooru's DAPI."""
     if isinstance(data, list):
-        return [item for item in data if isinstance(item, dict)]
+        return [normalize_post(item) for item in data if isinstance(item, dict)]
     if not isinstance(data, dict):
         return []
     posts = data.get("post", [])
     if isinstance(posts, dict):
-        return [posts]
+        return [normalize_post(posts)]
     if isinstance(posts, list):
-        return [item for item in posts if isinstance(item, dict)]
+        return [normalize_post(item) for item in posts if isinstance(item, dict)]
     return []
 
 
@@ -108,7 +110,7 @@ class GelbooruDapiClient:
         posts, _total = self.page_fetcher(
             query, page, limit, self.user_id, self.api_key
         )
-        return posts
+        return normalize_posts(posts)
 
     def fetch_post(self, post_id: int | str) -> dict[str, Any]:
         posts = self.search_posts(f"id:{post_id}", limit=1)

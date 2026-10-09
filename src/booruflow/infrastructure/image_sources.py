@@ -30,6 +30,7 @@ from booruflow.domain.image_analysis import (
 )
 from booruflow.infrastructure.gelbooru_client import API_URL as GELBOORU_API_URL
 from booruflow.infrastructure.gelbooru_client import DEFAULT_USER_AGENT, normalize_posts
+from booruflow.infrastructure.gelbooru_normalization import decode_tag, normalize_post, post_tags
 from booruflow.infrastructure.http_config import BOORUFLOW_USER_AGENT
 from booruflow.infrastructure.image_analysis_cache import (
     ImageAnalysisCache,
@@ -69,6 +70,10 @@ E621_USER_AGENT = BOORUFLOW_USER_AGENT
 
 class ImageSourceError(RuntimeError):
     """A source could not be resolved into a usable local image."""
+
+
+class ImageCacheCapacityError(ImageSourceError):
+    """Active jobs own the cache capacity; acquisition must wait for completion."""
 
 
 class PostNotFoundError(ImageSourceError):
@@ -215,18 +220,19 @@ class GelbooruPostProvider:
             rows=payload.get("tag",[]) if isinstance(payload,dict) else payload if isinstance(payload,list) else []
             for row in rows:
                 if isinstance(row,dict) and str(row.get("name","")).strip():
-                    self._remote_category_cache[str(row["name"])]=type_names.get(int(row.get("type",0)),"general")
+                    self._remote_category_cache[decode_tag(str(row["name"]))]=type_names.get(int(row.get("type",0)),"general")
 
     def _normalize(self,post:dict,post_id:str)->NormalizedPost:
+        post = normalize_post(post)
         file_url = str(post.get("file_url") or "").strip()
         if Path(urllib.parse.urlparse(file_url).path).suffix.casefold() in {".webm", ".mp4", ".mov", ".mkv"}:
             file_url = str(post.get("sample_url") or post.get("preview_url") or "").strip()
         file_url = file_url or str(post.get("sample_url") or post.get("preview_url") or "").strip()
         if not file_url:
             raise ImageSourceError(f"Gelbooru post {post_id} has no image URL")
-        raw_tags = post.get("tags", post.get("tag_string", ""))
-        names = tuple(str(raw_tags).split()) if isinstance(raw_tags, str) else ()
+        names = tuple(post_tags(post))
         categories = dict(self._remote_category_cache)
+        categories.update(post.get("_tag_categories", {}) or {})
         if self.category_lookup: categories.update(self.category_lookup(names))
         category_fields = {
             "artist": post.get("tag_string_artist", ""),
@@ -373,7 +379,9 @@ class ImageSourceService:
     @property
     def cache(self) -> ImageAnalysisCache:
         if self._cache is None:
-            self._cache = ImageAnalysisCache(self._cache_path)
+            self._cache = ImageAnalysisCache(
+                self._cache_path, protected_keys=self.repository.active_source_cache_keys
+            )
         return self._cache
 
     @property
@@ -672,6 +680,8 @@ class ImageSourceService:
             width=metadata.width, height=metadata.height, sha256=metadata.sha256,
         )
         if not stored.stored:
+            if stored.reason == "active_sources_full":
+                raise ImageCacheCapacityError("analysis cache is occupied by active jobs; acquisition deferred")
             raise ImageSourceError(
                 f"image exceeds analysis cache limit ({len(data)} bytes)"
             )

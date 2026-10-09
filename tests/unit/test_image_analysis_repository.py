@@ -39,7 +39,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                     "SELECT name FROM sqlite_master WHERE type='table'"
                 )
             }
-            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 26)
+            self.assertEqual(repository.connection.execute("PRAGMA user_version").fetchone()[0], 27)
             self.assertIn("wd14_score_vectors", tables)
             self.assertEqual(repository.connection.execute("PRAGMA journal_mode").fetchone()[0], "wal")
             self.assertEqual(repository.connection.execute("PRAGMA foreign_keys").fetchone()[0], 1)
@@ -60,7 +60,7 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
                 ).fetchone()
             )
         with ImageAnalysisRepository(self.database) as reopened:
-            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 26)
+            self.assertEqual(reopened.connection.execute("PRAGMA user_version").fetchone()[0], 27)
 
     def test_feature_maintenance_marker_is_database_local_and_persistent(self) -> None:
         with ImageAnalysisRepository(self.database) as repository:
@@ -110,6 +110,8 @@ class ImageAnalysisRepositoryTests(unittest.TestCase):
             )
             # Restore the pre-WD14-cache schema before replaying old migrations.
             connection.execute("DROP TABLE wd14_score_vectors")
+            connection.execute("DROP TABLE canonical_tag_decisions")
+            connection.execute("ALTER TABLE analysis_items DROP COLUMN source_recovery_count")
             connection.execute("DROP TABLE wd14_labels")
             connection.execute("DROP TABLE wd14_label_sets")
             connection.execute("PRAGMA user_version=16")

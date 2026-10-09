@@ -1,0 +1,35 @@
+{
+  "format_version": 1,
+  "pack": {"id": "booruflow-core", "name": "BooruFlow Core Profiles"},
+  "profiles": [
+    {
+      "trigger": "panties",
+      "groups": [
+        {"id": "shape", "label": {"en": "Shape", "fr": "Forme"},
+         "tags": ["thong", "highleg_panties"]},
+        {"id": "color_pattern", "label": {"en": "Color / Pattern", "fr": "Couleur / motif"},
+         "tags": ["white_panties", "black_panties", "striped_panties", "leopard_print_panties"]},
+        {"id": "details", "label": {"en": "Details", "fr": "Détails"},
+         "tags": ["lace_panties", "frilled_panties"]}
+      ]
+    },
+    {
+      "trigger": "censored",
+      "groups": [
+        {"id": "type", "label": {"en": "Type", "fr": "Type"},
+         "tags": ["pixel_censor", "bar_censor", "mosaic_censor", "light_censor"]}
+      ]
+    },
+    {
+      "trigger": "gyaru",
+      "groups": [
+        {"id": "hair", "label": {"en": "Hair", "fr": "Cheveux"},
+         "tags": ["blonde_hair", "dyed_hair"]},
+        {"id": "skin", "label": {"en": "Skin / Tan", "fr": "Peau / bronzage"},
+         "tags": ["tan", "tanlines"]},
+        {"id": "makeup", "label": {"en": "Makeup", "fr": "Maquillage"},
+         "tags": ["makeup", "nail_polish"]}
+      ]
+    }
+  ]
+}

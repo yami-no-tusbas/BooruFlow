@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from booruflow.infrastructure.gelbooru_client import fetch_page
+from booruflow.infrastructure.gelbooru_normalization import post_tags
 
 
 @dataclass(frozen=True)
@@ -21,12 +22,7 @@ class CopyrightAliasResult:
 
 
 def _post_tags(post: dict[str, Any]) -> set[str]:
-    raw = post.get("tags", "")
-    if isinstance(raw, str):
-        return {tag for tag in raw.split() if tag}
-    if isinstance(raw, list):
-        return {str(tag).strip() for tag in raw if str(tag).strip()}
-    return set()
+    return set(post_tags(post))
 
 
 def infer_copyright_alias(

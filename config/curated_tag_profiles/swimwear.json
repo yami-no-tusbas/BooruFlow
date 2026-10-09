@@ -1,0 +1,73 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-swimwear",
+    "name": "BooruFlow — Swimwear"
+  },
+  "profiles": [
+    {
+      "trigger": "bikini",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "shape",
+          "label": {
+            "en": "Shape / style",
+            "fr": "Forme / style"
+          },
+          "tags": [
+            "side-tie_bikini_bottom",
+            "micro_bikini",
+            "string_bikini",
+            "frilled_bikini",
+            "front-tie_bikini_top",
+            "highleg_bikini",
+            "thong_bikini",
+            "bikini_skirt",
+            "o-ring_bikini",
+            "strapless_bikini",
+            "multi-strapped_bikini_bottom"
+          ]
+        },
+        {
+          "id": "color_pattern",
+          "label": {
+            "en": "Color / pattern",
+            "fr": "Couleur / motif"
+          },
+          "tags": [
+            "black_bikini",
+            "white_bikini",
+            "blue_bikini",
+            "red_bikini",
+            "striped_bikini",
+            "print_bikini",
+            "pink_bikini",
+            "purple_bikini",
+            "yellow_bikini",
+            "green_bikini",
+            "gold_bikini",
+            "cow_print_bikini",
+            "multicolored_bikini",
+            "orange_bikini",
+            "two-tone_bikini",
+            "flag_print_bikini"
+          ]
+        },
+        {
+          "id": "coverage_state",
+          "label": {
+            "en": "Coverage / state",
+            "fr": "Couverture / état"
+          },
+          "tags": [
+            "bikini_top_only",
+            "bikini_bottom_only",
+            "bikini_under_clothes"
+          ]
+        }
+      ]
+    }
+  ]
+}

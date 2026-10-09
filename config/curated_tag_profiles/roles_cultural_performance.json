@@ -1,0 +1,174 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-cultural-performance",
+    "name": "BooruFlow — Cultural & performance roles"
+  },
+  "profiles": [
+    {
+      "trigger": "idol",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "performance",
+          "label": {
+            "en": "Performance",
+            "fr": "Performance"
+          },
+          "tags": [
+            "microphone",
+            "holding_microphone",
+            "singing",
+            "dancing",
+            "musical_note"
+          ]
+        },
+        {
+          "id": "stage",
+          "label": {
+            "en": "Stage",
+            "fr": "Scène"
+          },
+          "tags": [
+            "stage",
+            "spotlight",
+            "stage_lights",
+            "audience",
+            "glowstick",
+            "concert"
+          ]
+        },
+        {
+          "id": "outfit",
+          "label": {
+            "en": "Outfit",
+            "fr": "Tenue"
+          },
+          "tags": [
+            "idol_clothes",
+            "frills",
+            "ribbon",
+            "bow",
+            "gloves"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "miko",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "clothing",
+          "label": {
+            "en": "Clothing",
+            "fr": "Vêtements"
+          },
+          "tags": [
+            "hakama",
+            "white_kimono",
+            "wide_sleeves",
+            "tabi",
+            "zouri",
+            "hair_ribbon"
+          ]
+        },
+        {
+          "id": "ritual_objects",
+          "label": {
+            "en": "Ritual objects",
+            "fr": "Objets rituels"
+          },
+          "tags": [
+            "gohei",
+            "shide",
+            "ofuda"
+          ]
+        },
+        {
+          "id": "shrine_context",
+          "label": {
+            "en": "Shrine / context",
+            "fr": "Sanctuaire / contexte"
+          },
+          "tags": [
+            "shrine",
+            "torii"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "kimono",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "type",
+          "label": {
+            "en": "Type / related garment",
+            "fr": "Type / vêtement associé"
+          },
+          "tags": [
+            "yukata",
+            "furisode",
+            "haori",
+            "uchikake",
+            "hakama"
+          ]
+        },
+        {
+          "id": "components",
+          "label": {
+            "en": "Components / accessories",
+            "fr": "Éléments / accessoires"
+          },
+          "tags": [
+            "obi",
+            "kanzashi",
+            "geta",
+            "zouri",
+            "tabi"
+          ]
+        },
+        {
+          "id": "color",
+          "label": {
+            "en": "Color",
+            "fr": "Couleur"
+          },
+          "tags": [
+            "white_kimono",
+            "blue_kimono",
+            "black_kimono",
+            "red_kimono",
+            "pink_kimono",
+            "purple_kimono",
+            "green_kimono",
+            "yellow_kimono"
+          ]
+        },
+        {
+          "id": "pattern_style",
+          "label": {
+            "en": "Pattern / style",
+            "fr": "Motif / style"
+          },
+          "tags": [
+            "print_kimono",
+            "floral_print_kimono",
+            "striped_kimono",
+            "checkered_kimono",
+            "short_kimono",
+            "sleeveless_kimono",
+            "frilled_kimono",
+            "layered_kimono",
+            "open_kimono"
+          ]
+        }
+      ]
+    }
+  ]
+}

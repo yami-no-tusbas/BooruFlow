@@ -35,6 +35,7 @@ from booruflow.presentation.pyside6.context_actions import (
     bind_tag_popup,
     exec_menu,
     open_url,
+    select_context_row,
     tag_actions,
 )
 from booruflow.presentation.pyside6.status_bar import PageStatus
@@ -144,6 +145,7 @@ class TagSearchWorker(QThread):
 
 
 class TagBrowserPage(QWidget):
+    wiki_audit_requested = Signal(object)
     entity_profile_requested = Signal(str, str)
 
     def __init__(
@@ -477,7 +479,10 @@ class TagBrowserPage(QWidget):
         row = self.table.rowAt(position.y())
         if row < 0:
             return
-        self.table.selectRow(row)
+        selected = sorted(index.row() for index in self.table.selectionModel().selectedRows())
+        audit_rows = selected if row in selected else [row]
+        select_context_row(self.table, row)
+        names = [self._row_names(index)[0] for index in audit_rows]
         raw_name, canonical_name = self._row_names(row)
         menu = QMenu(self)
         handlers = tag_actions(menu, self.catalog, raw_name, site=self.current_site(),
@@ -489,6 +494,10 @@ class TagBrowserPage(QWidget):
             menu.addSeparator()
             add_action(menu, self.catalog.text("tag_browser.copy_canonical"),
                        lambda: self._copy_names([str(canonical_name)]), handlers)
+        menu.addSeparator()
+        key = "tag_browser.audit_wiki" if len(names) == 1 else "tag_browser.audit_wikis"
+        add_action(menu, self.catalog.text(key, count=len(names)),
+                   lambda: self.wiki_audit_requested.emit(names), handlers)
         exec_menu(menu, self.table.viewport().mapToGlobal(position), handlers)
 
     def retranslate(self) -> None:

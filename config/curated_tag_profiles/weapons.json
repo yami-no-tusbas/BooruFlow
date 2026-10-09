@@ -1,0 +1,118 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-weapons",
+    "name": "BooruFlow — Weapons"
+  },
+  "profiles": [
+    {
+      "trigger": "weapon",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "melee",
+          "label": {
+            "en": "Melee weapons",
+            "fr": "Armes de mêlée"
+          },
+          "tags": [
+            "sword",
+            "knife",
+            "staff",
+            "spear",
+            "axe",
+            "scythe",
+            "dagger",
+            "club",
+            "mace",
+            "hammer"
+          ]
+        },
+        {
+          "id": "ranged",
+          "label": {
+            "en": "Ranged weapons",
+            "fr": "Armes à distance"
+          },
+          "tags": [
+            "gun",
+            "rifle",
+            "bow_(weapon)",
+            "crossbow",
+            "pistol",
+            "shotgun",
+            "machine_gun",
+            "sniper_rifle"
+          ]
+        },
+        {
+          "id": "special",
+          "label": {
+            "en": "Special / other",
+            "fr": "Spéciales / autres"
+          },
+          "tags": [
+            "whip",
+            "chainsaw",
+            "grenade",
+            "shield"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "sword",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "type",
+          "label": {
+            "en": "Type",
+            "fr": "Type"
+          },
+          "tags": [
+            "katana",
+            "greatsword",
+            "short_sword",
+            "wooden_sword",
+            "bokken",
+            "long_sword",
+            "claymore_(sword)",
+            "cutlass",
+            "zweihander",
+            "rapier",
+            "broadsword"
+          ]
+        },
+        {
+          "id": "state_effect",
+          "label": {
+            "en": "State / effect",
+            "fr": "État / effet"
+          },
+          "tags": [
+            "energy_sword",
+            "glowing_sword",
+            "flaming_sword",
+            "broken_sword"
+          ]
+        },
+        {
+          "id": "carry_position",
+          "label": {
+            "en": "Carry / position",
+            "fr": "Port / position"
+          },
+          "tags": [
+            "scabbard",
+            "sword_on_back",
+            "planted_sword",
+            "sword_over_shoulder"
+          ]
+        }
+      ]
+    }
+  ]
+}

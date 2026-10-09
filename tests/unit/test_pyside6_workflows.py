@@ -3819,6 +3819,7 @@ class PySide6WorkflowTests(unittest.TestCase):
             controller.image_analysis = SimpleNamespace(repository=repository, settings={})
 
             page.show_batch()
+            controller.refresh_batch()
             self.assertEqual(page.batch_table.rowCount(), 2)
             remote_row = next(
                 row
@@ -3830,6 +3831,7 @@ class PySide6WorkflowTests(unittest.TestCase):
             self.assertEqual(page.current_post_id, 121)
             self.assertIsNotNone(repository.batch_entry(remote))
             page.show_batch()
+            controller.refresh_batch()
             remote_row = next(
                 row
                 for row in range(page.batch_table.rowCount())
@@ -3852,6 +3854,7 @@ class PySide6WorkflowTests(unittest.TestCase):
             self.assertEqual(page.review_title.text(), f"Local file #{local}")
             self.assertIsNotNone(repository.batch_entry(local))
             page.show_batch()
+            controller.refresh_batch()
             local_row = next(
                 row
                 for row in range(page.batch_table.rowCount())
@@ -3865,6 +3868,7 @@ class PySide6WorkflowTests(unittest.TestCase):
             self.assertEqual(opened, ["https://gelbooru.com/index.php?page=post&s=view&id=121"])
             repository.update_publish_state(remote, PublishState.PUBLISHED)
             page.show_batch()
+            controller.refresh_batch()
             published_row = next(
                 row
                 for row in range(page.batch_table.rowCount())
@@ -3881,6 +3885,7 @@ class PySide6WorkflowTests(unittest.TestCase):
                 repository.batch_entry(remote)["publish_state"], PublishState.PUBLISHED
             )
             self.assertEqual(opened, ["https://gelbooru.com/index.php?page=post&s=view&id=121"])
+            controller.shutdown()
             page.close()
             repository.close()
 

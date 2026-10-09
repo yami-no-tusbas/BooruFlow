@@ -121,11 +121,15 @@ def inspect_alias_catalog(path: Path | None) -> AliasCatalogStatus:
 
 
 class AliasPageParser(HTMLParser):
-    def __init__(self, pid: int = 0) -> None:
+    def __init__(
+        self, pid: int = 0, *, name_normalizer: Callable[[str], str] = normalize_alias_name
+    ) -> None:
         super().__init__(convert_charrefs=True)
         self.pid = pid
+        self.name_normalizer = name_normalizer
         self._in_row = False
-        self._pending = False
+        # HTMLParser owns _pending as its text buffer on Python 3.14+.
+        self._row_pending = False
         self._row_tags: list[str] = []
         self._relations: list[AliasRelation] = []
         self._pager_pids: set[int] = set()
@@ -135,10 +139,10 @@ class AliasPageParser(HTMLParser):
         classes = set(values.get("class", "").split())
         if tag.casefold() == "tr":
             self._in_row = True
-            self._pending = "pending-tag" in classes
+            self._row_pending = "pending-tag" in classes
             self._row_tags = []
         elif self._in_row and "pending-tag" in classes:
-            self._pending = True
+            self._row_pending = True
         if tag.casefold() != "a":
             return
         href = values.get("href", "").replace("&amp;", "&")
@@ -149,7 +153,7 @@ class AliasPageParser(HTMLParser):
             except ValueError:
                 pass
         if self._in_row and query.get("tags"):
-            self._row_tags.append(normalize_alias_name(query["tags"][0]))
+            self._row_tags.append(self.name_normalizer(query["tags"][0]))
 
     def handle_endtag(self, tag: str) -> None:
         if tag.casefold() != "tr" or not self._in_row:
@@ -161,7 +165,7 @@ class AliasPageParser(HTMLParser):
                     AliasRelation(
                         source,
                         target,
-                        "pending" if self._pending else "active",
+                        "pending" if self._row_pending else "active",
                         self.pid,
                         len(self._relations),
                     )
@@ -172,8 +176,10 @@ class AliasPageParser(HTMLParser):
         return AliasPage(tuple(self._relations), tuple(sorted(self._pager_pids)))
 
 
-def parse_alias_page(html: str, pid: int = 0) -> AliasPage:
-    parser = AliasPageParser(pid)
+def parse_alias_page(
+    html: str, pid: int = 0, *, name_normalizer: Callable[[str], str] = normalize_alias_name
+) -> AliasPage:
+    parser = AliasPageParser(pid, name_normalizer=name_normalizer)
     parser.feed(html)
     parser.close()
     return parser.result()
@@ -294,6 +300,40 @@ def migrate_alias_catalog(source: Path | None, destination: Path) -> bool:
         raise
 
 
+def _catalog_owner_is_running(pid: int) -> bool:
+    """Keep an uncertain Windows owner alive without sending console events."""
+    if os.name == "nt":
+        if not 0 < pid <= 0xFFFFFFFF:
+            return False
+        import ctypes
+        from ctypes import wintypes
+
+        try:
+            kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+            kernel32.OpenProcess.restype = wintypes.HANDLE
+            kernel32.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+            kernel32.WaitForSingleObject.restype = wintypes.DWORD
+            kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+            kernel32.CloseHandle.restype = wintypes.BOOL
+            handle = kernel32.OpenProcess(0x00100000, False, pid)  # SYNCHRONIZE only
+            if not handle:
+                # Only an invalid PID proves absence; access denied is not death.
+                return ctypes.get_last_error() != 87  # ERROR_INVALID_PARAMETER
+            try:
+                # Only a signaled process proves exit; failed/unknown waits retain the lock.
+                return kernel32.WaitForSingleObject(handle, 0) != 0  # WAIT_OBJECT_0
+            finally:
+                kernel32.CloseHandle(handle)
+        except OSError:
+            return True
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    return True
+
+
 @contextmanager
 def catalog_operation_lock(database: Path) -> Iterator[None]:
     lock = database.with_name(database.name + ".operation.lock")
@@ -309,10 +349,7 @@ def catalog_operation_lock(database: Path) -> Iterator[None]:
                 owner = 0
             alive = True
             if owner > 0:
-                try:
-                    os.kill(owner, 0)
-                except OSError:
-                    alive = False
+                alive = _catalog_owner_is_running(owner)
             if attempt == 0 and owner > 0 and not alive:
                 lock.unlink(missing_ok=True)
                 continue
@@ -574,7 +611,7 @@ def fetch_alias_html(pid: int = 0, search: str = "", *, retries: int = 3) -> str
     for attempt in range(retries + 1):
         try:
             with urllib.request.urlopen(request, timeout=30) as response:
-                return response.read().decode("utf-8", errors="replace")
+                return response.read().decode("utf-8")
         except (OSError, urllib.error.URLError, TimeoutError):
             if attempt >= retries:
                 raise
@@ -594,6 +631,7 @@ class GelbooruAliasSynchronizer:
         maximum_back_pages: int = 200,
         progress: Callable[[str], None] = print,
         stopped: Callable[[], bool] = lambda: False,
+        page_parser: Callable[[str, int], AliasPage] = parse_alias_page,
     ) -> None:
         self.repository = GelbooruAliasRepository(database)
         self.fetcher = fetcher
@@ -603,6 +641,7 @@ class GelbooruAliasSynchronizer:
         self.maximum_back_pages = maximum_back_pages
         self.progress = progress
         self.stopped = stopped
+        self.page_parser = page_parser
 
     def _page(self, pid: int, search: str = "") -> AliasPage:
         if self.stopped():
@@ -610,7 +649,10 @@ class GelbooruAliasSynchronizer:
         html = self.fetcher(pid, search)
         if self.delay:
             time.sleep(self.delay)
-        return parse_alias_page(html, pid)
+        page = self.page_parser(html, pid)
+        if not search and not page.relations and not page.pager_pids:
+            raise ValueError("Empty or invalid alias catalogue response")
+        return page
 
     def _summary(self, state: str, new: int = 0, modified: int = 0) -> AliasSyncSummary:
         counts = self.repository.counts()
@@ -628,6 +670,7 @@ class GelbooruAliasSynchronizer:
     def initial_import(self) -> AliasSyncSummary:
         with catalog_operation_lock(self.repository.database):
             self.repository.migrate()
+            self.repository.set_state({"sync_in_progress": True})
             first = self._page(0)
             last_pid, page_size, page_count = pager_geometry(first)
             state = self.repository.state()
@@ -661,9 +704,19 @@ class GelbooruAliasSynchronizer:
     def _finish_sync(
         self, timestamp_key: str, last_pid: int, page_count: int, page_size: int
     ) -> None:
+        with closing(sqlite3.connect(self.repository.database)) as connection:
+            _validate_alias_invariants(connection)
+            if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise RuntimeError("SQLite integrity check failed after alias synchronization")
         checkpoint = self.repository.checkpoint(self.checkpoint_size)
+        successful = {}
+        if timestamp_key != "last_pending_sync":
+            successful = {"last_successful_sync_at": now_iso(),
+                          "last_successful_sync_mode": timestamp_key}
         self.repository.set_state(
             {
+                **successful,
+                "sync_in_progress": False,
                 "checkpoint_version": CHECKPOINT_VERSION,
                 "captured_at": now_iso(),
                 "observed_last_pid": last_pid,
@@ -680,7 +733,12 @@ class GelbooruAliasSynchronizer:
     def _find_overlap(
         observed: Sequence[AliasRelation], checkpoint: Sequence[Sequence[str]], minimum: int
     ) -> int | None:
-        known = [tuple(map(str, row)) for row in checkpoint]
+        if any(len(row) != 3 for row in checkpoint):
+            return None
+        known = [
+            AliasRelation(str(row[0]), str(row[1]), str(row[2])).checkpoint_key
+            for row in checkpoint
+        ]
         if len(known) < 2:
             return None
         required = min(minimum, len(known))
@@ -699,6 +757,7 @@ class GelbooruAliasSynchronizer:
             checkpoint = state.get("checkpoint")
             if not isinstance(checkpoint, list) or len(checkpoint) < 2:
                 return self._summary("initial_import_required")
+            self.repository.set_state({"sync_in_progress": True})
             first = self._page(0)
             last_pid, page_size, page_count = pager_geometry(first)
             previous_last = int(state.get("observed_last_pid", 0) or 0)
@@ -746,6 +805,7 @@ class GelbooruAliasSynchronizer:
     def revalidate_pending(self) -> AliasSyncSummary:
         with catalog_operation_lock(self.repository.database):
             self.repository.migrate()
+            self.repository.set_state({"sync_in_progress": True})
             first = self._page(0)
             last_pid, page_size, page_count = pager_geometry(first)
             pending = self.repository.pending()
@@ -773,12 +833,13 @@ class GelbooruAliasSynchronizer:
                 created, changed = self.repository.upsert(relation)
                 new += created
                 modified += changed
-            self._finish_sync("last_incremental_sync", last_pid, page_count, page_size)
+            self._finish_sync("last_pending_sync", last_pid, page_count, page_size)
             return self._summary("completed", new, modified)
 
     def full_reconciliation(self) -> AliasSyncSummary:
         with catalog_operation_lock(self.repository.database):
             self.repository.migrate()
+            self.repository.set_state({"sync_in_progress": True})
             first = self._page(0)
             last_pid, page_size, page_count = pager_geometry(first)
             observed = list(first.relations)

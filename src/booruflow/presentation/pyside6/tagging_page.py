@@ -38,7 +38,6 @@ from PySide6.QtWidgets import (
     QSpinBox,
     QSplitter,
     QStackedWidget,
-    QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -78,10 +77,10 @@ from booruflow.presentation.pyside6.tag_presentation import (
     show_tag_completer,
     suggestion_display_text,
 )
+from booruflow.presentation.pyside6.tagging_batch_table import BatchTable
 from booruflow.presentation.pyside6.tagging_legacy_page import TaggingLegacyPage
 from booruflow.presentation.pyside6.tagging_suggestions import SuggestionTable
 from booruflow.presentation.pyside6.thumbnail_cache import MAX_ADAPTIVE_THUMBNAIL_CACHE_BYTES
-from booruflow.presentation.pyside6.ui_components import DataTable
 
 
 def compact_result_card_text(
@@ -325,6 +324,7 @@ class TagTokenEditor(QWidget):
     """Compact autocomplete entry that commits validated text as removable chips."""
 
     tags_changed = Signal()
+    contents_changed = Signal()
     lookup_requested = Signal(str)
     tag_added = Signal(str)
     analysis_requested = Signal(str)
@@ -361,7 +361,9 @@ class TagTokenEditor(QWidget):
         self.editor_layout = QVBoxLayout(self)
         self.editor_layout.setContentsMargins(4, 2, 4, 2)
         self.editor_layout.setSpacing(4)
-        self.chips = ChipFlowWidget()
+        # Visibility is initialized before layout insertion: keep every passive
+        # control parented from birth so Qt cannot briefly show it as a window.
+        self.chips = ChipFlowWidget(self)
         self.chips.single_line = single_line
         self.chips.setMinimumWidth(0)
         self.chips.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.MinimumExpanding)
@@ -370,7 +372,7 @@ class TagTokenEditor(QWidget):
             self.chips_layout.setContentsMargins(0, 0, 0, 0)
             self.chips_layout.setAlignment(Qt.AlignmentFlag.AlignLeft)
         self.chips.setVisible(expand_chips)
-        self.chips_scroll = QScrollArea()
+        self.chips_scroll = QScrollArea(self)
         self.chips_scroll.setWidgetResizable(True)
         self.chips_scroll.setFrameShape(QFrame.Shape.NoFrame)
         self.chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -391,7 +393,7 @@ class TagTokenEditor(QWidget):
             self.chips_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
             self.chips_scroll.show()
             self.chips.show()
-        self.input = TokenLineEdit()
+        self.input = TokenLineEdit(self)
         self.input.setMinimumWidth(120)
         self.editor_layout.addWidget(self.input)
         self.model = TagSuggestionListModel(self)
@@ -450,7 +452,7 @@ class TagTokenEditor(QWidget):
         operation = "remove" if operation in {"-", "remove"} else "add"
         self._tags.append(normalized)
         self._operations[normalized] = operation
-        chip = QFrame()
+        chip = QFrame(self.chips)
         chip.setProperty("tagChip", True)
         chip.setProperty(
             "chipOperation", operation if self.mixed_operations else self.chip_role
@@ -465,7 +467,7 @@ class TagTokenEditor(QWidget):
         chip.label.setProperty("preserveHorizontalSize", True)
         chip.label.setMaximumWidth(self.CHIP_LABEL_MAX_WIDTH)
         self._hydrate_chip_presentation(chip, normalized)
-        chip.active = QCheckBox()
+        chip.active = QCheckBox(chip)
         chip.active.setChecked(bool(active))
         chip.active.setToolTip(self.active_tooltip)
         if not self.mixed_operations:
@@ -477,7 +479,7 @@ class TagTokenEditor(QWidget):
         )
         chip.active.toggled.connect(lambda _checked: self.tags_changed.emit())
         chip_row.addWidget(chip.active)
-        chip.operation = QToolButton()
+        chip.operation = QToolButton(chip)
         chip.operation.setAutoRaise(True)
         chip.operation.setFixedWidth(24)
         chip.operation.setVisible(self.mixed_operations)
@@ -486,13 +488,13 @@ class TagTokenEditor(QWidget):
         )
         chip_row.addWidget(chip.operation)
         chip_row.addWidget(chip.label)
-        chip.analysis = QPushButton("?"); chip.analysis.setFlat(True); chip.analysis.setFixedWidth(22)
+        chip.analysis = QPushButton("?", chip); chip.analysis.setFlat(True); chip.analysis.setFixedWidth(22)
         chip.analysis.setVisible(self.confidence_actions)
         chip.analysis.clicked.connect(
             lambda _checked=False, tag=normalized: self.analysis_requested.emit(tag)
         )
         chip_row.addWidget(chip.analysis)
-        chip.remove = QPushButton("×"); chip.remove.setFlat(True); chip.remove.setFixedWidth(22)
+        chip.remove = QPushButton("×", chip); chip.remove.setFlat(True); chip.remove.setFixedWidth(22)
         chip.remove.clicked.connect(lambda _checked=False, tag=normalized: self.remove_tag(tag))
         chip.click = chip.remove.click
         chip_row.addWidget(chip.remove)
@@ -514,6 +516,7 @@ class TagTokenEditor(QWidget):
         self.chips.updateGeometry()
         self.updateGeometry()
         self.input.clear(); self._refresh_suggestions()
+        self.contents_changed.emit()
         if emit:
             self.tag_added.emit(normalized); self.tags_changed.emit()
         return True
@@ -644,6 +647,7 @@ class TagTokenEditor(QWidget):
         self.chips.updateGeometry()
         self.updateGeometry()
         self._refresh_suggestions()
+        self.contents_changed.emit()
         self.tags_changed.emit()
         return True
 
@@ -683,9 +687,16 @@ class TagTokenEditor(QWidget):
     ) -> None:
         self._all_suggestions = list(suggestions)
         self._refresh_suggestions()
+        # Lookup responses may open completion for a current query. Rebuilding
+        # chips (add/remove/reload) only updates the model and stays passive.
+        if (
+            self.model.rowCount()
+            and self.input.hasFocus()
+            and len(parse_autocomplete_text(self.input.text()).text) >= AUTOCOMPLETE_MIN_CHARS
+        ):
+            show_tag_completer(self.completer)
 
     def _refresh_suggestions(self) -> None:
-        labels: list[str] = []
         structured: list[TagSuggestion] = []
         self._suggestion_values = {}
         self._suggestion_categories = {}
@@ -710,7 +721,6 @@ class TagTokenEditor(QWidget):
             if canonical in present:
                 continue
             label = suggestion_display_text(structured_item)
-            labels.append(label)
             structured.append(structured_item)
             self._suggestion_values[label] = value
             self._suggestion_values[value] = value
@@ -723,8 +733,6 @@ class TagTokenEditor(QWidget):
                     category, self.site
                 )
         populate_suggestion_model(self.model, structured, self.palette())
-        if labels and self.input.hasFocus():
-            show_tag_completer(self.completer)
 
     def _commit_suggestion(self, label: str) -> None:
         value = self._suggestion_values.get(label, label)
@@ -1381,7 +1389,7 @@ class TaggingPage(TaggingLegacyPage):
         self.suggestions.customContextMenuRequested.connect(self._entity_suggestion_menu)
         self.suggestions.itemDoubleClicked.disconnect()
         self.suggestions.itemDoubleClicked.connect(
-            lambda item: self.tag_search_requested.emit(self.suggestions.item(item.row(), 0).text())
+            lambda item: self.tag_search_requested.emit(self.suggestions.item(item.row(), 0).text().strip())
             if item.row() in self.suggestions.tag_rows() else None)
         self.preview.enable_preparation()
         self.thumbnail_state_changed.connect(self._thumbnail_state_for_footer)
@@ -1678,12 +1686,24 @@ class TaggingPage(TaggingLegacyPage):
         )
         self.analysis_palette.input.hide()
         self.active_filters_label = QLabel(self.catalog.text("tagging.active_filters"))
-        self.active_filters = QWidget()
+        self.active_filters = QFrame()
+        self.active_filters.setObjectName('activeFiltersPanel')
+        self.active_filters.setStyleSheet(
+            'QFrame#activeFiltersPanel { border: 1px solid palette(mid); '
+            'border-radius: 5px; background: palette(alternate-base); }')
+        font = self.active_filters_label.font()
+        font.setBold(True)
+        self.active_filters_label.setFont(font)
+        self.active_filters_empty = QLabel(self.catalog.text('tagging.active_filters_empty'))
+        self.active_filters_empty.setStyleSheet('color: palette(placeholder-text);')
         active_layout = QHBoxLayout(self.active_filters)
-        active_layout.setContentsMargins(0, 0, 0, 0)
+        active_layout.setContentsMargins(10, 4, 10, 4)
         active_layout.addWidget(self.active_filters_label)
+        active_layout.addWidget(self.active_filters_empty, 1)
         active_layout.addWidget(self.analysis_palette, 1)
-        self.active_filters.setFixedHeight(self.analysis_palette.height())
+        self.active_filters.setFixedHeight(self.analysis_palette.height() + 8)
+        self.analysis_palette.contents_changed.connect(self._update_active_filters_empty)
+        self._update_active_filters_empty()
         search_layout.insertWidget(0, self.active_filters)
         for editor in (self.bulk_palette, self.analysis_palette):
             editor.set_context_actions(self.catalog, self.browser_launcher, self.entity_profile_requested.emit)
@@ -1693,6 +1713,10 @@ class TaggingPage(TaggingLegacyPage):
         self.analysis_palette.tags_changed.connect(self._sync_active_analyses)
         self.analysis_palette.analysis_requested.connect(self._request_targeted_wd14)
         self._update_bulk_action()
+
+    def _update_active_filters_empty(self):
+        empty = not self.analysis_palette.tags()
+        self.active_filters_empty.setVisible(empty)
 
     def _sync_active_analyses(self) -> None:
         active = self.analysis_palette.active_tags()
@@ -2029,6 +2053,21 @@ class TaggingPage(TaggingLegacyPage):
             self._render_reviewed_checks()
 
     def eventFilter(self, watched, event) -> bool:
+        if (hasattr(self, "suggestions") and watched is self.suggestions
+                and event.type() == QEvent.Type.KeyPress
+                and event.key() == Qt.Key.Key_Space
+                and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+            from booruflow.presentation.pyside6.tagging_suggestions import (
+                CURATED_KEY_ROLE,
+                CURATED_PARENT_ROLE,
+            )
+            item = self.suggestions.item(self.suggestions.currentRow(), 0)
+            if item is not None and (item.data(CURATED_KEY_ROLE) or item.data(CURATED_PARENT_ROLE)):
+                if item.data(CURATED_PARENT_ROLE):
+                    self.suggestions._toggle_curated_refinement(item)
+                else:
+                    self.suggestions._click_curated(item)
+                return True
         if (hasattr(self, "batch_button") and watched is self.batch_button
                 and event.type() == QEvent.Type.PaletteChange):
             self._batch_glow.setColor(self.batch_button.palette().highlight().color())
@@ -2233,9 +2272,10 @@ class TaggingPage(TaggingLegacyPage):
         )
         if not getattr(self, "_suggestion_columns_sized", False):
             self.suggestions.resizeColumnsToContents()
+            if any(row.get("curated") for row in rows):
+                self.suggestions.setColumnWidth(0, max(220, self.suggestions.columnWidth(0)))
+                self.suggestions.setColumnWidth(6, 38)
             self._suggestion_columns_sized = True
-        if self.suggestions.tag_rows():
-            self.suggestions.setFocus()
         self._pending_next_id = None
         self._pending_fallback_row = None
         self._update_review_action_states()
@@ -2270,9 +2310,17 @@ class TaggingPage(TaggingLegacyPage):
             self.reject_button.setEnabled(self._review_ready and selected)
             token = self._selected_observation_id()
             self.map_button.setEnabled(self._review_ready and token is not None
-                                       and not str(token).startswith("entity:"))
+                                       and not str(token).startswith(("entity:", "curated:", "group:")))
 
     def _set_preview_media(self, path, *, preview_data: bytes | None = None) -> None:
+        identity = (self._displayed_post_id, path, preview_data)
+        previous = getattr(self, '_review_media_signature', None)
+        if identity == previous:
+            return
+        if (previous is not None and identity[0] == previous[0]
+                and path is None and preview_data is None and previous[2]):
+            return
+        self._review_media_signature = identity
         started = perf_counter()
         super()._set_preview_media(path, preview_data=preview_data)
         self._perf_log("image_decode_scale", started)
@@ -2317,9 +2365,12 @@ class TaggingPage(TaggingLegacyPage):
             if entry.get("site") == self.active_site and entry.get("post_id")
         }
         if batch_entries_by_post == self._batch_entries_by_post:
-            self._render_reviewed_checks()
             return {"filter_ms": 0.0, "grid_rebuilt": False, "removed": 0}
         self._batch_entries_by_post = batch_entries_by_post
+        if self.mode_stack.currentWidget() is not self.search_view:
+            self._result_filter_dirty = True
+            self._update_result_filter_counts()
+            return {"filter_ms": (perf_counter() - started) * 1000, "grid_rebuilt": False, "removed": 0}
         new_queued = self._queued_result_ids()
         newly_hidden = new_queued - previous_queued
         newly_visible = previous_queued - new_queued
@@ -2421,7 +2472,10 @@ class TaggingPage(TaggingLegacyPage):
         )
 
     def set_reviewed_post_ids(self, post_ids: set[int]) -> None:
-        self._reviewed_post_ids = {int(post_id) for post_id in post_ids}
+        post_ids = {int(post_id) for post_id in post_ids}
+        if self._reviewed_post_ids == post_ids:
+            return
+        self._reviewed_post_ids = post_ids
         self.processed_in_session.update(self._reviewed_post_ids)
         self._render_reviewed_checks()
 
@@ -2448,8 +2502,12 @@ class TaggingPage(TaggingLegacyPage):
             if score_value is not None:
                 score = round(score_value * 100)
                 second += f" · WD14 {score} %"
-            button.setText(f"{first}\n{second}")
-            button.setToolTip(existing_tags_tooltip(button.post))
+            text = f"{first}\n{second}"
+            if button.text() != text:
+                button.setText(text)
+            tooltip = existing_tags_tooltip(button.post)
+            if button.toolTip() != tooltip:
+                button.setToolTip(tooltip)
         self._update_counter()
 
     def _confidence_score_for_post(self, post_id: int) -> float | None:
@@ -2566,7 +2624,7 @@ class TaggingPage(TaggingLegacyPage):
         toolbar.addWidget(self.batch_refresh_button)
         toolbar.addWidget(self.batch_counts, 1)
         root.addLayout(toolbar)
-        self.batch_table = DataTable(0, 7)
+        self.batch_table = BatchTable()
         self.batch_table.setHorizontalHeaderLabels(
             ("Image / post", "Site", "Additions", "Removals", "State", "Reviewed at", "Item")
         )
@@ -2657,6 +2715,7 @@ class TaggingPage(TaggingLegacyPage):
             self._toggle_batch(True)
 
     def _toggle_batch(self, expanded: bool) -> None:
+        started = perf_counter()
         self.batch_button.setArrowType(
             Qt.ArrowType.DownArrow if expanded else Qt.ArrowType.RightArrow
         )
@@ -2665,10 +2724,21 @@ class TaggingPage(TaggingLegacyPage):
             self._update_batch_attention()
             self.mode_stack.setCurrentWidget(self.batch_view)
             self._update_publish_pulse()
+            self._update_batch_counts()
             self.batch_refresh_requested.emit()
+            self._perf_log("batch_open_click", started)
+            QTimer.singleShot(0, lambda: self._perf_log("batch_open_layout", started))
         elif self.mode_stack.currentWidget() is self.batch_view:
             self.show_search()
             self._update_publish_pulse()
+
+    def show_search(self) -> None:
+        super().show_search()
+        if getattr(self, "_result_filter_dirty", False):
+            self._result_filter_dirty = False
+            self._apply_result_filter(presentation_only=True)
+        else:
+            self._render_reviewed_checks()
 
     def _return_from_batch(self) -> None:
         self.batch_button.setChecked(False)
@@ -2681,7 +2751,9 @@ class TaggingPage(TaggingLegacyPage):
             entry["site"] is None or str(entry["publish_state"].value) == "reviewed"
             for entry in self.batch_entries
         )
+        started = perf_counter()
         self._update_batch_counts(states, local_count)
+        self._perf_log("batch_counter", started)
         self._render_batch_entries()
 
     def mark_batch_added(self) -> None:
@@ -2782,49 +2854,67 @@ class TaggingPage(TaggingLegacyPage):
             )
             or str(entry["publish_state"].value) == mode
         ]
-        self.batch_table.setRowCount(len(visible))
+        self._perf_log("batch_filter", started)
+        populate_started = perf_counter()
+        model = self.batch_table.batch_model
+        if visible == model.rows and getattr(self, '_batch_render_locale', None) == self.catalog.code:
+            self._update_batch_actions()
+            self._perf_log('batch_model_unchanged', populate_started)
+            return
+        self._batch_render_locale = self.catalog.code
+        selected = set(self._selected_batch_ids())
+        scroll = self.batch_table.verticalScrollBar().value()
+        model.replace(visible, self._batch_entry_values)
         for row, entry in enumerate(visible):
-            site = str(entry["site"] or self.catalog.text("tagging.batch.local"))
-            post_id = entry["post_id"]
-            identity = f"{site} #{post_id}" if post_id else self.catalog.text("tagging.batch.local_file")
-            skipped = str(entry["publish_state"].value) == "skipped"
-            shown_additions = entry.get("requested_additions") or ([] if skipped else entry["additions"])
-            shown_removals = entry.get("requested_removals") or ([] if skipped else entry["removals"])
-            additions = " ".join(shown_additions) or "—"
-            removals = " ".join(shown_removals) or "—"
-            state_text = self.catalog.text(
-                f"tagging.batch.state.{entry['publish_state'].value}"
-            )
-            failure_reason = str(entry.get("failure_reason") or "")
-            if str(entry["publish_state"].value) == "failed" and failure_reason:
-                key = (
-                    f"tagging.batch.failure.{failure_reason}"
-                    if failure_reason in {"locked_image", "unexpected_global_redirect"}
-                    else "tagging.batch.failure.other"
-                )
-                state_text = self.catalog.text(
-                    "tagging.batch.failed_reason", reason=self.catalog.text(key)
-                )
-            elif str(entry["publish_state"].value) == "skipped":
-                reason = str(entry.get("failure_reason") or entry.get("last_error") or "")
-                state_text = self.catalog.text(
-                    "tagging.batch.skipped_reason",
-                    reason=(self.catalog.text("tagging.bulk.no_changes")
-                            if reason == "no_effective_delta" else reason),
-                )
-            values = (
-                identity,
-                site,
-                additions,
-                removals,
-                state_text,
-                str(entry["reviewed_at"]),
-                str(entry["item_id"]),
-            )
-            for column, value in enumerate(values):
-                self.batch_table.setItem(row, column, QTableWidgetItem(value))
+            if entry["item_id"] in selected:
+                self.batch_table.selectionModel().select(
+                    self.batch_table.model().index(row, 0),
+                    self.batch_table.selectionModel().SelectionFlag.Select
+                    | self.batch_table.selectionModel().SelectionFlag.Rows)
+        self.batch_table.verticalScrollBar().setValue(scroll)
+        self._perf_log("batch_model_population_no_cell_widgets", populate_started)
         self._update_batch_actions()
         self._perf_log("batch_state_refresh", started)
+
+    def _batch_entry_values(self, entry):
+        site = str(entry["site"] or self.catalog.text("tagging.batch.local"))
+        post_id = entry["post_id"]
+        identity = f"{site} #{post_id}" if post_id else self.catalog.text("tagging.batch.local_file")
+        skipped = str(entry["publish_state"].value) == "skipped"
+        shown_additions = entry.get("requested_additions") or ([] if skipped else entry["additions"])
+        shown_removals = entry.get("requested_removals") or ([] if skipped else entry["removals"])
+        additions = " ".join(shown_additions) or "—"
+        removals = " ".join(shown_removals) or "—"
+        state_text = self.catalog.text(
+            f"tagging.batch.state.{entry['publish_state'].value}"
+        )
+        failure_reason = str(entry.get("failure_reason") or "")
+        if str(entry["publish_state"].value) == "failed" and failure_reason:
+            key = (
+                f"tagging.batch.failure.{failure_reason}"
+                if failure_reason in {"locked_image", "unexpected_global_redirect"}
+                else "tagging.batch.failure.other"
+            )
+            state_text = self.catalog.text(
+                "tagging.batch.failed_reason", reason=self.catalog.text(key)
+            )
+        elif str(entry["publish_state"].value) == "skipped":
+            reason = str(entry.get("failure_reason") or entry.get("last_error") or "")
+            state_text = self.catalog.text(
+                "tagging.batch.skipped_reason",
+                reason=(self.catalog.text("tagging.bulk.no_changes")
+                        if reason == "no_effective_delta" else reason),
+            )
+        values = (
+            identity,
+            site,
+            additions,
+            removals,
+            state_text,
+            str(entry["reviewed_at"]),
+            str(entry["item_id"]),
+        )
+        return values
 
     def _selected_batch_ids(self) -> list[int]:
         return [
@@ -3125,6 +3215,7 @@ class TaggingPage(TaggingLegacyPage):
         self.title.setText(text("nav.tagging"))
         if hasattr(self, "active_filters_label"):
             self.active_filters_label.setText(text("tagging.active_filters"))
+            self.active_filters_empty.setText(text('tagging.active_filters_empty'))
         active_site = getattr(self, "active_site", "gelbooru")
         self.group.setTitle(
             text("tagging.group_site", site=site_definition(active_site).display_name)
@@ -3169,6 +3260,7 @@ class TaggingPage(TaggingLegacyPage):
         self.reanalyze_button.setText(text("tagging.review.reanalyze"))
         self.reanalyze_button.setToolTip(text("tagging.review.reanalyze_tip"))
         self.suggestions.setHorizontalHeaderLabels(tuple(text(f"tagging.review.header.{key}") for key in ("tag", "confidence", "match", "category", "decision", "id")) + ("? / ✓ / ✕",))
+        self.suggestions.retranslate_curated(self.catalog)
         for row in range(self.suggestions.rowCount()):
             item = self.suggestions.item(row, 4)
             if item is not None and item.data(Qt.ItemDataRole.UserRole):
@@ -3178,7 +3270,7 @@ class TaggingPage(TaggingLegacyPage):
         selected_ids = self._selected_batch_ids()
         self.batch_back_button.setText(text("tagging.batch.back")); self.batch_refresh_button.setText(text("tagging.batch.refresh")); self.batch_filter_label.setText(text("tagging.batch.label"))
         for index, key in enumerate(("all", "pending", "published", "failed", "local", "skipped")): self.batch_filter.setItemText(index, text(f"tagging.batch.filter.{key}"))
-        for index, key in enumerate(("identity", "site", "additions", "removals", "state", "reviewed_at", "item")): self.batch_table.horizontalHeaderItem(index).setText(text(f"tagging.batch.header.{key}"))
+        self.batch_table.setHorizontalHeaderLabels([text(f"tagging.batch.header.{key}") for key in ("identity", "site", "additions", "removals", "state", "reviewed_at", "item")])
         self.batch_review_button.setText(text("tagging.batch.review")); self.batch_remove_button.setText(text("tagging.batch.remove")); self.batch_remove_completed_button.setText(text("tagging.batch.remove_completed")); self.batch_open_button.setText(text("tagging.batch.open")); self.batch_retry_button.setText(text("tagging.batch.retry")); self.batch_session_test_button.setText(text("tagging.batch.session_test")); self.batch_publish_button.setText(text("tagging.batch.publish")); self.batch_cancel_button.setText(text("tagging.batch.cancel")); self._update_batch_attention()
         self.batch_table.set_empty_text(text("table.empty_batch")); self._update_batch_counts(); self._render_batch_entries()
         for row in range(self.batch_table.rowCount()):

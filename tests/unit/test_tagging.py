@@ -30,9 +30,10 @@ class TaggingTests(unittest.TestCase):
 
     def test_gelbooru_payload_shapes_and_tags(self) -> None:
         post = {"id": 1, "tags": "blue_hair dragon&amp;girl solo"}
-        self.assertEqual(payload_posts({"post": [post]}), [post])
-        self.assertEqual(payload_posts({"post": post}), [post])
-        self.assertEqual(payload_posts([post]), [post])
+        for payload in ({"post": [post]}, {"post": post}, [post]):
+            normalized = payload_posts(payload)
+            self.assertEqual(normalized[0]["tags"], "blue_hair dragon&girl solo")
+            self.assertEqual(post_tags(normalized[0]), ["blue_hair", "dragon&girl", "solo"])
         self.assertEqual(post_tags(post), ["blue_hair", "dragon&girl", "solo"])
 
     def test_safe_normalization_and_exact_matching(self) -> None:

@@ -10,6 +10,8 @@ import pytest
 
 _ACTIVE_DATABASE = Path(__file__).resolve().parents[1] / "var/state/image_analysis.sqlite"
 _ACTIVE_CACHE_DATABASE = Path(__file__).resolve().parents[1] / "var/cache/image_analysis_cache.db"
+_ACTIVE_ENTITY_DATABASE = Path(__file__).resolve().parents[1] / "var/state/entity_profiles.sqlite"
+_ACTIVE_METADATA_DATABASE = Path(__file__).resolve().parents[1] / "var/cache/post_metadata.sqlite"
 
 
 def guard_sqlite_connect(original_connect, blocked):
@@ -20,6 +22,7 @@ def guard_sqlite_connect(original_connect, blocked):
             value = url2pathname(urlsplit(value).path)
         if Path(value).resolve() in {
             _ACTIVE_DATABASE.resolve(), _ACTIVE_CACHE_DATABASE.resolve(),
+            _ACTIVE_ENTITY_DATABASE.resolve(), _ACTIVE_METADATA_DATABASE.resolve(),
         }:
             blocked.append(value)
             raise RuntimeError("Tests must use a temporary image-analysis database")
@@ -29,7 +32,13 @@ def guard_sqlite_connect(original_connect, blocked):
 
 
 @pytest.fixture(autouse=True)
-def protect_active_analysis_database(monkeypatch):
+def protect_active_analysis_database(monkeypatch, tmp_path):
+    from booruflow.presentation.pyside6.tagging_controller import TaggingController
+    original_init = TaggingController.__init__
+    def isolated_init(self, *args, **kwargs):
+        kwargs.setdefault("project_root", tmp_path)
+        original_init(self, *args, **kwargs)
+    monkeypatch.setattr(TaggingController, "__init__", isolated_init)
     blocked = []
     monkeypatch.setenv("BOORUFLOW_TEST_BLOCKED_ANALYSIS_DATABASE", str(_ACTIVE_DATABASE))
     monkeypatch.setenv(

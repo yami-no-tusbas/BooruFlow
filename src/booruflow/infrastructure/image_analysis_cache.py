@@ -6,7 +6,7 @@ import hashlib
 import os
 import sqlite3
 import tempfile
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -18,6 +18,17 @@ IMAGE_ANALYSIS_CACHE_BUSY_TIMEOUT_SECONDS = 30.0
 IMAGE_ANALYSIS_CACHE_WAL_AUTOCHECKPOINT_PAGES = 256
 IMAGE_ANALYSIS_CACHE_JOURNAL_SIZE_LIMIT = 16 * 1024**2
 TEST_BLOCKED_IMAGE_CACHE_ENV = "BOORUFLOW_TEST_BLOCKED_IMAGE_CACHE_DATABASE"
+
+
+class ImageCacheMissError(KeyError):
+    """A resolved asset no longer has valid bytes in the bounded BLOB cache."""
+
+    def __init__(self, cache_key: str, database: Path) -> None:
+        self.cache_key = cache_key
+        super().__init__(
+            f"image BLOB absent or invalid; cache_key={cache_key}; cache_database={database}; "
+            "resolved metadata does not guarantee cache residency"
+        )
 
 
 def utc_now() -> str:
@@ -55,6 +66,7 @@ class ImageCachePutResult:
     evicted: int
     logical_bytes: int
     entry_count: int
+    reason: str = ""
 
 
 class ImageAnalysisCache:
@@ -66,9 +78,11 @@ class ImageAnalysisCache:
         *,
         max_bytes: int = IMAGE_ANALYSIS_CACHE_MAX_BYTES,
         timeout_seconds: float = IMAGE_ANALYSIS_CACHE_BUSY_TIMEOUT_SECONDS,
+        protected_keys: Callable[[], set[str]] | None = None,
     ) -> None:
         self.path = Path(path)
         self.max_bytes = max(0, int(max_bytes))
+        self.protected_keys = protected_keys
         blocked = os.environ.get(TEST_BLOCKED_IMAGE_CACHE_ENV, "").strip()
         if blocked and self.path.resolve() == Path(blocked).resolve():
             raise RuntimeError("tests must use a temporary image-analysis cache database")
@@ -227,6 +241,16 @@ class ImageAnalysisCache:
             raise ValueError("image cache key and sha256 must match the BLOB content")
         now = utc_now()
         with self.connection:
+            protected = self.protected_keys() if self.protected_keys is not None else set()
+            protected_bytes = sum(int(row[1]) for row in self.connection.execute(
+                "SELECT cache_key,byte_size FROM image_cache"
+            ) if str(row[0]) in protected and str(row[0]) != cache_key)
+            if protected_bytes + len(payload) > self.max_bytes:
+                stats = self.stats()
+                return ImageCachePutResult(
+                    False, False, 0, stats["logical_bytes"], stats["entry_count"],
+                    "active_sources_full",
+                )
             previous = self.connection.execute(
                 "SELECT 1 FROM image_cache WHERE cache_key=?", (cache_key,)
             ).fetchone()
@@ -276,7 +300,7 @@ class ImageAnalysisCache:
     def materialize(self, cache_key: str, *, suffix: str = ".img") -> Iterator[Path]:
         entry = self.get(cache_key)
         if entry is None:
-            raise KeyError(cache_key)
+            raise ImageCacheMissError(cache_key, self.path)
         path: Path | None = None
         try:
             with tempfile.NamedTemporaryFile(
@@ -298,13 +322,14 @@ class ImageAnalysisCache:
     def _evict_locked(self, *, exclude_key: str | None = None) -> int:
         logical_bytes, _count = self._size_locked()
         evicted = 0
+        protected = self.protected_keys() if self.protected_keys is not None else set()
         while logical_bytes > self.max_bytes:
-            row = self.connection.execute(
+            row = next((candidate for candidate in self.connection.execute(
                 """SELECT cache_key,byte_size FROM image_cache
                    WHERE cache_key<>COALESCE(?, '')
-                   ORDER BY last_accessed_at,cache_key LIMIT 1""",
+                   ORDER BY last_accessed_at,cache_key""",
                 (exclude_key,),
-            ).fetchone()
+            ) if str(candidate[0]) not in protected), None)
             if row is None:
                 break
             self.connection.execute(

@@ -186,6 +186,7 @@ try {
     $buildInfo = @(
         'BooruFlow portable build'
         ''
+        "Build identity: $((Split-Path -Leaf $destination).Substring('BooruFlow-'.Length))"
         "Built: $($builtAt.ToString('yyyy-MM-dd HH:mm:ss zzz'))"
         "Branch: $branch"
         "Commit: $commit"

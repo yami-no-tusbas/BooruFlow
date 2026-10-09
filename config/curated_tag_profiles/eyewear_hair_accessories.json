@@ -1,0 +1,113 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-eyewear-hair-accessories",
+    "name": "BooruFlow — Eyewear & hair accessories"
+  },
+  "profiles": [
+    {
+      "trigger": "glasses",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "shape_style",
+          "label": {
+            "en": "Shape / style",
+            "fr": "Forme / style"
+          },
+          "tags": [
+            "round_eyewear",
+            "semi-rimless_eyewear",
+            "under-rim_eyewear",
+            "rimless_eyewear",
+            "rectangular_eyewear",
+            "heart-shaped_eyewear",
+            "coke-bottle_glasses",
+            "opaque_glasses",
+            "tinted_eyewear"
+          ]
+        },
+        {
+          "id": "frame_color",
+          "label": {
+            "en": "Frame color",
+            "fr": "Couleur de monture"
+          },
+          "tags": [
+            "black-framed_eyewear",
+            "red-framed_eyewear",
+            "white-framed_eyewear",
+            "yellow-framed_eyewear",
+            "blue-framed_eyewear",
+            "pink-framed_eyewear",
+            "grey-framed_eyewear",
+            "brown-framed_eyewear",
+            "green-framed_eyewear"
+          ]
+        },
+        {
+          "id": "position_state",
+          "label": {
+            "en": "Position / state",
+            "fr": "Position / état"
+          },
+          "tags": [
+            "glasses_on_head",
+            "looking_over_glasses",
+            "adjusting_glasses",
+            "sunglasses"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "hair_ornament",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "motif",
+          "label": {
+            "en": "Shape / motif",
+            "fr": "Forme / motif"
+          },
+          "tags": [
+            "hair_ribbon",
+            "hair_flower",
+            "x_hair_ornament",
+            "star_hair_ornament",
+            "heart_hair_ornament",
+            "butterfly_hair_ornament",
+            "feather_hair_ornament",
+            "leaf_hair_ornament",
+            "crescent_hair_ornament",
+            "hair_bell",
+            "cross_hair_ornament",
+            "wing_hair_ornament",
+            "skull_hair_ornament",
+            "pom_pom_hair_ornament",
+            "tassel_hair_ornament",
+            "musical_note_hair_ornament",
+            "anchor_hair_ornament"
+          ]
+        },
+        {
+          "id": "animal_theme",
+          "label": {
+            "en": "Animal-themed",
+            "fr": "Thème animal"
+          },
+          "tags": [
+            "rabbit_hair_ornament",
+            "frog_hair_ornament",
+            "snake_hair_ornament",
+            "cat_hair_ornament",
+            "bear_hair_ornament",
+            "bat_hair_ornament"
+          ]
+        }
+      ]
+    }
+  ]
+}

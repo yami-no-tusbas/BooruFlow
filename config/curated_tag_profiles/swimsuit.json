@@ -1,0 +1,55 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-swimsuit",
+    "name": "BooruFlow — Swimsuit"
+  },
+  "profiles": [
+    {
+      "trigger": "swimsuit",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "style",
+          "label": {
+            "en": "Style",
+            "fr": "Style"
+          },
+          "tags": [
+            "one-piece_swimsuit",
+            "school_swimsuit",
+            "competition_swimsuit",
+            "bikini",
+            "monokini",
+            "strapless_one-piece_swimsuit"
+          ]
+        },
+        {
+          "id": "color_pattern",
+          "label": {
+            "en": "Color / pattern",
+            "fr": "Couleur / motif"
+          },
+          "tags": [
+            "print_swimsuit",
+            "two-tone_swimsuit",
+            "multicolored_swimsuit"
+          ]
+        },
+        {
+          "id": "details",
+          "label": {
+            "en": "Details / state",
+            "fr": "Détails / état"
+          },
+          "tags": [
+            "swimsuit_under_clothes",
+            "open_swimsuit",
+            "wet_swimsuit"
+          ]
+        }
+      ]
+    }
+  ]
+}

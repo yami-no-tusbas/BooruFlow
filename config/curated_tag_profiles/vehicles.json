@@ -1,0 +1,135 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-vehicles",
+    "name": "BooruFlow — Vehicles"
+  },
+  "profiles": [
+    {
+      "trigger": "car",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "wheels_tires",
+          "label": {
+            "en": "Wheels / tires",
+            "fr": "Roues / pneus"
+          },
+          "tags": [
+            "wheel"
+          ]
+        },
+        {
+          "id": "glass_mirrors_lights",
+          "label": {
+            "en": "Glass / mirrors / lights",
+            "fr": "Vitres / rétroviseurs / feux"
+          },
+          "tags": [
+            "windshield",
+            "side-view_mirror"
+          ]
+        },
+        {
+          "id": "body",
+          "label": {
+            "en": "Body details",
+            "fr": "Détails de carrosserie"
+          },
+          "tags": [
+            "license_plate",
+            "hood",
+            "car_door",
+            "convertible"
+          ]
+        },
+        {
+          "id": "interior",
+          "label": {
+            "en": "Interior / controls",
+            "fr": "Intérieur / commandes"
+          },
+          "tags": [
+            "steering_wheel",
+            "dashboard",
+            "gear_shift",
+            "car_seat"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "motorcycle",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "wheels_controls",
+          "label": {
+            "en": "Wheels / controls",
+            "fr": "Roues / commandes"
+          },
+          "tags": [
+            "wheel"
+          ]
+        },
+        {
+          "id": "body_lights",
+          "label": {
+            "en": "Body / lights",
+            "fr": "Carrosserie / feux"
+          },
+          "tags": [
+            "side-view_mirror",
+            "license_plate"
+          ]
+        },
+        {
+          "id": "rider_gear",
+          "label": {
+            "en": "Rider gear",
+            "fr": "Équipement du pilote"
+          },
+          "tags": [
+            "motorcycle_helmet",
+            "helmet",
+            "gloves",
+            "boots"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "bicycle",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "wheels_controls",
+          "label": {
+            "en": "Wheels / controls",
+            "fr": "Roues / commandes"
+          },
+          "tags": [
+            "wheel",
+            "pedal",
+            "bicycle_seat"
+          ]
+        },
+        {
+          "id": "parts",
+          "label": {
+            "en": "Parts",
+            "fr": "Pièces"
+          },
+          "tags": [
+            "bicycle_basket",
+            "chain",
+            "kickstand"
+          ]
+        }
+      ]
+    }
+  ]
+}

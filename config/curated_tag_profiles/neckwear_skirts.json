@@ -1,0 +1,244 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-neckwear-skirts",
+    "name": "BooruFlow — Neckwear & skirts"
+  },
+  "profiles": [
+    {
+      "trigger": "choker",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "color",
+          "label": {
+            "en": "Color",
+            "fr": "Couleur"
+          },
+          "tags": [
+            "black_choker",
+            "white_choker",
+            "red_choker",
+            "blue_choker",
+            "pink_choker",
+            "purple_choker",
+            "gold_choker",
+            "green_choker",
+            "yellow_choker",
+            "brown_choker",
+            "grey_choker",
+            "orange_choker",
+            "aqua_choker",
+            "silver_choker",
+            "two-tone_choker",
+            "multicolored_choker",
+            "rainbow_choker"
+          ]
+        },
+        {
+          "id": "style",
+          "label": {
+            "en": "Style / construction",
+            "fr": "Style / construction"
+          },
+          "tags": [
+            "ribbon_choker",
+            "frilled_choker",
+            "o-ring_choker",
+            "pendant_choker",
+            "bow_choker",
+            "spiked_choker",
+            "lace_choker",
+            "lace-trimmed_choker",
+            "studded_choker",
+            "fur_choker",
+            "bead_choker",
+            "pearl_choker",
+            "leather_choker",
+            "string_choker",
+            "fur-trimmed_choker",
+            "padlocked_choker",
+            "latex_choker"
+          ]
+        },
+        {
+          "id": "motif",
+          "label": {
+            "en": "Motif / ornament",
+            "fr": "Motif / ornement"
+          },
+          "tags": [
+            "heart_choker",
+            "star_choker",
+            "flower_choker",
+            "cross_choker",
+            "anchor_choker",
+            "cat_choker",
+            "skull_choker",
+            "butterfly_choker",
+            "crescent_choker",
+            "key_choker",
+            "snowflake_choker",
+            "rabbit_choker",
+            "diamond_choker"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "necklace",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "construction",
+          "label": {
+            "en": "Construction / material",
+            "fr": "Construction / matière"
+          },
+          "tags": [
+            "bead_necklace",
+            "pearl_necklace",
+            "chain_necklace",
+            "gold_necklace",
+            "shell_necklace",
+            "tooth_necklace",
+            "bone_necklace",
+            "rope_necklace"
+          ]
+        },
+        {
+          "id": "pendant_motif",
+          "label": {
+            "en": "Pendant / motif",
+            "fr": "Pendentif / motif"
+          },
+          "tags": [
+            "cross_necklace",
+            "heart_necklace",
+            "star_necklace",
+            "magatama_necklace",
+            "key_necklace",
+            "flower_necklace",
+            "skull_necklace",
+            "crescent_necklace",
+            "anchor_necklace",
+            "ring_necklace",
+            "ankh_necklace",
+            "butterfly_necklace",
+            "feather_necklace",
+            "diamond_necklace",
+            "triangle_necklace",
+            "sun_necklace",
+            "bullet_necklace",
+            "bat_necklace",
+            "crown_necklace",
+            "snowflake_necklace",
+            "lock_necklace",
+            "inverted_cross_necklace",
+            "dice_necklace",
+            "musical_note_necklace",
+            "pentagram_necklace",
+            "lightning_bolt_necklace",
+            "leaf_necklace",
+            "sword_necklace",
+            "planet_necklace",
+            "bear_necklace"
+          ]
+        },
+        {
+          "id": "state",
+          "label": {
+            "en": "State / multiplicity",
+            "fr": "État / multiplicité"
+          },
+          "tags": [
+            "multiple_necklaces",
+            "unworn_necklace",
+            "holding_necklace",
+            "broken_necklace"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "skirt",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "shape_style",
+          "label": {
+            "en": "Shape / style",
+            "fr": "Forme / style"
+          },
+          "tags": [
+            "pleated_skirt",
+            "miniskirt",
+            "plaid_skirt",
+            "frilled_skirt",
+            "pencil_skirt",
+            "high-waist_skirt",
+            "long_skirt",
+            "hakama_skirt",
+            "suspender_skirt",
+            "microskirt",
+            "layered_skirt",
+            "bubble_skirt",
+            "overskirt",
+            "circle_skirt",
+            "high-low_skirt",
+            "overall_skirt",
+            "half-skirt"
+          ]
+        },
+        {
+          "id": "color",
+          "label": {
+            "en": "Color",
+            "fr": "Couleur"
+          },
+          "tags": [
+            "black_skirt",
+            "blue_skirt",
+            "red_skirt",
+            "white_skirt",
+            "green_skirt",
+            "grey_skirt",
+            "pink_skirt",
+            "purple_skirt",
+            "brown_skirt",
+            "yellow_skirt",
+            "orange_skirt",
+            "aqua_skirt"
+          ]
+        },
+        {
+          "id": "pattern_material_details",
+          "label": {
+            "en": "Pattern / material / details",
+            "fr": "Motif / matière / détails"
+          },
+          "tags": [
+            "striped_skirt",
+            "print_skirt",
+            "checkered_skirt",
+            "two-tone_skirt",
+            "multicolored_skirt",
+            "denim_skirt",
+            "see-through_skirt",
+            "vertical-striped_skirt",
+            "polka_dot_skirt",
+            "ribbon-trimmed_skirt",
+            "fur-trimmed_skirt",
+            "lace-trimmed_skirt",
+            "skirt_bow",
+            "torn_skirt",
+            "open_skirt"
+          ]
+        }
+      ]
+    }
+  ]
+}

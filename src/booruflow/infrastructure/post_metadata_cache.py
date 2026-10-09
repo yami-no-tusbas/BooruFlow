@@ -8,10 +8,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from booruflow.domain.auto_organize import PostMetadata
+from booruflow.infrastructure.gelbooru_html_migration import migrate_metadata_cache
 
 
 class PostMetadataCache:
-    def __init__(self, path: Path) -> None:
+    def __init__(self, path: Path, tag_database: Path | None = None) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, timeout=30)
         self.connection.execute("PRAGMA journal_mode=WAL")
@@ -30,6 +31,11 @@ class PostMetadataCache:
         CREATE INDEX IF NOT EXISTS idx_remote_post_tags_tag ON remote_post_tags(site, tag);
         """)
         self.connection.execute("PRAGMA foreign_keys=ON")
+        try:
+            migrate_metadata_cache(self.connection, tag_database)
+        except Exception:
+            self.close()
+            raise
 
     def close(self) -> None:
         self.connection.close()

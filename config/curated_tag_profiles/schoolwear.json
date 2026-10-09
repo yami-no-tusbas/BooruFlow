@@ -1,0 +1,67 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-schoolwear",
+    "name": "BooruFlow — Schoolwear"
+  },
+  "profiles": [
+    {
+      "trigger": "school_uniform",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "uniform_type",
+          "label": {
+            "en": "Uniform type",
+            "fr": "Type d'uniforme"
+          },
+          "tags": [
+            "serafuku",
+            "blazer",
+            "cardigan",
+            "sweater_vest"
+          ]
+        },
+        {
+          "id": "upper_details",
+          "label": {
+            "en": "Upper-body details",
+            "fr": "Détails du haut"
+          },
+          "tags": [
+            "sailor_collar",
+            "collared_shirt",
+            "dress_shirt",
+            "necktie",
+            "neck_ribbon",
+            "bowtie"
+          ]
+        },
+        {
+          "id": "lower_footwear",
+          "label": {
+            "en": "Lower body / footwear",
+            "fr": "Bas / chaussures"
+          },
+          "tags": [
+            "pleated_skirt",
+            "plaid_skirt",
+            "kneehighs",
+            "loafers"
+          ]
+        },
+        {
+          "id": "accessories",
+          "label": {
+            "en": "Accessories",
+            "fr": "Accessoires"
+          },
+          "tags": [
+            "school_bag"
+          ]
+        }
+      ]
+    }
+  ]
+}

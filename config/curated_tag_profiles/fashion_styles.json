@@ -1,0 +1,71 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-fashion-styles",
+    "name": "BooruFlow — Fashion styles"
+  },
+  "profiles": [
+    {
+      "trigger": "gyaru",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "skin_tan",
+          "label": {
+            "en": "Skin / tan",
+            "fr": "Peau / bronzage"
+          },
+          "tags": [
+            "dark_skin",
+            "tan",
+            "tanline"
+          ]
+        },
+        {
+          "id": "hair",
+          "label": {
+            "en": "Hair",
+            "fr": "Cheveux"
+          },
+          "tags": [
+            "blonde_hair",
+            "dyed_hair"
+          ]
+        },
+        {
+          "id": "makeup_accessories",
+          "label": {
+            "en": "Makeup / accessories",
+            "fr": "Maquillage / accessoires"
+          },
+          "tags": [
+            "makeup",
+            "gyaru_makeup",
+            "lipstick",
+            "eyeshadow",
+            "nail_polish",
+            "hoop_earrings",
+            "loose_socks"
+          ]
+        },
+        {
+          "id": "subtype",
+          "label": {
+            "en": "Subtype",
+            "fr": "Sous-type"
+          },
+          "tags": [
+            "ganguro",
+            "hime_gyaru",
+            "manba_gyaru",
+            "yamanba_(gyaru)",
+            "agejo_gyaru",
+            "onee_gyaru",
+            "rokku_gyaru"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -256,7 +256,7 @@ def test_legacy_migration_without_reading_json(tmp_path, version, with_cache):
     repo.connection = connection
     try:
         repo._migrate()
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 26
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 27
         assert connection.execute("SELECT count(*) FROM wd14_score_vectors").fetchone()[0] == 0
         assert not reads
         assert connection.execute("PRAGMA foreign_key_check").fetchall() == []
@@ -294,7 +294,9 @@ def test_migration_preserves_runs_observations_embeddings_and_publish_queue(tmp_
     repo.connection.execute("PRAGMA foreign_keys=ON")
     try:
         item, run = add_run(repo)
-        repo.save_tag_predictions(item, run, [("solo", "general", 0.9)])
+        repo.connection.execute(
+            "INSERT INTO tag_observations(item_id,model_run_id,tag_name,source,confidence,category,created_at) "
+            "VALUES(?,?,'solo','wd14',0.9,'general','2026-09-24')", (item, run))
         repo.save_review_batch_entry(item, original_tags=["solo"], additions=["new"],
                                      removals=[], reviewed_final_tags=["solo", "new"])
         embedding = struct.pack("<ff", 0.3, 0.7)

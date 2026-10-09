@@ -7,13 +7,17 @@ import os
 import sys
 import threading
 import time
+import traceback
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
+from dataclasses import dataclass, field
 from pathlib import Path
 from uuid import uuid4
 
 from booruflow.application.embedding import EmbeddingResult
 from booruflow.application.tag_canonicalization import canonicalize_new_gelbooru_tag
 from booruflow.domain.image_analysis import (
+    AnalysisItem,
     AnalysisState,
     ColorStatistics,
     ModelIdentity,
@@ -21,7 +25,8 @@ from booruflow.domain.image_analysis import (
 )
 from booruflow.infrastructure.classic_image_analysis import ClassicImageAnalyzer
 from booruflow.infrastructure.hydra import HydraBackend, HydraConfig, HydraResult
-from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
+from booruflow.infrastructure.image_analysis_cache import ImageCacheMissError
+from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository, utc_now
 from booruflow.infrastructure.image_sources import (
     ImageSourceService,
     analysis_cache_directory_for_repository,
@@ -57,7 +62,7 @@ class AnalysisBackend:
 class ItemHeartbeat:
     """Keep a claim alive while a backend performs a long blocking inference."""
 
-    def __init__(self, database: Path, item_id: int, interval: float) -> None:
+    def __init__(self, database: Path, item_id: int | Sequence[int], interval: float) -> None:
         self.database = database
         self.item_id = item_id
         self.interval = max(0.1, interval)
@@ -75,7 +80,26 @@ class ItemHeartbeat:
     def _run(self) -> None:
         with ImageAnalysisRepository(self.database) as repository:
             while not self.stop.wait(self.interval):
-                repository.heartbeat(self.item_id)
+                if isinstance(self.item_id, int):
+                    repository.heartbeat(self.item_id)
+                else:
+                    # Batch members can finish or fail independently while inference continues.
+                    placeholders = ','.join('?' for _ in self.item_id)
+                    with repository.connection:
+                        repository.connection.execute(
+                            f"""UPDATE analysis_items SET processing_heartbeat_at=?,updated_at=?
+                                WHERE state='processing' AND id IN ({placeholders})""",
+                            (utc_now(), utc_now(), *self.item_id),
+                        )
+
+
+@dataclass
+class _BatchContext:
+    item: AnalysisItem
+    backends: tuple
+    frames: list[Path] = field(default_factory=list)
+    runs: dict[str, int | None] = field(default_factory=dict)
+    resources: ExitStack = field(default_factory=ExitStack)
 
 
 class ImageAnalysisWorker:
@@ -106,6 +130,7 @@ class ImageAnalysisWorker:
         self.last_scheduler_signature: tuple | None = None
         self.completed_since_summary = 0
         self.failed_since_summary = 0
+        self.last_processed_count = 0
 
     def close(self) -> None:
         self.sources.close()
@@ -155,14 +180,17 @@ class ImageAnalysisWorker:
             )
 
     def process_one(self) -> bool:
+        self.last_processed_count = 0
         item = self.repository.claim_next(self.analysis_prefetch)
         if item is None:
             self.log_scheduler_if_changed()
             return False
         self.last_scheduler_signature = None
+        self.last_processed_count = 1
         print(f"[DEBUG] [Worker] [item:{item.id}] Item claimed", flush=True)
         run_id: int | None = None
         source_context = None
+        phase = "backend_selection"
         try:
             active_backends = ", ".join(
                 backend.identity.backend for backend in self.backends
@@ -184,6 +212,7 @@ class ImageAnalysisWorker:
                 backend.identity.backend == "wd14" for backend in self.backends
             ):
                 raise RuntimeError("WD14 was required but no WD14 backend is active")
+            phase = "source_materialization"
             source_context = self.sources.materialize_item(item)
             path = source_context.__enter__()
             last_heartbeat = self.clock()
@@ -192,6 +221,7 @@ class ImageAnalysisWorker:
                 name = getattr(identity, "name", getattr(identity, "model", ""))
                 config_hash = getattr(identity, "configuration_hash", getattr(identity, "key", ""))
                 device = getattr(identity, "device", getattr(backend, "device", ""))
+                phase = "begin_model_run"
                 run_id = self.repository.begin_model_run(
                     item.id,
                     identity.backend,
@@ -214,6 +244,7 @@ class ImageAnalysisWorker:
                     flush=True,
                 )
                 self.repository.heartbeat(item.id)
+                phase = "representative_frames"
                 frames, temporary, media_log = representative_frames(path)
                 if media_log:
                     print(f"[INFO] [Worker] [item:{item.id}] {media_log}", flush=True)
@@ -221,6 +252,7 @@ class ImageAnalysisWorker:
                     # WD14 has a stable tag-confidence merge.  Other backends
                     # preserve their existing one-image result contract.
                     analysis_frames = frames if identity.backend == "wd14" else frames[:1]
+                    phase = f"{identity.backend}_inference"
                     with ItemHeartbeat(self.repository.path, item.id, self.heartbeat_interval):
                         if identity.backend == "wd14" and len(analysis_frames) > 1:
                             results = list(backend.analyze_batch(
@@ -234,6 +266,7 @@ class ImageAnalysisWorker:
                 finally:
                     if temporary is not None:
                         temporary.cleanup()
+                phase = f"save_{identity.backend}_results"
                 result = _merge_results(results)
                 if isinstance(result, ColorStatistics):
                     self.repository.save_statistics(item.id, run_id, result)
@@ -280,6 +313,7 @@ class ImageAnalysisWorker:
                 if self.clock() - last_heartbeat >= self.heartbeat_interval:
                     self.repository.heartbeat(item.id)
                     last_heartbeat = self.clock()
+            phase = "ready_transition"
             self.repository.transition(item.id, AnalysisState.READY_FOR_REVIEW)
             self.completed_since_summary += 1
             print(f"[DEBUG] [Worker] [item:{item.id}] Item ready", flush=True)
@@ -290,86 +324,137 @@ class ImageAnalysisWorker:
                     flush=True,
                 )
         except Exception as exc:
-            self.failed_since_summary += 1
-            message = str(exc)
-            if run_id is not None:
-                self.repository.fail_model_run(run_id, message)
-            current = self.repository.get_item(item.id)
-            if current and current.state is AnalysisState.PROCESSING:
-                self.repository.transition(item.id, AnalysisState.FAILED, message)
-            else:
-                self.repository.fail_source(item.id, message)
+            self._fail_item(item, {"active": run_id}, exc, batch_ids=(item.id,), phase=phase)
             if isinstance(exc, WD14OutOfMemoryError):
                 print(f"[ERROR] [WD14] [item:{item.id}] OOM: {exc}", flush=True)
                 raise
-            print(f"[ERROR] [Worker] [item:{item.id}] Item failed: {exc}", flush=True)
         finally:
             if source_context is not None:
                 source_context.__exit__(None, None, None)
         return True
 
-    def process_batch(self) -> bool:
-        """Claim and process a fixed-image batch with one WD14 session."""
+    def _fail_item(self, item, runs, exc, *, batch_ids, phase) -> None:
+        """Finish every claimed failure, including failures before a context is prepared."""
+        message = f"{type(exc).__name__}: {exc}"
+        for run_id in runs.values():
+            if run_id is not None:
+                self.repository.fail_model_run(run_id, message)
+        current = self.repository.get_item(item.id)
+        if isinstance(exc, ImageCacheMissError) and self.repository.recover_missing_source(item.id, message):
+            print(
+                f"[WARNING] [Worker] [item:{item.id}] Source recovery requested: {message}; "
+                f"batch={batch_ids}; post={item.source.site}:{item.source.post_id}; "
+                f"cache_key={item.content_sha256}; phase={phase}; "
+                "automatic_retry=source_reacquisition_once", flush=True,
+            )
+            for line in traceback.format_exception(exc):
+                for detail in line.rstrip().splitlines():
+                    print(f"[WARNING] [WorkerTraceback] {detail}", flush=True)
+            return
+        if current and current.state is AnalysisState.PROCESSING:
+            self.repository.transition(item.id, AnalysisState.FAILED, message)
+        self.failed_since_summary += 1
+        print(
+            f"[ERROR] [Worker] [item:{item.id}] Item failed: {message}; "
+            f"batch={batch_ids}; post={item.source.site}:{item.source.post_id}; "
+            f"source={'path' if item.cached_path else 'blob'}; "
+            f"cache_key={item.content_sha256 or 'none'}; phase={phase}; "
+            "automatic_retry=none (manual retry required)",
+            flush=True,
+        )
+        for line in traceback.format_exception(exc):
+            for detail in line.rstrip().splitlines():
+                print(f"[ERROR] [WorkerTraceback] {detail}", flush=True)
+
+    def process_batch(self, *, max_items: int | None = None) -> bool:
+        """Process each claim independently; preserve frame/result ownership in one batch."""
+        self.last_processed_count = 0
         first = self.repository.claim_next(self.analysis_prefetch)
         if first is None:
             self.log_scheduler_if_changed()
             return False
+        self.last_scheduler_signature = None
         backend = next((value for value in self.backends
                         if getattr(value, "identity", None)
                         and value.identity.backend == "wd14"), None)
         if backend is None:
+            self.last_processed_count = 1
             return self._process_claimed_fallback(first)
         requested = resolve_wd14_batch_size(self.wd14_batch_size, backend.provider)
         priority = self.repository.connection.execute(
             "SELECT priority FROM analysis_items WHERE id=?", (first.id,)
         ).fetchone()[0]
         if priority >= 50:
-            # Do not make the current image or its one neighbour wait for an
-            # unrelated background batch to be prepared and inferred.
             requested = 1
+        if max_items is not None:
+            requested = min(requested, max(1, max_items))
         items = [first]
         while len(items) < requested:
             item = self.repository.claim_next(None)
             if item is None:
                 break
             items.append(item)
+        self.last_processed_count = len(items)
+        batch_ids = tuple(item.id for item in items)
         contexts = []
-        try:
+        # Keep all claims alive during preprocessing and inference, including long batches.
+        with (
+            ItemHeartbeat(self.repository.path, batch_ids, self.heartbeat_interval),
+            ExitStack() as resources,
+        ):
             for item in items:
-                selected = tuple(value for value in self.backends
-                                 if not hasattr(value, "supported_sites")
-                                 or item.source.site in value.supported_sites)
-                source_context = self.sources.materialize_item(item)
-                path = source_context.__enter__()
+                context = _BatchContext(item, tuple(
+                    value for value in self.backends
+                    if not hasattr(value, "supported_sites")
+                    or item.source.site in value.supported_sites
+                ))
+                resources.enter_context(context.resources)
+                phase = "source_materialization"
                 try:
+                    path = context.resources.enter_context(self.sources.materialize_item(item))
+                    phase = "representative_frames"
                     frames, temporary, media_log = representative_frames(path)
-                except Exception:
-                    source_context.__exit__(None, None, None)
-                    raise
-                if media_log:
-                    print(f"[INFO] [Worker] [item:{item.id}] {media_log}", flush=True)
-                contexts.append((item, selected, frames, temporary, source_context, {}))
-                for value in selected:
-                    identity = value.identity
-                    run_id = self.repository.begin_model_run(
-                        item.id, identity.backend, identity.name, identity.version,
-                        identity.configuration_hash, str(getattr(value, "runtime", "")),
-                        getattr(identity, "device", getattr(value, "device", "")),
-                    )
-                    contexts[-1][5][identity.backend] = run_id
-            wd14_contexts = [value for value in contexts
-                             if value[5].get("wd14") is not None]
-            paths = [frame for value in wd14_contexts for frame in value[2]]
+                    context.frames = frames
+                    if temporary is not None:
+                        context.resources.callback(temporary.cleanup)
+                    if media_log:
+                        print(f"[INFO] [Worker] [item:{item.id}] {media_log}", flush=True)
+                    phase = "begin_model_runs"
+                    for value in context.backends:
+                        identity = value.identity
+                        context.runs[identity.backend] = self.repository.begin_model_run(
+                            item.id, identity.backend, identity.name, identity.version,
+                            identity.configuration_hash, str(getattr(value, "runtime", "")),
+                            getattr(identity, "device", getattr(value, "device", "")),
+                        )
+                    contexts.append(context)
+                except Exception as exc:  # noqa: BLE001 - per-item preparation boundary
+                    self._fail_item(item, context.runs, exc, batch_ids=batch_ids, phase=phase)
+                    context.resources.close()
+            wd14_contexts = [context for context in contexts
+                             if context.runs.get("wd14") is not None]
+            paths = [frame for context in wd14_contexts for frame in context.frames]
+            results = []
             if paths:
                 try:
-                    results = backend.analyze_batch(paths, batch_size=requested)
-                except Exception as exc:  # noqa: BLE001 - isolate a batch failure per image
-                    print(f"[WARNING] [WD14] Batch fallback to per-image analysis: {exc}", flush=True)
+                    results = list(backend.analyze_batch(paths, batch_size=requested))
+                    if len(results) != len(paths):
+                        raise ValueError(
+                            f"WD14 result count mismatch: paths={len(paths)} results={len(results)}"
+                        )
+                except Exception as exc:  # noqa: BLE001 - bounded one-image fallback
+                    print(
+                        f"[WARNING] [WD14] Batch fallback to per-image analysis: "
+                        f"{type(exc).__name__}: {exc}; batch={batch_ids}; phase=wd14_inference",
+                        flush=True,
+                    )
+                    for detail in traceback.format_exception(exc):
+                        print(f"[ERROR] [WorkerTraceback] {detail.rstrip()}", flush=True)
                     results = []
                     for path in paths:
                         try:
                             results.append(backend.analyze(path))
-                        except Exception as image_exc:  # noqa: BLE001 - per-image boundary
+                        except Exception as image_exc:  # noqa: BLE001 - per-frame boundary
                             results.append(image_exc)
                 metrics = getattr(backend, "last_batch_metrics", {})
                 print(
@@ -379,55 +464,49 @@ class ImageAnalysisWorker:
                     f"images={len(paths)} preprocess_ms={metrics.get('preprocess_ms', 0):.1f} "
                     f"session_run_ms={metrics.get('session_run_ms', 0):.1f} "
                     f"postprocess_ms={metrics.get('postprocess_ms', 0):.1f} "
-                    f"total_ms={metrics.get('total_ms', 0):.1f}",
-                    flush=True,
+                    f"total_ms={metrics.get('total_ms', 0):.1f}", flush=True,
                 )
-                result_index = 0
-                for context in wd14_contexts:
-                    item, _selected, _frames, _temporary, _source_context, runs = context
-                    frame_count = len(_frames)
-                    result_group = results[result_index:result_index + frame_count]
-                    result_index += frame_count
-                    if any(isinstance(value, Exception) for value in result_group):
-                        raise next(value for value in result_group if isinstance(value, Exception))
-                    result = _merge_results(result_group)
-                    predictions = [(tag.raw_name, tag.category, tag.score)
-                                   for tag in result.predictions]
-                    self.repository.save_tag_predictions(
-                        item.id, runs["wd14"], predictions,
-                        canonicalize=wd14_canonicalizer(item.source.site, self.alias_database),
-                    )
-                    self.repository.complete_model_run(runs["wd14"])
-                    runs["wd14"] = None
-            for item, selected, frames, temporary, _source_context, runs in contexts:
-                for value in selected:
-                    if value.identity.backend == "wd14":
-                        continue
-                    run_id = runs[value.identity.backend]
-                    if run_id is None:
-                        continue
-                    result = value.analyze(frames[0])
-                    if isinstance(result, ColorStatistics):
-                        self.repository.save_statistics(item.id, run_id, result)
-                    self.repository.complete_model_run(run_id)
-                    runs[value.identity.backend] = None
-                self.repository.transition(item.id, AnalysisState.READY_FOR_REVIEW)
-                self.completed_since_summary += 1
-                print(f"[DEBUG] [Worker] [item:{item.id}] Item ready", flush=True)
-        except Exception as exc:  # noqa: BLE001 - worker batch boundary
-            for item, _selected, _frames, _temporary, _source_context, runs in contexts:
-                for run_id in runs.values():
-                    if run_id is not None:
-                        self.repository.fail_model_run(run_id, str(exc))
-                current = self.repository.get_item(item.id)
-                if current and current.state is AnalysisState.PROCESSING:
-                    self.repository.transition(item.id, AnalysisState.FAILED, str(exc))
-            print(f"[ERROR] [Worker] batch failed: {exc}", flush=True)
-        finally:
-            for _item, _selected, _frames, temporary, source_context, _runs in contexts:
-                if temporary is not None:
-                    temporary.cleanup()
-                source_context.__exit__(None, None, None)
+            # Consume exactly each context's frame count, even when that item fails.
+            # Failed items must never shift the next item's result association.
+            result_index = 0
+            for context in contexts:
+                item, runs = context.item, context.runs
+                phase = "wd14_results"
+                try:
+                    if runs.get("wd14") is not None:
+                        frame_count = len(context.frames)
+                        group = results[result_index:result_index + frame_count]
+                        result_index += frame_count
+                        if any(isinstance(value, Exception) for value in group):
+                            raise next(value for value in group if isinstance(value, Exception))
+                        result = _merge_results(group)
+                        phase = "save_wd14_results"
+                        self.repository.save_tag_predictions(
+                            item.id, runs["wd14"],
+                            [(tag.raw_name, tag.category, tag.score) for tag in result.predictions],
+                            canonicalize=wd14_canonicalizer(item.source.site, self.alias_database),
+                        )
+                        self.repository.complete_model_run(runs["wd14"])
+                        runs["wd14"] = None
+                    for value in context.backends:
+                        if value.identity.backend == "wd14":
+                            continue
+                        run_id = runs[value.identity.backend]
+                        if run_id is None:
+                            continue
+                        phase = f"{value.identity.backend}_inference"
+                        result = value.analyze(context.frames[0])
+                        phase = f"save_{value.identity.backend}_results"
+                        if isinstance(result, ColorStatistics):
+                            self.repository.save_statistics(item.id, run_id, result)
+                        self.repository.complete_model_run(run_id)
+                        runs[value.identity.backend] = None
+                    phase = "ready_transition"
+                    self.repository.transition(item.id, AnalysisState.READY_FOR_REVIEW)
+                    self.completed_since_summary += 1
+                    print(f"[DEBUG] [Worker] [item:{item.id}] Item ready", flush=True)
+                except Exception as exc:  # noqa: BLE001 - per-item result boundary
+                    self._fail_item(item, runs, exc, batch_ids=batch_ids, phase=phase)
         return True
 
     def _process_claimed_fallback(self, item) -> bool:
@@ -672,8 +751,13 @@ def main(
                     and any(getattr(backend, "identity", None)
                             and backend.identity.backend == "wd14" for backend in backends)
                 )
-                worked = worker.process_batch() if use_batch else worker.process_one()
-                completed += int(worked)
+                remaining = (
+                    args.worker_recycle_after - completed if args.worker_recycle_after > 0 else None
+                )
+                worked = (
+                    worker.process_batch(max_items=remaining) if use_batch else worker.process_one()
+                )
+                completed += worker.last_processed_count
                 if args.once:
                     break
                 if args.worker_recycle_after > 0 and completed >= args.worker_recycle_after:
@@ -692,14 +776,16 @@ def main(
         except Exception as exc:  # noqa: BLE001 - process boundary
             repository.stop_worker(worker_id, str(exc))
             print(f"WORKER_ERROR {exc}", file=sys.stderr, flush=True)
+            traceback.print_exception(exc, file=sys.stderr)
             return 1
+        finally:
+            worker.close()
+            for backend in backends:
+                close = getattr(backend, "close", None)
+                if close:
+                    close()
         repository.stop_worker(worker_id)
         print(f"[INFO] [Worker] Exited pid={os.getpid()} code=0", flush=True)
-        worker.close()
-        for backend in backends:
-            close = getattr(backend, "close", None)
-            if close:
-                close()
     return 0
 
 

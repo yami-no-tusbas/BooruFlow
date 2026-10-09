@@ -10,6 +10,7 @@ from dataclasses import dataclass
 
 from booruflow.domain.auto_organize import PostMetadata
 from booruflow.infrastructure.gelbooru_client import API_URL, DEFAULT_USER_AGENT, normalize_posts
+from booruflow.infrastructure.gelbooru_normalization import post_tags
 
 
 class PostNotFoundError(LookupError):
@@ -74,7 +75,7 @@ def fetch_post(site: str, post_id: str, user_id: str = "", api_key: str = "") ->
         url=f"{API_URL}?{urllib.parse.urlencode(params)}"
         posts = normalize_posts(_read_json(url,site=site))
         if not posts: raise PostNotFoundError(post_id,site=site,endpoint=safe_endpoint(url))
-        post = posts[0]; tags = tuple(str(post.get("tags", "")).split())
+        post = posts[0]; tags = tuple(post_tags(post))
         raw_categories = post.get("_tag_categories", {})
         categories = raw_categories if isinstance(raw_categories, dict) else {}
         # Gelbooru post DAPI has no dependable per-tag categories; caller may enrich later.

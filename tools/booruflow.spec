@@ -70,6 +70,7 @@ a = Analysis(
     datas=[
         *profile_datas,
         (str(project / "resources" / "i18n"), "resources/i18n"),
+        (str(project / "resources" / "curated_tag_profiles"), "resources/curated_tag_profiles"),
         (str(project / "data" / "taxonomy" / "tag_organization.json"), "data/taxonomy"),
         *[
             (str(path), "booruflow/infrastructure/schema")

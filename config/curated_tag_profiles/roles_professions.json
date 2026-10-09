@@ -1,0 +1,533 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-roles-professions",
+    "name": "BooruFlow — Roles & professions"
+  },
+  "profiles": [
+    {
+      "trigger": "police",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "uniform",
+          "label": {
+            "en": "Uniform",
+            "fr": "Uniforme"
+          },
+          "tags": [
+            "police_uniform",
+            "police_hat",
+            "peaked_cap",
+            "badge",
+            "belt",
+            "boots",
+            "gloves",
+            "necktie",
+            "police_badge"
+          ]
+        },
+        {
+          "id": "equipment",
+          "label": {
+            "en": "Equipment",
+            "fr": "Équipement"
+          },
+          "tags": [
+            "handcuffs",
+            "gun",
+            "holster",
+            "radio",
+            "flashlight",
+            "baton_(weapon)"
+          ]
+        },
+        {
+          "id": "context",
+          "label": {
+            "en": "Context",
+            "fr": "Contexte"
+          },
+          "tags": [
+            "police_car"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "military_uniform",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "uniform_parts",
+          "label": {
+            "en": "Uniform parts",
+            "fr": "Éléments d'uniforme"
+          },
+          "tags": [
+            "military_hat",
+            "peaked_cap",
+            "beret",
+            "collared_shirt",
+            "dress_shirt",
+            "jacket",
+            "belt",
+            "belt_buckle",
+            "pants",
+            "boots",
+            "gloves",
+            "helmet"
+          ]
+        },
+        {
+          "id": "decorations",
+          "label": {
+            "en": "Decorations",
+            "fr": "Décorations"
+          },
+          "tags": [
+            "medal",
+            "badge",
+            "epaulettes",
+            "armband",
+            "dog_tags"
+          ]
+        },
+        {
+          "id": "pattern_color",
+          "label": {
+            "en": "Pattern / color",
+            "fr": "Motif / couleur"
+          },
+          "tags": [
+            "camouflage"
+          ]
+        },
+        {
+          "id": "equipment",
+          "label": {
+            "en": "Equipment",
+            "fr": "Équipement"
+          },
+          "tags": [
+            "weapon",
+            "rifle",
+            "gun",
+            "armor",
+            "backpack"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "teacher",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "clothing",
+          "label": {
+            "en": "Clothing",
+            "fr": "Vêtements"
+          },
+          "tags": [
+            "blazer",
+            "collared_shirt",
+            "dress_shirt",
+            "necktie",
+            "glasses",
+            "cardigan"
+          ]
+        },
+        {
+          "id": "teaching_tools",
+          "label": {
+            "en": "Teaching tools",
+            "fr": "Outils d'enseignement"
+          },
+          "tags": [
+            "book",
+            "pointer",
+            "chalk",
+            "clipboard"
+          ]
+        },
+        {
+          "id": "classroom",
+          "label": {
+            "en": "Classroom",
+            "fr": "Salle de classe"
+          },
+          "tags": [
+            "chalkboard",
+            "desk",
+            "classroom"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "office_lady",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "clothing",
+          "label": {
+            "en": "Clothing",
+            "fr": "Vêtements"
+          },
+          "tags": [
+            "business_suit",
+            "blazer",
+            "pencil_skirt",
+            "pantyhose",
+            "high_heels",
+            "collared_shirt"
+          ]
+        },
+        {
+          "id": "accessories",
+          "label": {
+            "en": "Accessories",
+            "fr": "Accessoires"
+          },
+          "tags": [
+            "glasses",
+            "necktie",
+            "ID_card",
+            "clipboard"
+          ]
+        },
+        {
+          "id": "office",
+          "label": {
+            "en": "Office",
+            "fr": "Bureau"
+          },
+          "tags": [
+            "desk",
+            "computer",
+            "laptop",
+            "telephone",
+            "office"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "nurse",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "uniform",
+          "label": {
+            "en": "Uniform",
+            "fr": "Uniforme"
+          },
+          "tags": [
+            "nurse_cap",
+            "nurse",
+            "white_dress",
+            "white_shirt",
+            "white_skirt",
+            "pantyhose",
+            "shoes"
+          ]
+        },
+        {
+          "id": "medical_tools",
+          "label": {
+            "en": "Medical tools",
+            "fr": "Matériel médical"
+          },
+          "tags": [
+            "stethoscope",
+            "syringe",
+            "bandages",
+            "clipboard",
+            "disposable_gloves"
+          ]
+        },
+        {
+          "id": "context",
+          "label": {
+            "en": "Context",
+            "fr": "Contexte"
+          },
+          "tags": [
+            "hospital",
+            "hospital_bed"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "doctor",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "clothing",
+          "label": {
+            "en": "Clothing",
+            "fr": "Vêtements"
+          },
+          "tags": [
+            "lab_coat",
+            "collared_shirt",
+            "necktie",
+            "disposable_gloves"
+          ]
+        },
+        {
+          "id": "medical_tools",
+          "label": {
+            "en": "Medical tools",
+            "fr": "Matériel médical"
+          },
+          "tags": [
+            "stethoscope",
+            "clipboard",
+            "syringe",
+            "bandages"
+          ]
+        },
+        {
+          "id": "context",
+          "label": {
+            "en": "Context",
+            "fr": "Contexte"
+          },
+          "tags": [
+            "hospital",
+            "hospital_bed"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "scientist",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "clothing",
+          "label": {
+            "en": "Clothing",
+            "fr": "Vêtements"
+          },
+          "tags": [
+            "lab_coat",
+            "gloves",
+            "goggles",
+            "glasses"
+          ]
+        },
+        {
+          "id": "laboratory",
+          "label": {
+            "en": "Laboratory",
+            "fr": "Laboratoire"
+          },
+          "tags": [
+            "test_tube",
+            "beaker",
+            "flask",
+            "microscope",
+            "laboratory",
+            "clipboard"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "maid",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "outfit",
+          "label": {
+            "en": "Outfit",
+            "fr": "Tenue"
+          },
+          "tags": [
+            "maid_headdress",
+            "apron",
+            "frilled_apron",
+            "frills",
+            "dress",
+            "puffy_sleeves",
+            "detached_sleeves",
+            "thighhighs"
+          ]
+        },
+        {
+          "id": "details",
+          "label": {
+            "en": "Details",
+            "fr": "Détails"
+          },
+          "tags": [
+            "bow",
+            "ribbon",
+            "lace",
+            "gloves"
+          ]
+        },
+        {
+          "id": "work",
+          "label": {
+            "en": "Work / props",
+            "fr": "Travail / accessoires"
+          },
+          "tags": [
+            "tray",
+            "teapot",
+            "teacup",
+            "broom",
+            "duster"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "chef",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "uniform",
+          "label": {
+            "en": "Uniform",
+            "fr": "Uniforme"
+          },
+          "tags": [
+            "chef_hat",
+            "apron",
+            "shirt",
+            "pants"
+          ]
+        },
+        {
+          "id": "tools",
+          "label": {
+            "en": "Tools",
+            "fr": "Outils"
+          },
+          "tags": [
+            "kitchen_knife",
+            "frying_pan",
+            "spatula",
+            "ladle",
+            "cutting_board"
+          ]
+        },
+        {
+          "id": "context",
+          "label": {
+            "en": "Context",
+            "fr": "Contexte"
+          },
+          "tags": [
+            "kitchen",
+            "cooking"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "mechanic",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "clothing",
+          "label": {
+            "en": "Workwear",
+            "fr": "Tenue de travail"
+          },
+          "tags": [
+            "overalls",
+            "work_gloves",
+            "boots"
+          ]
+        },
+        {
+          "id": "tools",
+          "label": {
+            "en": "Tools",
+            "fr": "Outils"
+          },
+          "tags": [
+            "wrench",
+            "screwdriver",
+            "hammer",
+            "toolbox",
+            "pliers"
+          ]
+        },
+        {
+          "id": "context",
+          "label": {
+            "en": "Context",
+            "fr": "Contexte"
+          },
+          "tags": [
+            "garage",
+            "car",
+            "motorcycle"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "firefighter",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "protective_gear",
+          "label": {
+            "en": "Protective gear",
+            "fr": "Équipement de protection"
+          },
+          "tags": [
+            "helmet",
+            "gloves",
+            "boots",
+            "oxygen_tank",
+            "gas_mask"
+          ]
+        },
+        {
+          "id": "equipment",
+          "label": {
+            "en": "Equipment",
+            "fr": "Équipement"
+          },
+          "tags": [
+            "axe",
+            "flashlight"
+          ]
+        },
+        {
+          "id": "context",
+          "label": {
+            "en": "Context",
+            "fr": "Contexte"
+          },
+          "tags": [
+            "fire",
+            "fire_truck",
+            "smoke"
+          ]
+        }
+      ]
+    }
+  ]
+}

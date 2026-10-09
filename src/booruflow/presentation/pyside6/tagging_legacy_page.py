@@ -676,7 +676,7 @@ class TaggingLegacyPage(QWidget):
             for r in range(self.suggestions.rowCount()):
                 if self.suggestions.item(r,4).text()==str(target_id):selected_row=r;break
         if selected_row<0 and self.suggestions.rowCount():selected_row=0 if self._pending_fallback_row is None else min(self._pending_fallback_row,self.suggestions.rowCount()-1)
-        if selected_row>=0:self.suggestions.selectRow(selected_row);self.suggestions.setFocus()
+        if selected_row>=0:self.suggestions.selectRow(selected_row)
         self._pending_next_id=None;self._pending_fallback_row=None;self._update_review_action_states()
     def _update_review_action_states(self)->None:
         selected=bool(self.suggestions.selectedItems()); has_post=bool(self.current_post_id)

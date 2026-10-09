@@ -58,8 +58,8 @@ class EntityRefreshWorker(QThread):
 
     def run(self):
         try:
-            with EntityProfileRepository(self.root / "var/state/entity_profiles.sqlite") as repository:
-                cache = PostMetadataCache(self.root / "var/cache/post_metadata.sqlite")
+            with EntityProfileRepository(self.root / "var/state/entity_profiles.sqlite", self.database) as repository:
+                cache = PostMetadataCache(self.root / "var/cache/post_metadata.sqlite", self.database)
                 try:
                     client = GelbooruDapiClient(str(self.credentials.get("user_id", "")),
                                                str(self.credentials.get("api_key", "")))
@@ -88,7 +88,7 @@ class EntityProfileDialog(QDialog):
         self.page_status = page_status
         self.thumbnail_cache = (thumbnail_cache if thumbnail_cache is not None
                                 else ThumbnailMemoryCache(32 * 1024 * 1024))
-        self.repository = EntityProfileRepository(root / "var/state/entity_profiles.sqlite")
+        self.repository = EntityProfileRepository(root / "var/state/entity_profiles.sqlite", database)
         self.worker = None
         self._close_pending = False
         self.profile_id = None

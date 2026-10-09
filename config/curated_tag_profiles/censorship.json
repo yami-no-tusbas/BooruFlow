@@ -1,0 +1,64 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-censorship",
+    "name": "BooruFlow — Censorship"
+  },
+  "profiles": [
+    {
+      "trigger": "censored",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "method",
+          "label": {
+            "en": "Method",
+            "fr": "Méthode"
+          },
+          "tags": [
+            "bar_censor",
+            "mosaic_censoring",
+            "blur_censor",
+            "light_censor",
+            "steam_censor",
+            "convenient_hair",
+            "soap_censor",
+            "blank_censor",
+            "transparent_censoring",
+            "scribble_censor"
+          ]
+        },
+        {
+          "id": "cover",
+          "label": {
+            "en": "Cover / overlay",
+            "fr": "Cache / superposition"
+          },
+          "tags": [
+            "heart_censor",
+            "star_censor",
+            "flower_censor",
+            "leaf_censor",
+            "emoji_censor",
+            "tape_censor",
+            "smoke_censor",
+            "speech_bubble_censor",
+            "character_censor"
+          ]
+        },
+        {
+          "id": "framing",
+          "label": {
+            "en": "Framing",
+            "fr": "Cadrage"
+          },
+          "tags": [
+            "convenient_censoring",
+            "out-of-frame_censoring"
+          ]
+        }
+      ]
+    }
+  ]
+}

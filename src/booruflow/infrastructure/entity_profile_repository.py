@@ -17,6 +17,7 @@ from booruflow.domain.entity_profiles import (
     contextual_relation_visible,
     tag_kind,
 )
+from booruflow.infrastructure.gelbooru_html_migration import migrate_entity_profiles
 
 
 def now() -> str:
@@ -24,7 +25,7 @@ def now() -> str:
 
 
 class EntityProfileRepository:
-    def __init__(self, path: Path):
+    def __init__(self, path: Path, tag_database: Path | None = None):
         path.parent.mkdir(parents=True, exist_ok=True)
         self.connection = sqlite3.connect(path, timeout=30)
         self.connection.row_factory = sqlite3.Row
@@ -42,7 +43,7 @@ class EntityProfileRepository:
                 sleep(.02 * (attempt + 1))
         self.connection.execute("PRAGMA foreign_keys=ON")
         version = self.connection.execute("PRAGMA user_version").fetchone()[0]
-        if version > 1:
+        if version > 2:
             self.close()
             raise RuntimeError("Entity profile database requires a newer BooruFlow")
         if version == 0:
@@ -57,6 +58,12 @@ class EntityProfileRepository:
                             self.connection.execute(statement)
                     self.connection.executemany("INSERT INTO global_exclusions VALUES(?)",
                                                 ((tag,) for tag in sorted(DEFAULT_EXCLUSIONS)))
+        if self.connection.execute("PRAGMA user_version").fetchone()[0] < 2:
+            try:
+                migrate_entity_profiles(self.connection, tag_database)
+            except Exception:
+                self.close()
+                raise
 
     def __enter__(self):
         return self

@@ -8,6 +8,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Self
 
+from booruflow.infrastructure.gelbooru_normalization import post_tags
+
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
@@ -216,7 +218,8 @@ class BooruCache:
                 continue
             post_id_text = str(post_id)
             raw_tags = post.get("tags", "")
-            tags = raw_tags.split() if isinstance(raw_tags, str) else []
+            tags = (post_tags(post) if self.site == "gelbooru" else
+                    raw_tags.split() if isinstance(raw_tags, str) else [])
             tag_categories = post.get("_tag_categories", {})
             if not isinstance(tag_categories, dict):
                 tag_categories = {}
@@ -311,8 +314,7 @@ class BooruCache:
             if post.get("id") is None:
                 continue
             valid_posts += 1
-            raw_tags = post.get("tags", "")
-            tags = raw_tags.split() if isinstance(raw_tags, str) else []
+            tags = post_tags(post)
             if artist_names:
                 for artist in artist_names.intersection(tags):
                     candidate_counts[artist] = candidate_counts.get(artist, 0) + 1

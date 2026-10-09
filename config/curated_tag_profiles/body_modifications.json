@@ -1,0 +1,114 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-body-modifications",
+    "name": "BooruFlow — Body modifications"
+  },
+  "profiles": [
+    {
+      "trigger": "tattoo",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "location",
+          "label": {
+            "en": "Location",
+            "fr": "Emplacement"
+          },
+          "tags": [
+            "arm_tattoo",
+            "shoulder_tattoo",
+            "pubic_tattoo",
+            "facial_tattoo",
+            "chest_tattoo",
+            "leg_tattoo",
+            "neck_tattoo",
+            "stomach_tattoo",
+            "breast_tattoo",
+            "back_tattoo",
+            "hand_tattoo",
+            "forehead_tattoo",
+            "ass_tattoo",
+            "finger_tattoo"
+          ]
+        },
+        {
+          "id": "design",
+          "label": {
+            "en": "Design",
+            "fr": "Motif"
+          },
+          "tags": [
+            "number_tattoo",
+            "heart_tattoo",
+            "barcode_tattoo",
+            "flower_tattoo",
+            "star_tattoo",
+            "tribal_tattoo",
+            "butterfly_tattoo",
+            "snake_tattoo",
+            "teardrop_tattoo"
+          ]
+        },
+        {
+          "id": "appearance",
+          "label": {
+            "en": "Appearance",
+            "fr": "Aspect"
+          },
+          "tags": [
+            "red_tattoo",
+            "glowing_tattoo",
+            "full-body_tattoo"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "piercing",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "location",
+          "label": {
+            "en": "Location",
+            "fr": "Emplacement"
+          },
+          "tags": [
+            "ear_piercing",
+            "nipple_piercing",
+            "navel_piercing",
+            "face_piercing",
+            "animal_ear_piercing",
+            "tongue_piercing",
+            "nose_piercing",
+            "lip_piercing",
+            "eyebrow_piercing",
+            "mouth_piercing",
+            "chin_piercing",
+            "bridge_piercing"
+          ]
+        },
+        {
+          "id": "type",
+          "label": {
+            "en": "Type",
+            "fr": "Type"
+          },
+          "tags": [
+            "ring_piercing",
+            "barbell_piercing",
+            "industrial_piercing",
+            "linked_piercing",
+            "labret_piercing",
+            "plug_(piercing)",
+            "spiked_ear_piercing",
+            "multiple_piercings"
+          ]
+        }
+      ]
+    }
+  ]
+}

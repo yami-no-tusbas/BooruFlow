@@ -1,0 +1,44 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-breasts",
+    "name": "BooruFlow — Breasts"
+  },
+  "profiles": [
+    {
+      "trigger": "breasts",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "size",
+          "label": {
+            "en": "Size",
+            "fr": "Taille"
+          },
+          "tags": [
+            "flat_chest",
+            "small_breasts",
+            "medium_breasts",
+            "large_breasts",
+            "huge_breasts",
+            "gigantic_breasts"
+          ]
+        },
+        {
+          "id": "shape_appearance",
+          "label": {
+            "en": "Shape / appearance",
+            "fr": "Forme / aspect"
+          },
+          "tags": [
+            "sagging_breasts",
+            "perky_breasts",
+            "covered_erect_nipples",
+            "cleavage"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -7,6 +7,7 @@ from threading import Event
 
 from booruflow.domain.auto_organize import PostMetadata
 from booruflow.domain.booru_sites import category_name
+from booruflow.infrastructure.gelbooru_normalization import normalize_post, post_tags
 from booruflow.infrastructure.tag_browser import exact_tags
 
 
@@ -44,8 +45,8 @@ class EntityProfileAnalyzer:
                     return []
 
     def _metadata(self, posts):
-        all_names = sorted({tag for post in posts for tag in str(
-            post.get("tags", post.get("tag_string", ""))).split()})
+        posts = [normalize_post(post) for post in posts]
+        all_names = sorted({tag for post in posts for tag in post_tags(post)})
         local_categories = {}
         if self.tag_database is not None and self.tag_database.is_file():
             local_categories = {row.name: category_name("gelbooru", row.category)
@@ -55,7 +56,7 @@ class EntityProfileAnalyzer:
             post_id = str(post["id"])
             cached = self.cache.get("gelbooru", post_id)
             # Search already supplies tags. No id: request is necessary, even on a cache miss.
-            tags = tuple(dict.fromkeys(str(post.get("tags", post.get("tag_string", ""))).split()))
+            tags = tuple(post_tags(post))
             categories = dict(cached.categories) if cached else {}
             categories.update(post.get("_tag_categories", {}) or {})
             for field, category in (("character", "character"), ("copyright", "copyright"),

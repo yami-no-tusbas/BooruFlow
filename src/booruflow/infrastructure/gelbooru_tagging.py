@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import html
 import json
 import urllib.parse
 import urllib.request
@@ -10,25 +9,12 @@ from collections.abc import Callable
 from time import perf_counter
 
 from booruflow.application.tagging import TaggingRequest, tagging_priority
-
-
-def post_tags(post: dict) -> list[str]:
-    value = post.get("tags", post.get("tag_string", ""))
-    if isinstance(value, list):
-        return [str(tag) for tag in value if str(tag).strip()]
-    return [tag for tag in html.unescape(str(value)).split() if tag]
+from booruflow.infrastructure.gelbooru_client import normalize_posts
+from booruflow.infrastructure.gelbooru_normalization import post_tags
 
 
 def payload_posts(payload: object) -> list[dict]:
-    if isinstance(payload, list):
-        return [post for post in payload if isinstance(post, dict)]
-    if isinstance(payload, dict):
-        posts = payload.get("post", [])
-        if isinstance(posts, dict):
-            return [posts]
-        if isinstance(posts, list):
-            return [post for post in posts if isinstance(post, dict)]
-    return []
+    return normalize_posts(payload)
 
 
 class GelbooruTaggingScanner:

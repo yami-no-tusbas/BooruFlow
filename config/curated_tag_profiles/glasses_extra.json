@@ -1,0 +1,76 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-glasses-extra",
+    "name": "BooruFlow — Glasses extra"
+  },
+  "profiles": [
+    {
+      "trigger": "glasses",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "lens_style",
+          "label": {
+            "en": "Lens / style",
+            "fr": "Verres / style"
+          },
+          "tags": [
+            "sunglasses",
+            "tinted_eyewear",
+            "opaque_glasses",
+            "coke-bottle_glasses",
+            "monocle"
+          ]
+        },
+        {
+          "id": "shape_style",
+          "label": {
+            "en": "Shape / style",
+            "fr": "Forme / style"
+          },
+          "tags": [
+            "round_eyewear",
+            "rectangular_eyewear",
+            "semi-rimless_eyewear",
+            "under-rim_eyewear",
+            "rimless_eyewear",
+            "heart-shaped_eyewear"
+          ]
+        },
+        {
+          "id": "frame_color",
+          "label": {
+            "en": "Frame color",
+            "fr": "Couleur de monture"
+          },
+          "tags": [
+            "black-framed_eyewear",
+            "red-framed_eyewear",
+            "white-framed_eyewear",
+            "blue-framed_eyewear",
+            "pink-framed_eyewear",
+            "yellow-framed_eyewear",
+            "green-framed_eyewear",
+            "brown-framed_eyewear",
+            "grey-framed_eyewear"
+          ]
+        },
+        {
+          "id": "position_state",
+          "label": {
+            "en": "Position / state",
+            "fr": "Position / état"
+          },
+          "tags": [
+            "glasses_on_head",
+            "looking_over_glasses",
+            "adjusting_glasses",
+            "unworn_eyewear"
+          ]
+        }
+      ]
+    }
+  ]
+}

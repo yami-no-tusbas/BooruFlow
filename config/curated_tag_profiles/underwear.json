@@ -1,0 +1,116 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-underwear",
+    "name": "BooruFlow — Underwear"
+  },
+  "profiles": [
+    {
+      "trigger": "panties",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "shape",
+          "label": {
+            "en": "Shape",
+            "fr": "Forme"
+          },
+          "tags": [
+            "thong",
+            "thong_panties",
+            "highleg_panties",
+            "string_panties",
+            "side-tie_panties",
+            "crotchless_panties"
+          ]
+        },
+        {
+          "id": "color_pattern",
+          "label": {
+            "en": "Color / pattern",
+            "fr": "Couleur / motif"
+          },
+          "tags": [
+            "white_panties",
+            "black_panties",
+            "pink_panties",
+            "blue_panties",
+            "red_panties",
+            "purple_panties",
+            "green_panties",
+            "striped_panties",
+            "polka_dot_panties",
+            "print_panties",
+            "leopard_print_panties"
+          ]
+        },
+        {
+          "id": "details",
+          "label": {
+            "en": "Details",
+            "fr": "Détails"
+          },
+          "tags": [
+            "bow_panties",
+            "lace-trimmed_panties",
+            "frilled_panties",
+            "see-through_panties"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "bra",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "shape",
+          "label": {
+            "en": "Shape / style",
+            "fr": "Forme / style"
+          },
+          "tags": [
+            "sports_bra",
+            "strapless_bra",
+            "lace-trimmed_bra",
+            "bow_bra",
+            "frilled_bra",
+            "chest_sarashi",
+            "front-hook_bra"
+          ]
+        },
+        {
+          "id": "color",
+          "label": {
+            "en": "Color",
+            "fr": "Couleur"
+          },
+          "tags": [
+            "black_bra",
+            "white_bra",
+            "pink_bra",
+            "blue_bra",
+            "red_bra",
+            "purple_bra",
+            "green_bra"
+          ]
+        },
+        {
+          "id": "details",
+          "label": {
+            "en": "Details / state",
+            "fr": "Détails / état"
+          },
+          "tags": [
+            "bra_strap",
+            "bra_peek",
+            "bra_lift",
+            "unworn_bra"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -4,9 +4,39 @@ from __future__ import annotations
 
 import os
 import sys
+from datetime import datetime
 from pathlib import Path
 
 from booruflow import startup_profile
+
+
+def build_identity(root: Path | None = None) -> str:
+    """Use generated portable metadata, including the pre-identity legacy format."""
+    root = root or application_root()
+    try:
+        fields = dict(line.split(': ', 1) for line in
+                      (root / 'BUILD_INFO.txt').read_text(encoding='utf-8-sig').splitlines()
+                      if ': ' in line)
+        if fields.get('Build identity'):
+            return fields['Build identity']
+        built = datetime.fromisoformat(fields['Built'])
+        dirty = '-dirty' if fields.get('Working tree', '').upper() == 'DIRTY' else ''
+        flavor = '-gpu' if fields.get('Runtime profile', '').upper() == 'CUDA' else ''
+        return f"{built:%Y.%m.%d}-g{fields['Commit short']}{dirty}-{built:%H%M}{flavor}"
+    except (OSError, ValueError, KeyError):
+        pass
+    if getattr(sys, 'frozen', False):
+        return root.name.removeprefix('BooruFlow-') if root.name.startswith('BooruFlow-') else 'portable'
+    import subprocess
+    try:
+        options = {'cwd': root, 'capture_output': True, 'text': True, 'timeout': 2,
+                   'creationflags': getattr(subprocess, 'CREATE_NO_WINDOW', 0)}
+        sha = subprocess.run(['git', 'rev-parse', '--short=7', 'HEAD'], check=True, **options).stdout.strip()
+        dirty = bool(subprocess.run(['git', 'status', '--porcelain', '--untracked-files=normal'],
+                                    check=True, **options).stdout.strip())
+        return f"source-g{sha}" + ('-dirty' if dirty else '')
+    except (OSError, subprocess.SubprocessError):
+        return 'source'
 
 
 def application_root() -> Path:

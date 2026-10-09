@@ -39,7 +39,7 @@ class RemotePixelSession:
         if item and item.content_sha256:
             if any(self.directory.glob(f"{item.content_sha256}.*")):
                 return "temporary_remote_available"
-            with ImageAnalysisCache(self._cache_path(repository)) as cache:
+            with ImageAnalysisCache(self._cache_path(repository), protected_keys=repository.active_source_cache_keys) as cache:
                 if cache.contains(item.content_sha256):return "persistent_remote_available"
         return "not_currently_available"
 
@@ -49,7 +49,7 @@ class RemotePixelSession:
         item=repository.get_item(item_id)
         if item and item.cached_path and item.cached_path.is_file():return item.cached_path
         if item and item.content_sha256:
-            with ImageAnalysisCache(self._cache_path(repository)) as cache:
+            with ImageAnalysisCache(self._cache_path(repository), protected_keys=repository.active_source_cache_keys) as cache:
                 entry=cache.get(item.content_sha256)
             if entry is not None:
                 suffix=mimetypes.guess_extension(entry.mime_type) or ".img"
@@ -73,7 +73,7 @@ class RemotePixelSession:
 
     def _download(self,repository,item_id,post)->Path:
         headers={"User-Agent":"BooruFlow/0.1 RemotePixels"};data=self.bytes_fetcher(post.file_url,headers);suffix=Path(post.file_url.split("?",1)[0]).suffix or ".img";digest=hashlib.sha256(data).hexdigest();metadata=inspect_image_bytes(data,filename=f"image{suffix}")
-        with ImageAnalysisCache(self._cache_path(repository)) as cache:
+        with ImageAnalysisCache(self._cache_path(repository), protected_keys=repository.active_source_cache_keys) as cache:
             stored=cache.put(digest,data,site=post.site,post_id=post.post_id,source_kind="preview",mime_type=metadata.mime_type,width=metadata.width,height=metadata.height,sha256=digest)
         if not stored.stored:raise RemotePixelUnavailable("image exceeds analysis cache limit")
         path=self.directory/f"{digest}{suffix}";path.write_bytes(data);self.paths[item_id]=path;return path

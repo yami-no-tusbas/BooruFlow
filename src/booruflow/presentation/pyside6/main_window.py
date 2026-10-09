@@ -44,7 +44,7 @@ from booruflow.presentation.pyside6.status_bar import StatusBarController
 from booruflow.presentation.pyside6.task_manager import TaskManager
 from booruflow.presentation.pyside6.theme import refresh_widget_tree
 from booruflow.presentation.pyside6.ui_logging import RunLog, log_event
-from booruflow.runtime import bundled_bootstrap_root, frozen_module_command
+from booruflow.runtime import build_identity, bundled_bootstrap_root, frozen_module_command
 
 
 class _InternalBooruLauncher:
@@ -131,6 +131,8 @@ class MainWindow(QMainWindow):
         self.project_root = project_root or Path.cwd()
         self.resource_root = resource_root or self.project_root
         self._run_log = RunLog.create(self.project_root)
+        self._build_identity = build_identity(self.project_root)
+        self._run_log.write(self._run_log.format(f'Build identity: {self._build_identity}'))
         self.disk_log_path = self._run_log.path
         self.python_executable = python_executable or sys.executable
         self.taxonomy_repository = TaxonomyRepository(
@@ -140,6 +142,11 @@ class MainWindow(QMainWindow):
         startup_profile.checkpoint("MainWindow base/task/log/taxonomy repositories")
         settings = settings_repository.load() if settings_repository else {}
         self._settings = dict(settings)
+        from booruflow.application.curated_profiles import configured_curated_profiles
+        self._curated_validation_warnings = set()
+        self.curated_profiles = configured_curated_profiles(
+            self.project_root, self.resource_root, self._settings,
+            warn=self._warn_curated_once)
         self.browser_launcher = BrowserLauncher(self.project_root / "var", settings)
         self.gelbooru_session_factory = None
         startup_profile.checkpoint("Browser launcher/session service")
@@ -446,6 +453,7 @@ class MainWindow(QMainWindow):
         controller = TaggingController(
             self.catalog, page, self._credentials, self.log, self.task_manager, self,
             project_root=self.project_root, settings=self._settings,
+            curated_profiles=self.curated_profiles,
             publisher_factory=self._build_tagging_publisher,
             session_factory_provider=self._active_gelbooru_session_factory,
             publication_backend_provider=lambda: self.publish_backend,
@@ -455,6 +463,8 @@ class MainWindow(QMainWindow):
             http_diagnostic_mode_provider=self._embedded_http_diagnostic_enabled,
             publication_prepare=self._prepare_publication_backend,
         )
+        controller._curated_resource_root = self.resource_root
+        controller._curated_validation_warnings = self._curated_validation_warnings
         page.start_requested.connect(controller.start)
         page.stop_requested.connect(controller.stop)
         page.search_settings_saved.connect(self._save_tagging_settings)
@@ -622,11 +632,25 @@ class MainWindow(QMainWindow):
             browser_launcher=self.browser_launcher,
         )
         page.entity_profile_requested.connect(lambda tag, category: self._open_entity_profile(page, tag, category))
+        page.wiki_audit_requested.connect(self._open_wiki_audit)
         self.status_controller.bind(page.page_status)
         if self.database_controller is not None:
             self.database_controller.tag_browser_page = page
         self.tag_browser_page = page
         return page
+
+    def _open_wiki_audit(self, tags: list[str]) -> None:
+        # The existing lazy page/navigation owns construction and status wiring.
+        names = tuple(tags)
+        generation = getattr(self, "_wiki_audit_request_generation", 0) + 1
+        self._wiki_audit_request_generation = generation
+
+        def load() -> None:
+            if generation == self._wiki_audit_request_generation:
+                self.wiki_audit_page.load_tags(names)
+
+        self.navigate_to_key("wiki_audit")
+        self._run_when_ready("wiki_audit", load)
 
     def _open_entity_profile(self, page, tag: str, category: str) -> None:
         from booruflow.presentation.pyside6.entity_profiles import EntityProfileDialog
@@ -1091,7 +1115,7 @@ class MainWindow(QMainWindow):
             self.retranslate()
 
     def retranslate(self) -> None:
-        self.setWindowTitle(self.catalog.text("app.title"))
+        self.setWindowTitle(f'{self.catalog.text("app.title")} — {self._build_identity}')
         for index, (kind, key) in enumerate(self.VISIBLE_NAVIGATION):
             item = self.navigation.item(index)
             label_key = f"nav.group.{key}" if kind == "group" else f"nav.{key}"
@@ -1397,12 +1421,24 @@ class MainWindow(QMainWindow):
                 operation, "running", f"{current:,}/{total:,} bytes", current, total
             )
 
+    def _warn_curated_once(self, message):
+        if message not in self._curated_validation_warnings:
+            self._curated_validation_warnings.add(message)
+            self.log(f'[WARNING] {message}')
+
+    def _reload_curated_profiles(self) -> None:
+        from booruflow.application.curated_profiles import configured_curated_profiles
+        self.curated_profiles = configured_curated_profiles(
+            self.project_root, self.resource_root, self._settings,
+            warn=self._warn_curated_once)
+
     def _bootstrap_prepared(self, kind: str, result) -> None:
         operation = "database" if kind == "gelbooru_tags" else "aliases"
         wizard = getattr(self, "_setup_wizard", None)
         if result.warning:
             self.log(f"[WARNING] [Bootstrap] {result.warning}")
         if result.state in {"ready", "installed"}:
+            self._reload_curated_profiles()
             message = self.catalog.text("wizard.ready")
             self.log(f"[INFO] [Bootstrap] {kind}: {message}")
             if self.tagging_controller is not None:
@@ -1473,6 +1509,8 @@ class MainWindow(QMainWindow):
         settings[key] = str(path)
         self.settings_repository.save(settings)
         self._settings = dict(settings)
+        if site == "gelbooru" and hasattr(self, "project_root") and hasattr(self, "resource_root"):
+            self._reload_curated_profiles()
         if getattr(self, "tagging_controller", None) is not None:
             self.tagging_controller._settings = dict(settings)
             self.tagging_controller.notify_tag_database_ready()
@@ -1535,6 +1573,12 @@ class MainWindow(QMainWindow):
         self.log_view.clear()
 
     def closeEvent(self, event) -> None:
+        self._wiki_audit_request_generation = getattr(self, "_wiki_audit_request_generation", 0) + 1
+        wiki_audit = getattr(self, "wiki_audit_page", None)
+        if wiki_audit is not None and not wiki_audit.shutdown():
+            event.ignore()
+            QTimer.singleShot(100, self.close)
+            return
         entity_dialog = getattr(self, "_entity_profile_dialog", None)
         if entity_dialog is not None:
             import shiboken6
@@ -1566,8 +1610,12 @@ class MainWindow(QMainWindow):
             return
         if self.similar_artists_controller is not None:
             self.similar_artists_controller.shutdown()
-        if self.image_analysis_controller is not None:
-            self.image_analysis_controller.shutdown()
+        if (
+            self.image_analysis_controller is not None
+            and not self.image_analysis_controller.shutdown()
+        ):
+            event.ignore()
+            return
         if (
             self.options_maintenance_controller is not None
             and not self.options_maintenance_controller.shutdown()

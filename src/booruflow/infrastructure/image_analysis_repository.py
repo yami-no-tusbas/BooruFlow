@@ -35,7 +35,7 @@ from booruflow.infrastructure.wd14_score_cache import (
     wd14_labels_hash,
 )
 
-SCHEMA_VERSION = 26
+SCHEMA_VERSION = 27
 TEST_BLOCKED_DATABASE_ENV = "BOORUFLOW_TEST_BLOCKED_ANALYSIS_DATABASE"
 
 
@@ -320,6 +320,17 @@ class ImageAnalysisRepository:
             with self.connection:
                 self.connection.execute("BEGIN IMMEDIATE")
                 if self.connection.execute("PRAGMA user_version").fetchone()[0] == 25:
+                    for statement in migration.split(";"):
+                        if statement.strip():
+                            self.connection.execute(statement)
+
+        if self.connection.execute("PRAGMA user_version").fetchone()[0] == 26:
+            migration = files("booruflow.infrastructure.schema").joinpath(
+                "image_analysis_v27.sql"
+            ).read_text(encoding="utf-8")
+            with self.connection:
+                self.connection.execute("BEGIN IMMEDIATE")
+                if self.connection.execute("PRAGMA user_version").fetchone()[0] == 26:
                     for statement in migration.split(";"):
                         if statement.strip():
                             self.connection.execute(statement)
@@ -691,6 +702,26 @@ class ImageAnalysisRepository:
                 (error, utc_now(), item_id),
             )
 
+    def recover_missing_source(self, item_id: int, error: str) -> bool:
+        """Invalidate stale resolution once per explicit request, atomically and persistently."""
+        with self.connection:
+            return bool(self.connection.execute(
+                """UPDATE analysis_items SET state='pending',source_state='unresolved',
+                   source_resolution_started_at=NULL,processing_started_at=NULL,
+                   processing_heartbeat_at=NULL,source_recovery_count=source_recovery_count+1,
+                   last_error=?,updated_at=? WHERE id=? AND state='processing'
+                   AND source_site IN ('gelbooru','e621') AND source_post_id IS NOT NULL
+                   AND source_recovery_count<1""", (error, utc_now(), item_id),
+            ).rowcount)
+
+    def active_source_cache_keys(self) -> set[str]:
+        """Job-scoped residency protection; cancellation/completion releases it immediately."""
+        return {str(row[0]) for row in self.connection.execute(
+            """SELECT content_sha256 FROM analysis_items WHERE analysis_requested=1
+               AND state IN ('pending','processing') AND content_sha256 IS NOT NULL
+               AND cached_path IS NULL"""
+        )}
+
     def claim_sources_to_resolve(self, limit: int) -> list[int]:
         if limit < 1:
             return []
@@ -725,6 +756,18 @@ class ImageAnalysisRepository:
             self.connection.rollback()
             raise
         return ids
+
+    def has_sources_to_resolve(self, limit: int) -> bool:
+        """Use the same eligibility and capacity as the source claim operation."""
+        if limit < 1:
+            return False
+        active, waiting = self.connection.execute(
+            """SELECT
+                COUNT(CASE WHEN source_resolution_started_at IS NOT NULL THEN 1 END),
+                COUNT(CASE WHEN source_resolution_started_at IS NULL THEN 1 END)
+               FROM analysis_items WHERE source_state='unresolved' AND analysis_requested=1"""
+        ).fetchone()
+        return active < limit and waiting > 0
 
     def release_source_claim(self, item_id: int) -> None:
         with self.connection:
@@ -1663,11 +1706,14 @@ class ImageAnalysisRepository:
     def list_batch_entries(
         self, publish_state: PublishState | None = None
     ) -> list[dict[str, object]]:
+        return [self._batch_entry_from_row(row) for row in self._batch_rows(publish_state)]
+
+    def _batch_rows(self, publish_state=None):
         condition = " WHERE batch_visible=1"
         if publish_state is not None:
             condition += " AND publish_state=?"
         parameters = (publish_state.value,) if publish_state is not None else ()
-        rows = self.connection.execute(
+        return self.connection.execute(
             f"SELECT * FROM tagging_review_batch_entries{condition} "
             "ORDER BY CASE publish_state "
             "WHEN 'pending_publish' THEN 0 WHEN 'failed' THEN 1 "
@@ -1675,7 +1721,28 @@ class ImageAnalysisRepository:
             "reviewed_at DESC,item_id DESC",
             parameters,
         )
-        return [self._batch_entry_from_row(row) for row in rows]
+
+    @classmethod
+    def read_batch_snapshot(cls, path: Path, site: str):
+        """Read an already migrated queue on a worker-owned, read-only connection."""
+        from time import perf_counter
+        repository = cls.__new__(cls)
+        connection = sqlite3.connect(Path(path).resolve().as_uri() + '?mode=ro', uri=True)
+        repository.connection = connection
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute('BEGIN')
+            started = perf_counter()
+            rows = repository._batch_rows().fetchall()
+            timings = {'query_sort_ms': (perf_counter() - started) * 1000}
+            started = perf_counter()
+            entries = [repository._batch_entry_from_row(row) for row in rows]
+            timings['decode_ms'] = (perf_counter() - started) * 1000
+            started = perf_counter()
+            reviewed = repository.reviewed_remote_post_ids(site)
+            return entries, reviewed, timings, (perf_counter() - started) * 1000
+        finally:
+            connection.close()
 
     def pending_change_count(self) -> int:
         """Count publishable review rows that contain an actual tag delta."""
@@ -1983,6 +2050,14 @@ class ImageAnalysisRepository:
     def retry(self, item_id: int) -> None:
         self.request_analysis(item_id)
         self.transition(item_id, AnalysisState.PENDING)
+        with self.connection:
+            self.connection.execute(
+                """UPDATE analysis_items SET source_recovery_count=0,
+                   source_state=CASE WHEN source_state='failed' OR source_recovery_count>0
+                       THEN 'unresolved' ELSE source_state END,
+                   source_resolution_started_at=NULL WHERE id=? AND source_site IS NOT NULL""",
+                (item_id,),
+            )
 
     def reanalyze(self, item_id: int, priority: int = 100) -> None:
         """Recompute automatic backends for one existing item using current settings.
@@ -1997,6 +2072,9 @@ class ImageAnalysisRepository:
             raise ValueError("cannot re-analyze an item that is already processing")
         now = utc_now()
         with self.connection:
+            self.connection.execute(
+                "UPDATE analysis_items SET source_recovery_count=0 WHERE id=?", (item_id,)
+            )
             self.connection.execute(
                 """UPDATE model_runs SET state='stale',finished_at=?,
                    error='Re-analysis requested' WHERE item_id=? AND state='completed'""",
@@ -2498,6 +2576,9 @@ class ImageAnalysisRepository:
         *,
         canonicalize: Callable[[str], str] | None = None,
     ) -> int:
+        inherited = self.canonical_review_decisions(
+            item_id, self._review_site(item_id), canonicalize=canonicalize
+        )
         source_names = {
             str(row[0]).strip().casefold().replace(" ", "_")
             for row in self.connection.execute(
@@ -2517,6 +2598,7 @@ class ImageAnalysisRepository:
                     normalized,
                     source.value,
                     float(confidence),
+                    inherited.get(canonical_tag_value(normalized), 'unreviewed'),
                     category,
                     raw,
                     int(normalized.casefold() in source_names),
@@ -2529,7 +2611,7 @@ class ImageAnalysisRepository:
                 """INSERT INTO tag_observations(
                        item_id,model_run_id,tag_name,source,confidence,decision,
                        category,raw_tag_name,source_present,created_at)
-                   VALUES(?,?,?,?,?,'unreviewed',?,?,?,?)""",
+                   VALUES(?,?,?,?,?,?,?,?,?,?)""",
                 rows,
             )
             self.connection.execute(
@@ -2714,6 +2796,46 @@ class ImageAnalysisRepository:
             float(row["pastel_score"]),
         )
 
+    def apply_review_observation_bundle(self, decisions, manual_tags, *, item_id: int,
+                                       canonical_decisions=(), site=None):
+        """Confirm/undo one review gesture atomically using normal manual observations.
+
+        No Entity Profile data participates in this transaction. Names must already
+        be validated by the caller against the local catalogue.
+        """
+        now = utc_now()
+        added = []
+        with self.connection:
+            for observation_id, decision, reviewed_name in decisions:
+                changed = self.connection.execute(
+                    "UPDATE tag_observations SET decision=?,reviewed_name=?,reviewed_at=? "
+                    "WHERE id=? AND item_id=?",
+                    (decision, reviewed_name, now, observation_id, item_id),
+                ).rowcount
+                if not changed:
+                    raise KeyError(observation_id)
+                row = self.connection.execute(
+                    "SELECT COALESCE(reviewed_name,tag_name) FROM tag_observations WHERE id=?",
+                    (observation_id,),
+                ).fetchone()
+                self._set_canonical_review_decision(
+                    item_id, self._review_site(item_id), canonical_tag_value(row[0]), decision
+                )
+            for name in manual_tags:
+                cursor = self.connection.execute(
+                    "INSERT INTO tag_observations "
+                    "(item_id,tag_name,source,confidence,decision,created_at,reviewed_at) "
+                    "VALUES(?,?,'manual',NULL,'accepted',?,?)", (item_id, name, now, now))
+                added.append(int(cursor.lastrowid))
+                self._set_canonical_review_decision(
+                    item_id, self._review_site(item_id), canonical_tag_value(name), "accepted"
+                )
+            for name, decision, aliases in canonical_decisions:
+                self._set_canonical_review_decision(
+                    item_id, site or self._review_site(item_id), name, decision, aliases
+                )
+        return added
+
     def add_manual_observation(self, item_id: int, name: str) -> int:
         now = utc_now()
         with self.connection:
@@ -2723,7 +2845,69 @@ class ImageAnalysisRepository:
                    VALUES(?,?,'manual',NULL,'accepted',?,?)""",
                 (item_id, name.strip(), now, now),
             )
+            self._set_canonical_review_decision(
+                item_id, self._review_site(item_id), canonical_tag_value(name), "accepted"
+            )
         return int(cursor.lastrowid)
+
+    def _review_site(self, item_id: int) -> str:
+        row = self.connection.execute(
+            """SELECT COALESCE(source_site,
+               (SELECT site FROM local_source_links WHERE item_id=analysis_items.id), 'gelbooru')
+               FROM analysis_items WHERE id=?""", (item_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(item_id)
+        return str(row[0])
+
+    def canonical_review_decisions(self, item_id: int, site: str, *, canonicalize=None) -> dict[str, str]:
+        """Explicit per-tag state wins; old reviewed observations supply a compatibility fallback."""
+        canonicalize = canonicalize or canonical_tag_value
+        decisions = {}
+        if self._review_site(item_id) == site:
+            for name, decision in self.connection.execute(
+                """SELECT COALESCE(reviewed_name,tag_name),decision FROM tag_observations
+                   WHERE item_id=? AND decision<>'unreviewed' ORDER BY reviewed_at,id""", (item_id,),
+            ):
+                decisions[canonicalize(canonical_tag_value(name))] = str(decision)
+        persisted = list(self.connection.execute(
+                "SELECT tag_name,decision FROM canonical_tag_decisions WHERE item_id=? AND site=?",
+                (item_id, site),
+            ))
+        # Canonical keys override compatibility entries saved under an old alias.
+        for name, decision in sorted(persisted, key=lambda row: canonicalize(row[0]) == row[0]):
+            decisions[canonicalize(str(name))] = str(decision)
+        return decisions
+
+    def _set_canonical_review_decision(self, item_id, site, name, decision, aliases=()):
+        name = canonical_tag_value(name)
+        self.connection.execute(
+            """INSERT INTO canonical_tag_decisions(item_id,site,tag_name,decision,updated_at)
+               VALUES(?,?,?,?,?) ON CONFLICT(item_id,site,tag_name) DO UPDATE SET
+               decision=excluded.decision,updated_at=excluded.updated_at""",
+            (item_id, site, name, decision, utc_now()),
+        )
+        if self._review_site(item_id) != site:
+            return
+        names = tuple(dict.fromkeys((name, *aliases)))
+        placeholders = ','.join('?' for _ in names)
+        self.connection.execute(
+            f"""UPDATE tag_observations SET decision=?,reviewed_at=?
+                WHERE item_id=? AND REPLACE(LOWER(TRIM(COALESCE(reviewed_name,tag_name))),
+                ' ','_') IN ({placeholders})""", (decision, utc_now(), item_id, *names),
+        )
+        if decision != 'unreviewed':
+            self.connection.execute(
+                f"""UPDATE tag_review_entries SET decision=?,updated_at=?
+                    WHERE item_id=? AND origin='existing' AND tag_name IN ({placeholders})""",
+                ('keep' if decision == 'accepted' else 'remove', utc_now(), item_id, *names),
+            )
+
+    def set_canonical_review_decision(self, item_id, site, name, decision, *, aliases=()):
+        if decision not in {'accepted', 'rejected', 'unreviewed'}:
+            raise ValueError(f"invalid canonical review decision: {decision}")
+        with self.connection:
+            self._set_canonical_review_decision(item_id, site, name, decision, aliases)
 
     def observations(self, item_id: int) -> list[tuple[int, TagObservation]]:
         return [
@@ -2755,6 +2939,10 @@ class ImageAnalysisRepository:
                    VALUES(?,?, 'existing',?,?,?) ON CONFLICT(item_id,tag_name,origin)
                    DO UPDATE SET decision=excluded.decision,updated_at=excluded.updated_at""",
                 (item_id, tag_name, decision, now, now),
+            )
+            self._set_canonical_review_decision(
+                item_id, self._review_site(item_id), canonical_tag_value(tag_name),
+                'accepted' if decision == 'keep' else 'rejected',
             )
 
     def existing_tag_decision(self, item_id: int, tag_name: str) -> str:
@@ -2803,6 +2991,14 @@ class ImageAnalysisRepository:
                    WHERE id=?""",
                 (decision.value, reviewed_name, utc_now(), observation_id),
             ).rowcount
+            if changed:
+                row = self.connection.execute(
+                    "SELECT item_id,COALESCE(reviewed_name,tag_name) FROM tag_observations WHERE id=?",
+                    (observation_id,),
+                ).fetchone()
+                self._set_canonical_review_decision(
+                    int(row[0]), self._review_site(int(row[0])), canonical_tag_value(row[1]), decision.value
+                )
         if not changed:
             raise KeyError(observation_id)
 

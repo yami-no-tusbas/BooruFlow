@@ -204,11 +204,14 @@ def test_main_window_wires_external_configured_launcher_and_entity_action(app):
     opened = Mock()
     launcher = Mock()
     window = SimpleNamespace(catalog=catalog(), _settings={}, browser_launcher=launcher,
-                             status_controller=Mock(), database_controller=None, _open_entity_profile=opened)
+                             status_controller=Mock(), database_controller=None,
+                             _open_entity_profile=opened, _open_wiki_audit=Mock())
     page = MainWindow._build_tag_browser(window)
     assert page.browser_launcher is launcher
     page.entity_profile_requested.emit("bardiche", "general")
     opened.assert_called_once_with(page, "bardiche", "general")
+    page.wiki_audit_requested.emit(["bardiche"])
+    window._open_wiki_audit.assert_called_once_with(["bardiche"])
     page.close()
 
 

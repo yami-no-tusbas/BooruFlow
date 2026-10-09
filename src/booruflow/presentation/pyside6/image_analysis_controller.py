@@ -24,6 +24,7 @@ from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepo
 from booruflow.infrastructure.image_sources import (
     E621PostProvider,
     GelbooruPostProvider,
+    ImageCacheCapacityError,
     ImageSourceService,
 )
 from booruflow.infrastructure.tag_category_lookup import LocalTagCategoryLookup
@@ -114,8 +115,10 @@ class SourcePreparationWorker(QThread):
         outcomes: dict[str, int] = {}
         reused_ids: list[int] = []
         events: list[tuple[str, str, str]] = []
-        with ImageAnalysisRepository(self.database) as repository:
-            sources = ImageSourceService(repository, self.cache)
+        with (
+            ImageAnalysisRepository(self.database) as repository,
+            ImageSourceService(repository, self.cache) as sources,
+        ):
             gel = self.credentials.get("gelbooru", {})
             gel = gel if isinstance(gel, dict) else {}
             e621 = self.credentials.get("e621", {})
@@ -136,6 +139,8 @@ class SourcePreparationWorker(QThread):
                 ),
             }
             for path in self.local_paths:
+                if self.isInterruptionRequested():
+                    break
                 try:
                     result = sources.add_local_with_result(path)
                     item_id = result.item_id
@@ -152,7 +157,15 @@ class SourcePreparationWorker(QThread):
                     except Exception as exc:  # noqa: BLE001 - optional metadata boundary
                         repository.fail_local_enrichment(item_id, str(exc))
                         enrichment_errors.append(f"{detected.site} #{detected.post_id}: {exc}")
-            for item_id in repository.claim_sources_to_resolve(self.download_prefetch):
+            claims = (
+                [] if self.isInterruptionRequested()
+                else repository.claim_sources_to_resolve(self.download_prefetch)
+            )
+            for index, item_id in enumerate(claims):
+                if self.isInterruptionRequested():
+                    for pending_id in claims[index:]:
+                        repository.release_source_claim(pending_id)
+                    break
                 item = repository.get_item(item_id)
                 context = f"{item.source.site}:{item.source.post_id} item:{item_id}"
                 events.append(("INFO", context, "Metadata request started"))
@@ -168,6 +181,10 @@ class SourcePreparationWorker(QThread):
                     if canonical_id != item_id:
                         message += f"; deduplicated to item:{canonical_id}"
                     events.append(("INFO", context, message))
+                except ImageCacheCapacityError as exc:
+                    repository.release_source_claim(item_id)
+                    outcomes["cache_capacity_deferred"] = outcomes.get("cache_capacity_deferred", 0) + 1
+                    events.append(("WARNING", context, str(exc)))
                 except Exception as exc:  # noqa: BLE001 - per-source failure boundary
                     repository.fail_source(item_id, str(exc))
                     errors.append(str(exc))
@@ -203,9 +220,13 @@ class DroppedSourceScanWorker(QThread):
             result.append(str(path))
 
         for source in self.sources:
+            if self.isInterruptionRequested():
+                break
             if source.is_dir():
                 try:
                     for directory, subdirectories, files in os.walk(source):
+                        if self.isInterruptionRequested():
+                            break
                         subdirectories.sort(key=str.casefold)
                         for name in sorted(files, key=str.casefold):
                             path = Path(directory) / name
@@ -320,6 +341,9 @@ class ImageAnalysisController(QObject):
         self.worker_restart_timer.setSingleShot(True)
         self.worker_restart_timer.timeout.connect(self._restart_worker_now)
         self._shutting_down = False
+        self._closed = False
+        self._preview_identity: tuple | None = None
+        self._source_capacity_waiting = False
         self._last_queue_signature: tuple | None = None
         self._page_active = True
         self._page_dirty = False
@@ -368,6 +392,8 @@ class ImageAnalysisController(QObject):
 
     def start_legacy_cache_migration(self) -> None:
         """Run an explicitly requested migration after stopping the analysis worker."""
+        if self._shutting_down:
+            return
         if self.legacy_cache_migration_worker is not None or self._legacy_cache_migration_requested:
             return
         count, size = self._legacy_cache_inventory()
@@ -397,6 +423,8 @@ class ImageAnalysisController(QObject):
         self._launch_legacy_cache_migration()
 
     def _launch_legacy_cache_migration(self) -> None:
+        if self._shutting_down:
+            return
         self.log(log_event("ImageCache", "Legacy cache migration started"))
         worker = LegacyImageCacheMigrationWorker(self.database, self.cache)
         self.legacy_cache_migration_worker = worker
@@ -418,10 +446,14 @@ class ImageAnalysisController(QObject):
         self.installation_page.show_legacy_cache_status(count, size, self.sources.cache_path)
 
     def _legacy_cache_migration_progress(self, current: int, total: int) -> None:
+        if self._shutting_down:
+            return
         if self.installation_page is not None:
             self.installation_page.set_legacy_cache_migration_running(True, current, total)
 
     def _legacy_cache_migration_completed(self, report: dict) -> None:
+        if self._shutting_down:
+            return
         self.log(
             log_event(
                 "ImageCache",
@@ -444,6 +476,8 @@ class ImageAnalysisController(QObject):
         self._restart_worker_after_legacy_cache_migration()
 
     def _legacy_cache_migration_failed(self, error: str) -> None:
+        if self._shutting_down:
+            return
         self.log(log_event("ImageCache", f"Legacy cache migration failed: {error}", level="ERROR"))
         self.legacy_cache_migration_worker.deleteLater()
         self.legacy_cache_migration_worker = None
@@ -499,10 +533,14 @@ class ImageAnalysisController(QObject):
         self.process.write(b"STOP\n")
 
     def add_local_files(self, paths: list[str]) -> None:
+        if self._shutting_down:
+            return
         self.pending_local_paths.extend(Path(path) for path in paths)
         self._start_source_preparation()
 
     def scan_dropped_sources(self, paths: list[str]) -> None:
+        if self._shutting_down:
+            return
         if self.drop_scan_worker and self.drop_scan_worker.isRunning():
             self.log("Image Analysis: a dropped-folder scan is already running")
             return
@@ -512,6 +550,8 @@ class ImageAnalysisController(QObject):
         self.drop_scan_worker.start()
 
     def _drop_scan_finished(self, paths: list[str], ignored: int) -> None:
+        if self._shutting_down:
+            return
         if self.drop_scan_worker:
             self.drop_scan_worker.deleteLater()
             self.drop_scan_worker = None
@@ -535,6 +575,8 @@ class ImageAnalysisController(QObject):
         self.add_local_files(paths)
 
     def add_remote_ids(self, site: str, post_ids: list[str], *, priority: int = 0) -> list[int]:
+        if self._shutting_down:
+            return []
         kind = InputKind.GELBOORU_POST if site == "gelbooru" else InputKind.E621_POST
         ids: list[int] = []
         try:
@@ -594,15 +636,24 @@ class ImageAnalysisController(QObject):
 
     def reanalyze_item(self, item_id: int) -> None:
         """Queue one existing item for a fresh run with the current worker settings."""
+        if self._shutting_down:
+            return
         self.repository.reanalyze(item_id, priority=100)
         self.ensure_worker_available("manual Tagging re-analysis")
         self.refresh()
 
     def _start_source_preparation(self) -> None:
-        if self.source_worker and self.source_worker.isRunning():
+        if self._shutting_down:
+            return
+        if self.source_worker is not None:
             self.log(log_event("ImageAnalysis", "Source preparation already active", level="DEBUG"))
             return
+        if not self.pending_local_paths and not self.repository.has_sources_to_resolve(
+            self.policy.download_prefetch
+        ):
+            return
         local, self.pending_local_paths = self.pending_local_paths, []
+        self._source_capacity_waiting = False
         gel_path = gelbooru_tag_database(self.settings)
         self.source_worker = SourcePreparationWorker(
             self.database,
@@ -612,6 +663,7 @@ class ImageAnalysisController(QObject):
             self.credentials(),
             gel_path,
         )
+        self.source_worker.setParent(self)
         self.source_worker.completed.connect(self._sources_finished)
         self.source_worker.start()
         self.log(log_event("ImageAnalysis", "Metadata/source preparation started"))
@@ -624,6 +676,8 @@ class ImageAnalysisController(QObject):
         reused_ids: list[int],
         events: list[tuple[str, str, str]],
     ) -> None:
+        if self._shutting_down:
+            return
         for level, context, message in events:
             self.log(log_event("Metadata", message, level=level, context=context))
         for error in errors:
@@ -631,9 +685,15 @@ class ImageAnalysisController(QObject):
         for error in enrichment_errors:
             self.log(log_event("Metadata", error, level="WARNING"))
         if self.source_worker:
+            # completed is emitted after closing its connections, just before run returns.
+            # Join that final return before deleting the QThread or starting its successor.
+            self.source_worker.wait()
             self.source_worker.deleteLater()
             self.source_worker = None
-        if self.pending_local_paths or self.repository.queue_counts().get("unresolved", 0):
+        self._source_capacity_waiting = bool(outcomes.get("cache_capacity_deferred"))
+        if self.pending_local_paths or (not self._source_capacity_waiting and self.repository.has_sources_to_resolve(
+            self.policy.download_prefetch
+        )):
             self._start_source_preparation()
         elif self.drop_expected:
             invalid = len(errors)
@@ -759,6 +819,8 @@ class ImageAnalysisController(QObject):
 
     def run_exclusive_database_operation(self, operation, completed, failed) -> None:
         """Run GUI-side maintenance only while the analysis process is stopped."""
+        if self._shutting_down:
+            return
         if self._exclusive_database_operation is not None:
             failed(RuntimeError("an exclusive image-analysis database operation is already pending"))
             return
@@ -775,6 +837,8 @@ class ImageAnalysisController(QObject):
         self.process.write(b"STOP\n")
 
     def _run_exclusive_database_operation(self) -> None:
+        if self._shutting_down:
+            return
         pending = self._exclusive_database_operation
         if pending is None:
             return
@@ -803,6 +867,8 @@ class ImageAnalysisController(QObject):
                 self.start_worker()
 
     def _worker_started(self) -> None:
+        if self._shutting_down:
+            return
         self._launcher_pid = int(self.process.processId())
         timeout_ms = max(
             1000,
@@ -826,6 +892,8 @@ class ImageAnalysisController(QObject):
             self._handle_worker_line(line)
 
     def _handle_worker_line(self, line: str) -> None:
+        if self._shutting_down:
+            return
         clean = line.strip()
         if not clean:
             return
@@ -833,6 +901,11 @@ class ImageAnalysisController(QObject):
             "] Item ready", "] Item failed:", "] batch failed:",
         )):
             self.analysis_changed.emit()
+            if self._source_capacity_waiting:
+                self._start_source_preparation()
+        if "[Worker]" in clean and "] Source recovery requested:" in clean:
+            self.analysis_changed.emit()
+            self._start_source_preparation()
         if clean.startswith("BOOTSTRAP WD14 init begin"):
             self._set_worker_state("initializing", "ImageAnalysis WD14 initialization")
             self.page.worker_state.setText(self.page.catalog.text("image_analysis.worker_initializing"))
@@ -890,6 +963,8 @@ class ImageAnalysisController(QObject):
                 level=level,
             )
         )
+        if self._shutting_down:
+            return
         if self._legacy_cache_migration_requested:
             self._legacy_cache_migration_requested = False
             QTimer.singleShot(0, self._launch_legacy_cache_migration)
@@ -1126,6 +1201,8 @@ class ImageAnalysisController(QObject):
                 self.installation_page.set_analysis_install_running(False)
 
     def _model_finished(self, code: int, _status) -> None:
+        if self._shutting_down:
+            return
         self._model_output()
         self.page.wd14_install.setEnabled(True)
         self.page.gpu_runtime_install.setEnabled(not getattr(sys, "frozen", False))
@@ -1193,6 +1270,8 @@ class ImageAnalysisController(QObject):
         if queue_changed:
             self._last_queue_signature = signature
             self.page.show_sources(items)
+            if self._source_capacity_waiting:
+                self._start_source_preparation()
         after_model = time.perf_counter()
         status = self.workflow.status()
         after_counters = time.perf_counter()
@@ -1264,19 +1343,32 @@ class ImageAnalysisController(QObject):
             self._slow_refresh_samples.append(elapsed_ms)
 
     def _show_current(self) -> None:
+        if self._shutting_down:
+            return
         fresh = self.repository.get_item(self.current.id)
         if fresh is not None:
             self.current = fresh
         tags = self.repository.source_tags(self.current.id)
         observations = self.repository.observations(self.current.id)
         statistics = self.repository.statistics(self.current.id)
-        self.page.clear_preview()
+        identity = (
+            self.current.id, self.current.content_sha256, self.current.cached_path,
+            self.current.mime_type,
+        )
+        if identity == self._preview_identity and not self.page.image._source.isNull():
+            self.page.show_review(
+                self.current, tags, observations, statistics, preserve_preview=True
+            )
+            return
+        self._preview_identity = None
         trace: dict[str, object] = {}
         try:
             preview_data = self.sources.cached_bytes(self.current, trace=trace.__setitem__)
             loaded = self.page.show_review(
                 self.current, tags, observations, statistics, preview_data=preview_data
             )
+            if loaded:
+                self._preview_identity = identity
             source = str(trace.get("preview_source", "unknown"))
             cache_key = str(self.current.content_sha256 or "")[:12] or "none"
             level = "INFO" if loaded else "WARNING"
@@ -1297,6 +1389,8 @@ class ImageAnalysisController(QObject):
             self.page.show_review(self.current, tags, observations, statistics)
 
     def complete(self) -> None:
+        if self._shutting_down:
+            return
         if not self.current:
             return
         current = self.repository.get_item(self.current.id)
@@ -1312,6 +1406,8 @@ class ImageAnalysisController(QObject):
         self.refresh()
 
     def skip(self) -> None:
+        if self._shutting_down:
+            return
         if not self.current:
             return
         current = self.repository.get_item(self.current.id)
@@ -1327,6 +1423,8 @@ class ImageAnalysisController(QObject):
         self.refresh()
 
     def open_item(self, item_id: int) -> None:
+        if self._shutting_down:
+            return
         item = self.repository.get_item(item_id)
         if item is None:
             return
@@ -1341,6 +1439,8 @@ class ImageAnalysisController(QObject):
         self.refresh()
 
     def requeue_item(self, item_id: int) -> None:
+        if self._shutting_down:
+            return
         item = self.repository.get_item(item_id)
         if item is None or item.state.value != "skipped":
             return
@@ -1354,6 +1454,8 @@ class ImageAnalysisController(QObject):
         self.refresh()
 
     def queue_filter_changed(self, mode: str) -> None:
+        if self._shutting_down:
+            return
         if mode != "active":
             return
         active = self.repository.active_review() or self.workflow.next_for_review()
@@ -1365,6 +1467,8 @@ class ImageAnalysisController(QObject):
             self.refresh()
 
     def clean_queue(self, mode: str) -> None:
+        if self._shutting_down:
+            return
         if mode == "active":
             answer = QMessageBox.question(
                 self.page,
@@ -1393,13 +1497,18 @@ class ImageAnalysisController(QObject):
         self.refresh()
 
     def retry(self, item_id: int) -> None:
+        if self._shutting_down:
+            return
         try:
             self.workflow.retry(item_id)
+            self._start_source_preparation()
         except (ValueError, KeyError) as exc:
             self.log(f"Image Analysis: {exc}")
         self.refresh()
 
     def add_manual_tag(self, name: str) -> None:
+        if self._shutting_down:
+            return
         if not self.current:
             return
         try:
@@ -1410,18 +1519,38 @@ class ImageAnalysisController(QObject):
             self.log(f"Image Analysis: {exc}")
 
     def decide(self, observation_id: int, decision: DecisionState, name: str | None) -> None:
+        if self._shutting_down:
+            return
         self.workflow.decide(observation_id, decision, name)
         if self.current:
             self._show_current()
 
     def decide_many(self, observation_ids: list[int], decision: DecisionState) -> None:
+        if self._shutting_down:
+            return
         for observation_id in observation_ids:
             self.workflow.decide(observation_id, decision, None)
         if self.current:
             self._show_current()
 
-    def shutdown(self) -> None:
-        self._shutting_down = True
+    def shutdown(self) -> bool:
+        if self._closed:
+            return True
+        if not self._shutting_down:
+            self._shutting_down = True
+            # Disconnect producers before closing consumers. Already queued callbacks
+            # still need their entry guards; disconnect alone cannot retract them.
+            if self.source_worker is not None:
+                self.source_worker.completed.disconnect(self._sources_finished)
+            if self.drop_scan_worker is not None:
+                self.drop_scan_worker.completed.disconnect(self._drop_scan_finished)
+            if self.legacy_cache_migration_worker is not None:
+                worker = self.legacy_cache_migration_worker
+                worker.progress_changed.disconnect(self._legacy_cache_migration_progress)
+                worker.completed.disconnect(self._legacy_cache_migration_completed)
+                worker.failed.disconnect(self._legacy_cache_migration_failed)
+            self._legacy_cache_migration_requested = False
+            self._exclusive_database_operation = None
         self.worker_startup_timer.stop()
         self.worker_restart_timer.stop()
         self.timer.stop()
@@ -1479,6 +1608,21 @@ class ImageAnalysisController(QObject):
             self.log(log_event("Worker", f"ImageAnalysis worker shutdown complete pid={pid}"))
         if self.model_process.state() != QProcess.ProcessState.NotRunning:
             self.model_process.terminate()
-            self.model_process.waitForFinished(2000)
+            if not self.model_process.waitForFinished(2000):
+                self.model_process.kill()
+                self.model_process.waitForFinished(2000)
+        for worker in (self.source_worker, self.drop_scan_worker, self.legacy_cache_migration_worker):
+            if worker is not None and worker.isRunning():
+                self.log(log_event(
+                    "ImageAnalysis", "Shutdown waiting for active source/cache work", level="WARNING"
+                ))
+                return False
+        for attribute in ("source_worker", "drop_scan_worker", "legacy_cache_migration_worker"):
+            worker = getattr(self, attribute)
+            if worker is not None:
+                worker.deleteLater()
+                setattr(self, attribute, None)
         self.sources.close()
         self.repository.close()
+        self._closed = True
+        return True

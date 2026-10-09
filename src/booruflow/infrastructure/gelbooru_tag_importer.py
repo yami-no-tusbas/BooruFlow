@@ -91,20 +91,38 @@ def prepare_rows(tags: list[dict]) -> list[tuple[int, str, int, int, int]]:
     return rows
 
 
-def extract_tags(payload: object) -> list[dict]:
+def extract_tags(payload: object, *, strict: bool = False) -> list[dict]:
     if isinstance(payload, list):
+        if strict and any(not isinstance(value, dict) for value in payload):
+            raise ValueError("Invalid Gelbooru tag list")
         return [value for value in payload if isinstance(value, dict)]
     if not isinstance(payload, dict):
+        if strict:
+            raise ValueError("Invalid Gelbooru tag payload")
         return []
     if str(payload.get("success", "true")).lower() == "false":
         raise RuntimeError(str(payload.get("message", "Gelbooru API error")))
+    if strict and "tag" not in payload and "tags" not in payload:
+        attributes = payload.get("@attributes")
+        # Gelbooru omits the tag key on its valid final page (count=0).
+        if isinstance(attributes, dict) and str(attributes.get("count")) == "0":
+            return []
+        raise ValueError("Gelbooru response has no tag collection")
     values = payload.get("tag", payload.get("tags", []))
+    if strict and (
+        not isinstance(values, (list, dict))
+        or isinstance(values, list) and any(not isinstance(value, dict) for value in values)
+    ):
+        raise ValueError("Invalid Gelbooru tag collection")
     if isinstance(values, dict):
         return [values]
     return [value for value in values if isinstance(value, dict)] if isinstance(values, list) else []
 
 
-def fetch_page(after_id: int, user_id: str, api_key: str, *, limit: int = 100) -> list[dict]:
+def fetch_page(
+    after_id: int, user_id: str, api_key: str, *, limit: int = 100, strict: bool = False,
+    response_metadata: dict[str, object] | None = None,
+) -> list[dict]:
     parameters = urllib.parse.urlencode({
         "page": "dapi", "s": "tag", "q": "index", "json": 1,
         "limit": limit, "after_id": after_id, "orderby": "id", "order": "asc",
@@ -115,10 +133,16 @@ def fetch_page(after_id: int, user_id: str, api_key: str, *, limit: int = 100) -
         headers={"User-Agent": "BooruFlow-GelbooruTagImporter/2.0", "Accept": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=60) as response:
-        return extract_tags(json.loads(response.read().decode("utf-8")))
+        payload = json.loads(response.read().decode("utf-8"))
+    rows = extract_tags(payload, strict=strict)
+    if response_metadata is not None:
+        response_metadata.clear()
+        if isinstance(payload, dict) and isinstance(payload.get("@attributes"), dict):
+            response_metadata.update(payload["@attributes"])
+    return rows
 
 
-def fetch_maximum_id(user_id: str, api_key: str) -> int:
+def fetch_maximum_id(user_id: str, api_key: str, *, strict: bool = False) -> int:
     parameters = urllib.parse.urlencode({
         "page": "dapi", "s": "tag", "q": "index", "json": 1,
         "limit": 1, "orderby": "id", "order": "desc",
@@ -129,7 +153,7 @@ def fetch_maximum_id(user_id: str, api_key: str) -> int:
         headers={"User-Agent": "BooruFlow-GelbooruTagImporter/2.0", "Accept": "application/json"},
     )
     with urllib.request.urlopen(request, timeout=60) as response:
-        tags = extract_tags(json.loads(response.read().decode("utf-8")))
+        tags = extract_tags(json.loads(response.read().decode("utf-8")), strict=strict)
     return max((int(tag.get("id", 0)) for tag in tags), default=0)
 
 
@@ -313,7 +337,10 @@ def _rebuild_database_unlocked(
             error: Exception | None = None
             for attempt in range(retries + 1):
                 try:
-                    tags = fetcher(after_id, user_id, api_key)
+                    tags = (
+                        fetch_page(after_id, user_id, api_key, strict=True)
+                        if fetcher is fetch_page else fetcher(after_id, user_id, api_key)
+                    )
                     error = None
                     break
                 except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
@@ -372,6 +399,11 @@ def _rebuild_database_unlocked(
             "INSERT OR REPLACE INTO import_state VALUES('completed_at',?)",
             (datetime.now().astimezone().isoformat(timespec="seconds"),),
         )
+        connection.executemany(
+            "INSERT OR REPLACE INTO import_state VALUES(?,?)",
+            [("last_successful_update_at", datetime.now(UTC).isoformat(timespec="seconds")),
+             ("last_successful_update_mode", "full_rebuild")],
+        )
         _consolidate_names(connection, progress)
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tags_name ON tags(name)")
         connection.execute(
@@ -381,7 +413,7 @@ def _rebuild_database_unlocked(
         connection.execute("CREATE INDEX IF NOT EXISTS idx_tags_post_count ON tags(post_count)")
         connection.commit()
         connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
-    except Exception:
+    except BaseException:  # Also close on Ctrl+C so isolated callers can clean up on Windows.
         connection.close()
         progress(f"Staging database preserved for diagnosis: {staging}")
         raise
@@ -549,6 +581,9 @@ def update_database(
                 raise DatabaseUpdateUnavailable(
                     "Final Gelbooru database has an invalid after_id checkpoint"
                 ) from exc
+            connection.execute("INSERT OR REPLACE INTO import_state VALUES('update_in_progress','1')")
+            connection.execute("DELETE FROM import_state WHERE key='completed'")
+            connection.commit()
             progress(f"Existing database checkpoint: {after_id:,}")
             progress(f"Incremental update starting after_id={after_id:,}")
             if maximum_id:
@@ -562,7 +597,10 @@ def update_database(
                 error: Exception | None = None
                 for attempt in range(retries + 1):
                     try:
-                        tags = fetcher(after_id, user_id, api_key)
+                        tags = (
+                            fetch_page(after_id, user_id, api_key, strict=True)
+                            if fetcher is fetch_page else fetcher(after_id, user_id, api_key)
+                        )
                         error = None
                         break
                     except (OSError, urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
@@ -604,8 +642,15 @@ def update_database(
                 imported += len(rows)
                 pages += 1
                 progress(f"Update pages {pages:,} | tags {imported:,} | after_id {after_id:,}")
-            connection.execute(
-                "INSERT OR REPLACE INTO import_state VALUES('completed','1')"
+            if maximum_id is not None and after_id < maximum_id:
+                raise RuntimeError("Incremental download ended before the reference maximum ID")
+            if connection.execute("PRAGMA integrity_check").fetchall() != [("ok",)]:
+                raise RuntimeError("SQLite integrity check failed after incremental update")
+            connection.executemany(
+                "INSERT OR REPLACE INTO import_state VALUES(?,?)",
+                [("completed", "1"), ("update_in_progress", "0"),
+                 ("last_successful_update_at", datetime.now(UTC).isoformat(timespec="seconds")),
+                 ("last_successful_update_mode", "incremental_new_ids")],
             )
             connection.commit()
             return UpdateSummary(imported, after_id, destination)

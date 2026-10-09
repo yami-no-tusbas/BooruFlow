@@ -1,9 +1,10 @@
 """Flat GROUP/TAG review rows using the existing Qt table and tag palette."""
-from PySide6.QtCore import QEvent, QItemSelectionModel, Qt
+from PySide6.QtCore import QEvent, QItemSelectionModel, Qt, Signal
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QTableWidget, QTableWidgetItem
 
 from booruflow.domain.booru_sites import category_name, resolve_category
+from booruflow.domain.curated_profiles import parse_refinement_token
 from booruflow.presentation.pyside6.icons import NAVIGATION_COLORS
 from booruflow.presentation.pyside6.tag_presentation import present_tag
 from booruflow.presentation.pyside6.theme import style_item_view
@@ -15,6 +16,9 @@ CATEGORY_ROLE = Qt.ItemDataRole.UserRole + 123
 BUCKET_ROLE = Qt.ItemDataRole.UserRole + 124
 STATE_COLUMN = 6
 ID_COLUMN = 5
+CURATED_KEY_ROLE = Qt.ItemDataRole.UserRole + 125
+CURATED_PARENT_ROLE = Qt.ItemDataRole.UserRole + 126
+CURATED_PENDING_ROLE = Qt.ItemDataRole.UserRole + 127
 
 
 def review_symbol(decision: str) -> str:
@@ -24,9 +28,44 @@ def review_symbol(decision: str) -> str:
 class SuggestionTable(QTableWidget):
     """Sorting is applied within groups by the presenter, never by Qt globally."""
 
+    refinement_requested = Signal(str, str, bool)
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         style_item_view(self)
+        self._curated_expanded = set()
+        self._render_context = None
+        self.itemClicked.connect(self._click_curated)
+
+    def reset_curated_expansion(self):
+        self._curated_expanded.clear()
+
+    def retranslate_curated(self, catalog):
+        if self._render_context is not None:
+            rows, _catalog, site, column, order = self._render_context
+            if any(row.get("curated") for row in rows):
+                self.render_rows(rows, catalog, site, column, order)
+
+    def _click_curated(self, item):
+        first = self.item(item.row(), 0)
+        key = first.data(CURATED_KEY_ROLE)
+        if key:
+            self._expand_curated(key, key not in self._curated_expanded)
+    def _toggle_curated_refinement(self, first):
+        if first.data(CURATED_PARENT_ROLE) and not first.data(CURATED_KEY_ROLE):
+            token = self.item(first.row(), ID_COLUMN).text()
+            trigger, name = parse_refinement_token(token)
+            self.refinement_requested.emit(trigger, name, not first.data(CURATED_PENDING_ROLE))
+
+    def _expand_curated(self, key, opened):
+        if opened:
+            self._curated_expanded.add(key)
+        else:
+            self._curated_expanded.discard(key)
+        if self._render_context is not None:
+            rows, catalog, site, column, order = self._render_context
+            self.render_rows(rows, catalog, site, column, order)
+
 
     def setSortingEnabled(self, enabled: bool) -> None:
         super().setSortingEnabled(False)
@@ -51,6 +90,27 @@ class SuggestionTable(QTableWidget):
                 and self.item(index.row(), 0).data(ROW_KIND_ROLE) == "TAG"]
 
     def keyPressEvent(self, event) -> None:
+        current = self.item(self.currentRow(), 0)
+        if current is not None and event.key() in {Qt.Key.Key_Right, Qt.Key.Key_Left}:
+            key = current.data(CURATED_KEY_ROLE)
+            parent = current.data(CURATED_PARENT_ROLE)
+            if key and (event.key() == Qt.Key.Key_Right or key in self._curated_expanded):
+                self._expand_curated(key, event.key() == Qt.Key.Key_Right)
+                event.accept()
+                return
+            if parent and event.key() == Qt.Key.Key_Left:
+                row = next((r for r in range(self.rowCount())
+                            if self.item(r, 0).data(CURATED_KEY_ROLE) == parent), None)
+                if row is not None:
+                    self.selectRow(row)
+                event.accept()
+                return
+        if (current is not None and current.data(CURATED_PARENT_ROLE)
+                and not current.data(CURATED_KEY_ROLE) and event.key() == Qt.Key.Key_Space
+                and event.modifiers() == Qt.KeyboardModifier.NoModifier):
+            self._toggle_curated_refinement(current)
+            event.accept()
+            return
         if event.key() == Qt.Key.Key_Space and event.modifiers() == Qt.KeyboardModifier.ControlModifier:
             current = self.item(self.currentRow(), 0)
             if current is not None and current.data(ROW_KIND_ROLE) == "GROUP":
@@ -71,6 +131,12 @@ class SuggestionTable(QTableWidget):
         super().keyPressEvent(event)
 
     def render_rows(self, rows, catalog, site, sort_column, sort_order, *, next_token=None, advance=False):
+        from copy import deepcopy
+        signature = (rows, catalog.code, site, sort_column, sort_order, self._curated_expanded)
+        if not advance and signature == getattr(self, '_render_signature', None):
+            return
+        self._render_signature = deepcopy(signature)
+        self._render_context = (rows, catalog, site, sort_column, sort_order)
         self._review_site = site
         selected = set(self.selected_tokens()) if self.columnCount() > ID_COLUMN else set()
         current = self.item(self.currentRow(), ID_COLUMN)
@@ -131,10 +197,20 @@ class SuggestionTable(QTableWidget):
                         item.setToolTip(str(values[4]))
                     self.setItem(index, column, item)
                 index += 1
+                if row.get("curated"):
+                    index = self._render_curated(index, row["curated"], catalog, bucket)
         self.refresh_theme()
+        if any(row.get("curated") for row in rows):
+            # Initial sizing can happen while the table is empty. Keep real names
+            # and virtual labels readable when profiles first become available.
+            self.setColumnWidth(0, max(220, self.columnWidth(0)))
+            self.setColumnWidth(STATE_COLUMN, 38)
         tag_rows = self.tag_rows()
+        selectable_rows = [r for r in range(self.rowCount())
+                           if self.item(r, ID_COLUMN) is not None]
         target = str(next_token) if advance and next_token is not None else current_token
-        target_row = next((row for row in tag_rows if self.item(row, ID_COLUMN).text() == target), None)
+        target_row = next((row for row in selectable_rows
+                           if self.item(row, ID_COLUMN).text() == target), None)
         self.clearSelection()
         if not advance:
             for row in tag_rows:
@@ -150,13 +226,74 @@ class SuggestionTable(QTableWidget):
                 self.selectRow(target_row)
         self.verticalScrollBar().setValue(scroll)
 
+    def _render_curated(self, index, profile, catalog, bucket):
+        trigger = profile["trigger"]
+        key = f"group:{trigger}"
+
+        def insert(label, token, *, group_key=None, parent=None, child=None):
+            nonlocal index
+            self.insertRow(index)
+            values = [label, "", "", "", "", token, ""]
+            if child is not None:
+                values[1] = str(child["confidence"])
+                values[2] = str(child["match"])
+                values[3] = catalog.text(
+                    f"tagging.category.{category_name('gelbooru', child['category_id'])}")
+                decision = child.get('decision', 'unreviewed')
+                values[4] = (catalog.text(f'tagging.review.decision.{decision}') if decision != 'unreviewed'
+                             else catalog.text("curated.pending" if child["pending"] else "curated.candidate"))
+                values[6] = review_symbol(decision) if decision != 'unreviewed' else ("●" if child["pending"] else "○")
+            for column, value in enumerate(values):
+                item = QTableWidgetItem(value)
+                item.setFlags(Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable)
+                item.setData(ROW_KIND_ROLE, "CURATED_GROUP" if group_key else "TAG")
+                item.setData(CURATED_KEY_ROLE, group_key)
+                item.setData(CURATED_PARENT_ROLE, parent)
+                item.setData(BUCKET_ROLE, bucket)
+                item.setData(DECISION_ROLE, child.get('decision', 'unreviewed') if child else 'unreviewed')
+                if child is not None:
+                    item.setData(CATEGORY_ROLE, child["category_id"])
+                    item.setData(CURATED_PENDING_ROLE, child["pending"])
+                    item.setToolTip(values[4] + "\n" + child["match"] + "\n" + catalog.text(
+                        "curated.posts", count=f"{child['post_count']:,}"))
+                    if child["pending"]:
+                        font = item.font(); font.setBold(True); item.setFont(font)
+                else:
+                    font = item.font(); font.setBold(True); item.setFont(font)
+                    item.setToolTip(catalog.text("curated.group_tip") + "\n" +
+                                    ", ".join(profile["packs"]))
+                self.setItem(index, column, item)
+            index += 1
+
+        def tag(child, parent):
+            insert("      " + child["tag"], str(child["id"]), parent=parent, child=child)
+
+        insert("  " + ("▾ " if key in self._curated_expanded else "▸ ") + key,
+               key, group_key=key)
+        if key not in self._curated_expanded:
+            return index
+        for child in profile["top"]:
+            tag(child, key)
+        for group in profile["groups"]:
+            group_key = f"{key}/{group['id']}"
+            labels = group.get("labels", {})
+            locale = catalog.code.replace("-", "_").split("_")[0]
+            label = (labels.get(locale) or labels.get("en") or group["id"]
+                     if "labels" in group else group["label"])
+            insert("    " + ("▾ " if group_key in self._curated_expanded else "▸ ") +
+                   label, group_key, group_key=group_key, parent=key)
+            if group_key in self._curated_expanded:
+                for child in group["tags"]:
+                    tag(child, group_key)
+        return index
+
     def refresh_theme(self) -> None:
         palette = self.palette()
         for row in range(self.rowCount()):
             tag = self.item(row, 0)
             if tag is None:
                 continue
-            group = tag.data(ROW_KIND_ROLE) == "GROUP"
+            group = tag.data(ROW_KIND_ROLE) in {"GROUP", "CURATED_GROUP"}
             background = palette.color(QPalette.ColorRole.AlternateBase if tag.data(INITIAL_ROLE)
                                        else QPalette.ColorRole.Base)
             if group:

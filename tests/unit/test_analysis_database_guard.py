@@ -5,12 +5,20 @@ import pytest
 
 from booruflow.infrastructure.image_analysis_cache import ImageAnalysisCache
 from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
-from tests.conftest import _ACTIVE_CACHE_DATABASE, _ACTIVE_DATABASE, guard_sqlite_connect
+from tests.conftest import (
+    _ACTIVE_CACHE_DATABASE,
+    _ACTIVE_DATABASE,
+    _ACTIVE_ENTITY_DATABASE,
+    _ACTIVE_METADATA_DATABASE,
+    guard_sqlite_connect,
+)
 
 
 @pytest.mark.parametrize("database", [
     _ACTIVE_DATABASE,
     _ACTIVE_CACHE_DATABASE,
+    _ACTIVE_ENTITY_DATABASE,
+    _ACTIVE_METADATA_DATABASE,
     str(_ACTIVE_DATABASE),
     bytes(str(_ACTIVE_DATABASE), "utf-8"),
     _ACTIVE_DATABASE.parent / ".." / "state" / "image_analysis.sqlite",

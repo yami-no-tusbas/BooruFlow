@@ -58,7 +58,12 @@ from booruflow.infrastructure.gelbooru_edit_transport import (
     GelbooruSessionExpiredError,
     GelbooruSessionUnknownError,
 )
+from booruflow.infrastructure.image_analysis_repository import ImageAnalysisRepository
 from booruflow.infrastructure.tag_browser import TagRow, exact_tags
+from booruflow.presentation.pyside6.curated_tagging import (
+    CuratedBundleOperation,
+    CuratedTaggingMixin,
+)
 from booruflow.presentation.pyside6.tagging_legacy_controller import (
     TaggingLegacyController,
     _analysis_item_signature,
@@ -100,6 +105,24 @@ def _effective_manual_delta(
     requested_remove = {normalize_booru_tag(tag) for tag in removals if str(tag).strip()}
     desired = (original | requested_add) - requested_remove
     return sorted(desired - original), sorted(original - desired)
+
+
+class BatchSnapshotWorker(QThread):
+    completed = Signal(object)
+    failed = Signal(str)
+
+    def __init__(self, path, site):
+        super().__init__()
+        self.path, self.site = path, site
+
+    def run(self):
+        try:
+            snapshot = ImageAnalysisRepository.read_batch_snapshot(self.path, self.site)
+            if not self.isInterruptionRequested():
+                self.completed.emit(snapshot)
+        except Exception as exc:  # noqa: BLE001 - report worker errors to the page
+            if not self.isInterruptionRequested():
+                self.failed.emit(str(exc))
 
 
 class BatchPublishWorker(QThread):
@@ -337,11 +360,12 @@ class ManualAddOperation:
     observation_id: int
 
 
-class TaggingController(TaggingLegacyController):
+class TaggingController(CuratedTaggingMixin, TaggingLegacyController):
     interactive_priority = 200
     """Transition entry point for the new Tagging workflow."""
 
     def __init__(self, *args, **kwargs) -> None:
+        curated_profiles = kwargs.pop("curated_profiles", None)
         self._publisher_factory = kwargs.pop("publisher_factory", None)
         self._publication_prepare = kwargs.pop("publication_prepare", None)
         self._session_factory = kwargs.pop("session_factory", None)
@@ -354,15 +378,19 @@ class TaggingController(TaggingLegacyController):
         self._project_root = Path(kwargs.pop("project_root", Path.cwd()))
         self._settings = kwargs.pop("settings", {})
         super().__init__(*args, **kwargs)
+        self._init_curated(curated_profiles)
         self._current_remote_site: str | None = None
-        self._undo_stack: list[ReviewDecisionOperation | ManualAddOperation] = []
-        self._redo_stack: list[ReviewDecisionOperation | ManualAddOperation] = []
+        self._undo_stack: list[ReviewDecisionOperation | ManualAddOperation | CuratedBundleOperation] = []
+        self._redo_stack: list[ReviewDecisionOperation | ManualAddOperation | CuratedBundleOperation] = []
         self.page.undo_requested.connect(self.undo)
         self.page.redo_requested.connect(self.redo)
         self.page.manual_lookup_requested.connect(self.lookup_manual_tags)
         self.page.manual_add_requested.connect(self.add_manual_tag)
         self.page.review_validation_requested.connect(self.validate_current_review)
-        self.page.batch_refresh_requested.connect(self.refresh_batch)
+        self._batch_snapshot_generation = 0
+        self._batch_snapshot_workers = []
+        self._batch_snapshot_pending = None
+        self.page.batch_refresh_requested.connect(self.request_batch_refresh)
         self.page.batch_review_requested.connect(self.review_batch_item)
         self.page.batch_remove_requested.connect(self.remove_batch_items)
         self.page.batch_remove_completed_requested.connect(self.remove_completed_batch)
@@ -597,6 +625,11 @@ class TaggingController(TaggingLegacyController):
         self.page.preview.cancel_preparation()
         self._navigation_preview_bytes.clear()
         clean = True
+        self._batch_snapshot_pending = None
+        self._batch_snapshot_generation += 1
+        for snapshot_worker in self._batch_snapshot_workers:
+            snapshot_worker.requestInterruption()
+            clean = snapshot_worker.wait(5_000) and clean
         worker = self.targeted_wd14_worker
         if worker is not None and worker.isRunning():
             worker.requestInterruption()
@@ -696,6 +729,8 @@ class TaggingController(TaggingLegacyController):
         self._last_polled_state = None
         self._undo_stack.clear()
         self._redo_stack.clear()
+        if hasattr(self, "_curated_reviews"):
+            self._curated_reviews.clear()
         self._bulk_lookup_pending.clear()
         if self.image_analysis:
             self.page.set_reviewed_post_ids(
@@ -706,6 +741,7 @@ class TaggingController(TaggingLegacyController):
 
     def notify_tag_database_ready(self) -> None:
         """Refresh visible autocomplete fields after bootstrap becomes usable."""
+        self.reload_curated_catalogue()
         self._bulk_suggestion_cache.clear()
         manual = getattr(self.page, "manual_tag", None)
         if manual is not None and len(manual.text().strip()) >= AUTOCOMPLETE_MIN_CHARS:
@@ -811,7 +847,7 @@ class TaggingController(TaggingLegacyController):
                 profile_path = self._project_root / "var/state/entity_profiles.sqlite"
                 if existing is None and self._current_remote_site == "gelbooru" and profile_path.is_file():
                     from booruflow.infrastructure.gelbooru_tagging import post_tags
-                    with EntityProfileRepository(profile_path) as profiles:
+                    with EntityProfileRepository(profile_path, self._tag_database()) as profiles:
                         seeds = set(post_tags(post))
                         api_categories = post.get("_tag_categories", {})
                         source_categories = dict(api_categories) if isinstance(api_categories, dict) else {}
@@ -1007,37 +1043,97 @@ class TaggingController(TaggingLegacyController):
             self._last_polled_state = None
             self._undo_stack.clear()
             self._redo_stack.clear()
+            if hasattr(self, "_curated_reviews"):
+                self._curated_reviews.pop(item_id, None)
+                self.page.suggestions.reset_curated_expansion()
             self._log("Re-analysis requested with current Image Analysis settings", item_id=item_id)
             self.refresh_local_review()
         except (KeyError, ValueError) as exc:
             self._log(f"Could not re-analyze item: {exc}", level="ERROR", item_id=item_id)
             self.refresh_local_review()
 
+    def request_batch_refresh(self):
+        if not self.image_analysis or self._navigation_closed:
+            return
+        repository = self.image_analysis.repository
+        if not isinstance(repository, ImageAnalysisRepository):
+            self.refresh_batch()
+            return
+        self._batch_snapshot_generation += 1
+        generation, site = self._batch_snapshot_generation, _active_site(self)
+        for active in self._batch_snapshot_workers:
+            active.requestInterruption()
+        if self._batch_snapshot_workers:
+            self._batch_snapshot_pending = (repository.path, site, generation)
+            return
+        self._launch_batch_snapshot(repository.path, site, generation)
+
+    def _launch_batch_snapshot(self, path, site, generation):
+        worker = BatchSnapshotWorker(path, site)
+        self._batch_snapshot_workers.append(worker)
+        worker.completed.connect(lambda snapshot: self._batch_snapshot_ready(generation, site, snapshot))
+        worker.failed.connect(lambda error: self._log(f'Batch read failed: {error}', level='ERROR'))
+        worker.finished.connect(lambda: self._batch_snapshot_finished(worker))
+        worker.start()
+
+    def _batch_snapshot_finished(self, worker):
+        worker.wait()
+        if worker in self._batch_snapshot_workers:
+            self._batch_snapshot_workers.remove(worker)
+        worker.deleteLater()
+        pending, self._batch_snapshot_pending = self._batch_snapshot_pending, None
+        if (pending and not self._navigation_closed
+                and pending[2] == self._batch_snapshot_generation
+                and self.page.mode_stack.currentWidget() is self.page.batch_view):
+            self._launch_batch_snapshot(*pending)
+
+    def _batch_snapshot_ready(self, generation, site, snapshot):
+        if (self._navigation_closed or generation != self._batch_snapshot_generation
+                or site != _active_site(self)
+                or self.page.mode_stack.currentWidget() is not self.page.batch_view):
+            return
+        entries, reviewed, read_ms, reviewed_ms = snapshot
+        if isinstance(read_ms, dict):
+            for phase, elapsed in read_ms.items():
+                self._log(f'[TaggingPerf] step=batch_repository_{phase} elapsed_ms={elapsed:.1f} '
+                          'gui_thread=false', level='DEBUG')
+            read_ms = sum(read_ms.values())
+        self._log(f'[TaggingPerf] step=batch_repository_read_and_decode elapsed_ms={read_ms:.1f} '
+                  f'reviewed_read_ms={reviewed_ms:.1f} gui_thread=false rows={len(entries)}', level='DEBUG')
+        self._display_batch_snapshot(entries, reviewed)
+
     def refresh_batch(self) -> dict[str, object] | None:
         if self.image_analysis:
+            self._batch_snapshot_generation = getattr(self, '_batch_snapshot_generation', 0) + 1
             repository = self.image_analysis.repository
+            started = perf_counter()
             entries = repository.list_batch_entries()
-            self.page.show_batch_entries(entries)
-            refresh_stats = self.page.set_batch_queue_entries(entries)
-            credentials = getattr(self, "credentials", dict)().get("e621", {})
-            self.page.set_e621_publish_configured(
-                isinstance(credentials, dict)
-                and bool(str(credentials.get("user_id", "")).strip())
-                and bool(str(credentials.get("api_key", "")).strip())
-            )
-            backend = (
-                self._publication_backend_provider()
-                if self._publication_backend_provider is not None
-                else "configured"
-            )
-            self.page.set_gelbooru_publish_configured(backend != "disabled")
+            _emit_perf(self, 'batch_repository_read_and_decode', started)
             try:
                 reviewed = repository.reviewed_remote_post_ids(_active_site(self))
             except TypeError:  # compatibility with older lightweight repositories
                 reviewed = repository.reviewed_remote_post_ids()
-            self.page.set_reviewed_post_ids(reviewed)
-            return refresh_stats
+            return self._display_batch_snapshot(entries, reviewed)
         return None
+
+    def _display_batch_snapshot(self, entries, reviewed):
+        self.page.show_batch_entries(entries)
+        refresh_stats = self.page.set_batch_queue_entries(entries)
+        credentials = getattr(self, "credentials", dict)().get("e621", {})
+        self.page.set_e621_publish_configured(
+            isinstance(credentials, dict)
+            and bool(str(credentials.get("user_id", "")).strip())
+            and bool(str(credentials.get("api_key", "")).strip())
+        )
+        backend = (
+            self._publication_backend_provider()
+            if self._publication_backend_provider is not None
+            else "configured"
+        )
+        self.page.set_gelbooru_publish_configured(backend != "disabled")
+        self.page.set_reviewed_post_ids(reviewed)
+        return refresh_stats
+
 
     def review_batch_item(self, item_id: int) -> None:
         """Return to the existing review UI without altering its batch snapshot."""
@@ -1070,6 +1166,7 @@ class TaggingController(TaggingLegacyController):
         self._local_batch_item_id = item_id
         self.current_post_id = None
         self.current_post = {}
+        self.page.mode_stack.setCurrentWidget(self.page.review)
         self.refresh_local_review()
 
     def remove_batch_items(self, item_ids: list[int]) -> None:
@@ -1647,22 +1744,24 @@ class TaggingController(TaggingLegacyController):
                 )
                 self.page.analysis_state.setText(self.catalog.text("tagging.review.tag_unavailable"))
                 return
-            normalized = normalize_booru_tag(name)
+            canonical = getattr(self, "_curated_canonical", lambda tag: tag)
+            normalized = canonical(normalize_booru_tag(name))
             repository = self.image_analysis.repository
             source_names = {
-                normalize_booru_tag(tag.name): tag.name for tag in repository.source_tags(item_id)
+                canonical(normalize_booru_tag(tag.name)): tag.name
+                for tag in repository.source_tags(item_id)
             }
             from booruflow.infrastructure.gelbooru_tagging import post_tags
 
             source_names.update(
-                {normalize_booru_tag(tag): tag for tag in post_tags(self.current_post)}
+                {canonical(normalize_booru_tag(tag)): tag for tag in post_tags(self.current_post)}
             )
             observations = repository.observations(item_id)
             duplicate = next(
                 (
                     (observation_id, observation)
                     for observation_id, observation in observations
-                    if normalize_booru_tag(observation.reviewed_name or observation.name)
+                    if canonical(normalize_booru_tag(observation.reviewed_name or observation.name))
                     == normalized
                 ),
                 None,
@@ -1684,6 +1783,12 @@ class TaggingController(TaggingLegacyController):
                 return
             if duplicate is not None:
                 observation_id, observation = duplicate
+                if (normalized in getattr(self, "_curated_profiles", {})
+                        and normalized in self._curated_state(item_id).pending
+                        and observation.decision is not DecisionState.ACCEPTED):
+                    self.decide(observation_id, "accepted")
+                    self.page.clear_manual_entry()
+                    return
                 if observation.decision is not DecisionState.ACCEPTED:
                     operation = ReviewDecisionOperation(
                         item_id,
@@ -1742,6 +1847,9 @@ class TaggingController(TaggingLegacyController):
         self, item_id: int, changes: tuple[ReviewDecisionChange, ...], *, undo: bool
     ) -> None:
         repository = self.image_analysis.repository
+        def canonical(name):
+            normalized = normalize_booru_tag(name)
+            return getattr(self, '_curated_canonical', normalize_booru_tag)(normalized) if _active_site(self) == 'gelbooru' else normalized
         for change in changes:
             decision = change.before if undo else change.after
             if change.kind == "existing":
@@ -1766,14 +1874,32 @@ class TaggingController(TaggingLegacyController):
                         self.image_analysis.workflow.decide(observation_id, DecisionState(decision), None)
                     profiles.save_review_decision(item_id, tag, decision, observation_id)
             else:
+                observation = dict(repository.observations(item_id))[int(change.target)]
+                name = canonical(observation.reviewed_name or observation.name)
+                if observation.source is ObservationSource.WD14 and hasattr(repository, 'tag_mapping'):
+                    mapped = repository.tag_mapping('wd14', observation.name, _active_site(self))
+                    if mapped:
+                        name = canonical(mapped)
                 self.image_analysis.workflow.decide(
-                    int(change.target), DecisionState(decision), None
+                    int(change.target), DecisionState(decision),
+                    name if hasattr(repository, 'set_canonical_review_decision') else None,
+                )
+            if hasattr(repository, 'set_canonical_review_decision'):
+                name = canonical(str(change.target)) if change.kind in {'existing', 'entity'} else name
+                aliases = [alias for alias, target in getattr(getattr(self, '_curated_profiles', None), 'canonical_names', {}).items()
+                           if target == name] if _active_site(self) == 'gelbooru' else []
+                repository.set_canonical_review_decision(
+                    item_id, _active_site(self), name,
+                    {'keep': 'accepted', 'remove': 'rejected'}.get(decision, decision), aliases=aliases,
                 )
 
     def _apply_operation(
-        self, operation: ReviewDecisionOperation | ManualAddOperation, *, undo: bool
+        self, operation: ReviewDecisionOperation | ManualAddOperation | CuratedBundleOperation,
+        *, undo: bool
     ) -> None:
-        if isinstance(operation, ManualAddOperation):
+        if isinstance(operation, CuratedBundleOperation):
+            self._apply_curated_bundle(operation, undo=undo)
+        elif isinstance(operation, ManualAddOperation):
             self.image_analysis.workflow.decide(
                 operation.observation_id,
                 DecisionState.REJECTED if undo else DecisionState.ACCEPTED,
@@ -1789,8 +1915,14 @@ class TaggingController(TaggingLegacyController):
         if item_id is None:
             return
         try:
+            if hasattr(self, "_curated_reviews") and self._decide_curated(observation_id, value):
+                return
             repository = self.image_analysis.repository
             observations = dict(repository.observations(item_id))
+            canonicalize = getattr(self, '_curated_canonical', normalize_booru_tag)
+            shared = repository.canonical_review_decisions(
+                item_id, _active_site(self), canonicalize=canonicalize
+            ) if hasattr(repository, 'canonical_review_decisions') else {}
             changes: list[ReviewDecisionChange] = []
             for kind, target in self._unique_targets(observation_id):
                 if kind == "existing":
@@ -1806,6 +1938,7 @@ class TaggingController(TaggingLegacyController):
                         if manual is None and before == "accepted":
                             before = "unreviewed"
                     after = "accepted" if value == "accepted" else "rejected"
+                    before = shared.get(canonicalize(normalize_booru_tag(str(target))), before)
                 else:
                     before = observations[int(target)].decision.value
                     after = (
@@ -1832,7 +1965,9 @@ class TaggingController(TaggingLegacyController):
             return
         operation = self._undo_stack.pop()
         try:
-            if isinstance(operation, ManualAddOperation):
+            if isinstance(operation, CuratedBundleOperation):
+                self._apply_curated_bundle(operation, undo=True)
+            elif isinstance(operation, ManualAddOperation):
                 self.image_analysis.workflow.decide(
                     operation.observation_id, DecisionState.REJECTED, None
                 )
@@ -1851,7 +1986,9 @@ class TaggingController(TaggingLegacyController):
             return
         operation = self._redo_stack.pop()
         try:
-            if isinstance(operation, ManualAddOperation):
+            if isinstance(operation, CuratedBundleOperation):
+                self._apply_curated_bundle(operation, undo=False)
+            elif isinstance(operation, ManualAddOperation):
                 self.image_analysis.workflow.decide(
                     operation.observation_id, DecisionState.ACCEPTED, None
                 )
@@ -1904,6 +2041,9 @@ class TaggingController(TaggingLegacyController):
         repository = self.image_analysis.repository
         local_item_id = getattr(self, "_local_batch_item_id", None)
         local_review = local_item_id is not None and self.current_post_id is None
+        if (getattr(self.page, '_displayed_post_id', None) is not None and self.current_post_id is not None
+                and not self._review_matches_current_post()):
+            return
         item = (
             repository.get_item(int(local_item_id))
             if local_review
@@ -1956,6 +2096,8 @@ class TaggingController(TaggingLegacyController):
             if native_category is None and key in local_rows:
                 native_category = local_rows[key].category
             category_label, category_id = _category_values(self, native_category)
+            if _active_site(self) == "gelbooru" and hasattr(self, "_curated_profiles"):
+                key = self._curated_canonical(key)
             rows[key] = {
                 "id": f"existing:{tag}",
                 "tag": tag,
@@ -1982,6 +2124,12 @@ class TaggingController(TaggingLegacyController):
                 else None
             )
             mappings[observation_id] = mapping
+            if _active_site(self) == "gelbooru" and hasattr(self, "_curated_profiles"):
+                original = normalize_booru_tag(observation.reviewed_name or observation.name)
+                canonical = self._curated_canonical(original)
+                if canonical != original:
+                    mapping = canonical
+                    mappings[observation_id] = mapping
             mapped_names.extend(
                 filter(None, (observation.reviewed_name or observation.name, mapping))
             )
@@ -1996,6 +2144,8 @@ class TaggingController(TaggingLegacyController):
             name = observation.reviewed_name or observation.name
             match = match_local_tag(name, local, current_tags, mappings[observation_id])
             display_name = match.target_tag or normalize_booru_tag(name)
+            if _active_site(self) == "gelbooru" and hasattr(self, "_curated_profiles"):
+                display_name = self._curated_canonical(normalize_booru_tag(display_name))
             key = normalize_booru_tag(display_name)
             existing = rows.get(key)
             confidence = "" if observation.confidence is None else f"{observation.confidence:.3f}"
@@ -2042,8 +2192,9 @@ class TaggingController(TaggingLegacyController):
             }
             if observation.source is ObservationSource.WD14:
                 rows[key]["wd14_score"] = observation.confidence
-        profile_path = getattr(self, "_project_root", Path.cwd()) / "var/state/entity_profiles.sqlite"
-        if _active_site(self) == "gelbooru" and profile_path.is_file():
+        project_root = getattr(self, "_project_root", None)
+        profile_path = project_root / "var/state/entity_profiles.sqlite" if project_root is not None else None
+        if _active_site(self) == "gelbooru" and profile_path is not None and profile_path.is_file():
             confirmed = {
                 normalize_booru_tag(observation.reviewed_name or observation.name)
                 for _oid, observation in observations if observation.decision is DecisionState.ACCEPTED
@@ -2052,7 +2203,7 @@ class TaggingController(TaggingLegacyController):
             # Rows emitted by merge_profile_suggestions never feed this set.
             seeds = activation_tags(
                 {normalize_booru_tag(tag) for tag in current_tags - set(summary["removals"])}, confirmed)
-            with EntityProfileRepository(profile_path) as profiles:
+            with EntityProfileRepository(profile_path, self._tag_database()) as profiles:
                 source_categories = dict(api_categories) if isinstance(api_categories, dict) else {}
                 source_categories.update({tag: value for tag, value in persisted_categories.items()
                                           if value is not None})
@@ -2079,6 +2230,25 @@ class TaggingController(TaggingLegacyController):
             for row in rows.values():
                 if row.get("profile_scores") and "wd14_score" in row and "WD14" not in row["match"]:
                     row["match"] = "WD14 · " + row["match"]
+        if hasattr(repository, 'canonical_review_decisions'):
+            decisions = repository.canonical_review_decisions(
+                item.id, _active_site(self), canonicalize=(
+                    getattr(self, '_curated_canonical', normalize_booru_tag)
+                    if _active_site(self) == 'gelbooru' else normalize_booru_tag
+                ),
+            )
+            for name, row in rows.items():
+                if name in decisions:
+                    decision = decisions[name]
+                    row['decision'] = (
+                        ('remove' if decision == 'rejected' else 'keep')
+                        if str(row['id']).startswith('existing:') else decision
+                    )
+        if _active_site(self) == "gelbooru" and hasattr(self, "_curated_reviews"):
+            self._attach_curated(item.id, rows, current_tags)
+            if getattr(self.page.suggestions, "curated_item_id", None) != item.id:
+                self.page.suggestions.curated_item_id = item.id
+                self.page.suggestions.reset_curated_expansion()
         labels = {
             "pending": self.catalog.text("tagging.analysis.pending"),
             "processing": self.catalog.text("tagging.analysis.processing"),

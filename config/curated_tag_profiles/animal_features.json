@@ -1,0 +1,59 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-animal-features",
+    "name": "BooruFlow — Animal features"
+  },
+  "profiles": [
+    {
+      "trigger": "animal_ears",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "species",
+          "label": {
+            "en": "Species",
+            "fr": "Espèce"
+          },
+          "tags": [
+            "cat_ears",
+            "rabbit_ears",
+            "fox_ears",
+            "horse_ears",
+            "wolf_ears",
+            "dog_ears",
+            "mouse_ears",
+            "cow_ears",
+            "tiger_ears",
+            "raccoon_ears",
+            "bear_ears",
+            "lion_ears",
+            "deer_ears",
+            "squirrel_ears",
+            "sheep_ears",
+            "goat_ears",
+            "bat_ears",
+            "panda_ears",
+            "panther_ears",
+            "jackal_ears"
+          ]
+        },
+        {
+          "id": "type_state",
+          "label": {
+            "en": "Type / state",
+            "fr": "Type / état"
+          },
+          "tags": [
+            "fake_animal_ears",
+            "floppy_ears",
+            "colored_inner_animal_ears",
+            "very_long_animal_ears",
+            "multiple_animal_ears"
+          ]
+        }
+      ]
+    }
+  ]
+}

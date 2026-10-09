@@ -1,0 +1,84 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-bdsm-tools",
+    "name": "BooruFlow — BDSM tools"
+  },
+  "profiles": [
+    {
+      "trigger": "bdsm",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "restraints",
+          "label": {
+            "en": "Restraints",
+            "fr": "Entraves"
+          },
+          "tags": [
+            "handcuffs",
+            "rope",
+            "chain",
+            "shackles",
+            "leg_cuffs",
+            "wrist_cuffs",
+            "ankle_cuffs",
+            "bondage_mittens"
+          ]
+        },
+        {
+          "id": "neck_leash",
+          "label": {
+            "en": "Collars / leashes",
+            "fr": "Colliers / laisses"
+          },
+          "tags": [
+            "collar",
+            "leash",
+            "o-ring_choker",
+            "padlocked_choker"
+          ]
+        },
+        {
+          "id": "gags_blindfolds",
+          "label": {
+            "en": "Gags / blindfolds",
+            "fr": "Bâillons / bandeaux"
+          },
+          "tags": [
+            "gag",
+            "ball_gag",
+            "bit_gag",
+            "tape_gag",
+            "blindfold"
+          ]
+        },
+        {
+          "id": "impact_tools",
+          "label": {
+            "en": "Impact tools",
+            "fr": "Outils d'impact"
+          },
+          "tags": [
+            "whip",
+            "riding_crop",
+            "paddle",
+            "cane"
+          ]
+        },
+        {
+          "id": "clamps_other",
+          "label": {
+            "en": "Clamps / other",
+            "fr": "Pinces / autres"
+          },
+          "tags": [
+            "nipple_clamps",
+            "spreader_bar"
+          ]
+        }
+      ]
+    }
+  ]
+}

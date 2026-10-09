@@ -731,10 +731,13 @@ class ImageAnalysisPage(QWidget):
         self.image.set_image(None)
 
     def show_review(
-        self, item, tags, observations, statistics, *, preview_data: bytes | None = None
+        self, item, tags, observations, statistics, *, preview_data: bytes | None = None,
+        preserve_preview: bool = False,
     ) -> bool:
         self.current_item_id = item.id if item else None
-        preview_loaded = bool(preview_data) and self.image.set_image_bytes(preview_data)
+        preview_loaded = (
+            preserve_preview and not self.image._source.isNull()
+        ) or (bool(preview_data) and self.image.set_image_bytes(preview_data))
         if item is None:
             self.image.set_image(None)
         elif (

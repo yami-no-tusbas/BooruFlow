@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import urllib.parse
+from concurrent.futures import CancelledError
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
@@ -17,7 +18,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QLineEdit,
     QMenu,
-    QProgressBar,
+    QPlainTextEdit,
     QPushButton,
     QSpinBox,
     QSplitter,
@@ -39,7 +40,8 @@ from booruflow.infrastructure.wiki_audit import (
     AuditResult,
     AuditTag,
     GelbooruWikiAuditService,
-    parse_post_reference,
+    clean_audit_tags,
+    parse_audit_reference,
     random_post_id,
     summarize,
 )
@@ -78,24 +80,61 @@ class WordCountItem(QTableWidgetItem):
         return left_key < right_key
 
 
+class AuditReferenceEdit(QPlainTextEdit):
+    """A compact source field that preserves multiline paste without an input limit."""
+
+    returnPressed = Signal()
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setTabChangesFocus(True)
+        self.setFixedHeight(QLineEdit().sizeHint().height() + 8)
+
+    def text(self) -> str:
+        return self.toPlainText()
+
+    def setText(self, value: str) -> None:
+        self.setPlainText(value)
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter) and not (
+            event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        ):
+            self.returnPressed.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
+
+
 class AuditWorker(QThread):
     completed = Signal(object)
     failed = Signal(object)
     progress = Signal(int, int, str)
 
-    def __init__(self, service: GelbooruWikiAuditService, post_id: int, force: bool) -> None:
+    def __init__(
+        self, service: GelbooruWikiAuditService,
+        source: int | tuple[str, ...], force: bool,
+    ) -> None:
         super().__init__()
-        self.service, self.post_id, self.force = service, post_id, force
+        self.service, self.source, self.force = service, source, force
 
     def run(self) -> None:
         try:
-            result = self.service.audit_post(
-                self.post_id, force=self.force, progress=self.progress.emit
+            audit = (
+                self.service.audit_post if isinstance(self.source, int)
+                else self.service.audit_tags
             )
+            result = audit(
+                self.source, force=self.force, progress=self.progress.emit,
+                cancelled=self.isInterruptionRequested,
+            )
+        except CancelledError:
+            return
         except Exception as exc:  # noqa: BLE001 - worker boundary
             self.failed.emit(exc)
         else:
-            self.completed.emit(result)
+            if not self.isInterruptionRequested():
+                self.completed.emit(result)
 
 
 class RandomPostWorker(QThread):
@@ -107,10 +146,16 @@ class RandomPostWorker(QThread):
         self.client = client
 
     def run(self) -> None:
+        if self.isInterruptionRequested():
+            return
         try:
-            self.completed.emit(random_post_id(self.client))
+            post_id = random_post_id(self.client)
         except Exception as exc:  # noqa: BLE001 - worker boundary
-            self.failed.emit(exc)
+            if not self.isInterruptionRequested():
+                self.failed.emit(exc)
+        else:
+            if not self.isInterruptionRequested():
+                self.completed.emit(post_id)
 
 
 class WikiAuditPage(QWidget):
@@ -137,6 +182,11 @@ class WikiAuditPage(QWidget):
         self.worker: AuditWorker | RandomPostWorker | None = None
         self._reader_url = ""
         self._scan_generation = 0
+        self._workers: set[QThread] = set()
+        self._source: int | tuple[str, ...] | None = None
+        self._from_tag_browser = False
+        self._closing = False
+        self._session_error = False
         self.autocomplete_service = TagAutocompleteService(
             {"gelbooru": tag_database}, {"gelbooru": alias_database}
         )
@@ -150,7 +200,8 @@ class WikiAuditPage(QWidget):
         layout.addWidget(self.title)
         source = QGroupBox()
         source_layout = QHBoxLayout(source)
-        self.reference = QLineEdit()
+        self.reference = AuditReferenceEdit()
+        self.reference.textChanged.connect(self._reference_changed)
         self.reference.returnPressed.connect(self.load_reference)
         self.load_button = QPushButton()
         self.load_button.clicked.connect(self.load_reference)
@@ -257,18 +308,58 @@ class WikiAuditPage(QWidget):
         splitter.setStretchFactor(0, 3)
         splitter.setStretchFactor(1, 2)
         layout.addWidget(splitter, 1)
-        bottom = QHBoxLayout()
         self.status = QLabel()
-        self.progress_bar = QProgressBar()
-        self.progress_bar.setVisible(False)
-        bottom.addWidget(self.status, 1)
-        bottom.addWidget(self.progress_bar)
-        layout.addLayout(bottom)
+        self.status.setWordWrap(True)
+        self.status.hide()
+        layout.addWidget(self.status)
         self.retranslate()
 
-    def closeEvent(self, event) -> None:
+    def shutdown(self) -> bool:
+        self._closing = True
+        self._scan_generation += 1
+        for worker in self._workers:
+            worker.requestInterruption()
+        self.page_status.clear_progress()
+        self.page_status.clear_message()
         self.autocomplete.shutdown()
+        return not any(worker.isRunning() for worker in self._workers)
+
+    def closeEvent(self, event) -> None:
+        if not self.shutdown():
+            event.ignore()
+            QTimer.singleShot(100, self.close)
+            return
         super().closeEvent(event)
+
+    def _show_status(self, message: str) -> None:
+        self.status.setText(message)
+        self.status.setVisible(bool(message))
+
+    def _reference_changed(self) -> None:
+        if self.reference.text():
+            self._from_tag_browser = False
+            self.reference.setPlaceholderText(
+                self.catalog.text("wiki_audit.reference_placeholder")
+            )
+
+    def load_tags(self, tags: list[str] | tuple[str, ...]) -> None:
+        """Reusable in-memory entry point; no post/history persistence."""
+        names = clean_audit_tags(tags)
+        if not names or self._closing:
+            return
+        self._source = names
+        self._from_tag_browser = True
+        self.reference.setText("")
+        self._update_source_hint()
+        self._start_scan(force=False)
+
+    def _update_source_hint(self) -> None:
+        if self._from_tag_browser and isinstance(self._source, tuple):
+            count = len(self._source)
+            key = "wiki_audit.from_tag_browser.one" if count == 1 else "wiki_audit.from_tag_browser.many"
+            self.reference.setPlaceholderText(self.catalog.text(key, count=count))
+        else:
+            self.reference.setPlaceholderText(self.catalog.text("wiki_audit.reference_placeholder"))
 
     def _autocomplete_ready(self, owner: str, _request: object, suggestions: object) -> None:
         if owner != "wiki_audit.search" or not isinstance(suggestions, list):
@@ -330,107 +421,123 @@ class WikiAuditPage(QWidget):
             f"authenticated={str(client.authenticated).lower()}"
         )
 
-    def load_random(self) -> None:
-        if self._busy():
-            return
+    def _new_session(self) -> int:
+        self._scan_generation += 1
+        for worker in self._workers:
+            worker.requestInterruption()
+        self.worker = None
+        self.result = None
+        self.apply_filters()
+        self.reader.clear()
+        self._reader_url = ""
+        self.status.clear()
+        self.status.hide()
+        self._session_error = False
+        self.page_status.clear_message()
+        self.page_status.clear_progress()
+        return self._scan_generation
+
+    def _track_worker(self, worker: QThread) -> None:
+        self._workers.add(worker)
+        self.worker = worker
+        worker.finished.connect(lambda: self._scan_finished(worker))
         self._set_busy(True)
+        worker.start()
+
+    def load_random(self) -> None:
+        if self._closing:
+            return
+        generation = self._new_session()
+        self._source = None
+        self._from_tag_browser = False
+        self.reference.setText("")
+        self._update_source_hint()
         client = self._dapi_client()
         self._dapi_operation = "random_post"
         self._log_dapi("DAPI request", self._dapi_operation, client)
         worker = RandomPostWorker(client)
-        worker.completed.connect(self._random_ready)
-        worker.failed.connect(self._failed)
-        worker.finished.connect(lambda: self._random_finished(worker))
-        self.worker = worker
-        worker.start()
+        worker.completed.connect(lambda post_id: self._random_ready(post_id, generation))
+        worker.failed.connect(lambda error: self._failed(error, generation))
+        self._track_worker(worker)
 
-    def _random_ready(self, post_id: int) -> None:
-        self.reference.setText(str(post_id))
-        self.worker = None
-        self._start_scan(force=False)
-
-    def _random_finished(self, worker: RandomPostWorker) -> None:
-        if self.worker is worker:
-            self.worker = None
-            self._set_busy(False)
-
-    def load_reference(self) -> None:
-        try:
-            post_id = parse_post_reference(self.reference.text())
-        except ValueError as exc:
-            self.status.setText(str(exc))
+    def _random_ready(self, post_id: int, generation: int | None = None) -> None:
+        if self._closing or (generation is not None and generation != self._scan_generation):
             return
         self.reference.setText(str(post_id))
+        self._source = post_id
+        self._start_scan(force=False)
+
+    def load_reference(self) -> None:
+        if self._closing:
+            return
+        if self._from_tag_browser and not self.reference.text():
+            self._start_scan(force=False)
+            return
+        try:
+            self._source = parse_audit_reference(self.reference.text())
+        except ValueError as exc:
+            self._show_status(str(exc))
+            return
+        self._from_tag_browser = False
+        self._update_source_hint()
+        if isinstance(self._source, int):
+            self.reference.setText(str(self._source))
         self._start_scan(force=False)
 
     def _start_scan(self, *, force: bool) -> None:
-        if self._busy():
+        if self._closing or self._source is None:
             return
+        generation = self._new_session()
         try:
-            post_id, service = parse_post_reference(self.reference.text()), self._service()
+            service = self._service()
         except (ValueError, FileNotFoundError) as exc:
-            self.status.setText(str(exc))
+            self._set_busy(False)
+            self._show_status(str(exc))
             return
-        self._dapi_operation = "load_post"
-        self._log_dapi("DAPI request", self._dapi_operation, service.dapi_client)
-        self._scan_generation += 1
-        generation = self._scan_generation
-        worker = AuditWorker(service, post_id, force)
+        self._dapi_operation = "load_post" if isinstance(self._source, int) else "audit_tags"
+        if isinstance(self._source, int):
+            self._log_dapi("DAPI request", self._dapi_operation, service.dapi_client)
+        worker = AuditWorker(service, self._source, force)
         worker.progress.connect(
-            lambda completed, total, tag, value=generation: self._progress(
-                completed, total, tag, value
-            )
+            lambda completed, total, tag: self._progress(completed, total, tag, generation)
         )
-        worker.completed.connect(
-            lambda result, value=generation: self._completed(result, value)
-        )
-        worker.failed.connect(
-            lambda error, value=generation: self._failed(error, value)
-        )
-        worker.finished.connect(lambda: self._scan_finished(worker))
-        self.worker = worker
-        self._set_busy(True)
-        worker.start()
+        worker.completed.connect(lambda result: self._completed(result, generation))
+        worker.failed.connect(lambda error: self._failed(error, generation))
+        self._track_worker(worker)
 
     def _busy(self) -> bool:
-        return self.worker is not None and self.worker.isRunning()
+        return self.worker is not None
 
     def _set_busy(self, busy: bool) -> None:
-        self.load_button.setEnabled(not busy)
-        self.random_button.setEnabled(not busy)
+        # Source actions stay available so a new request can replace an active session.
         self.refresh_button.setEnabled(not busy and self.result is not None)
-        self.progress_bar.setVisible(busy)
         if busy:
-            self.progress_bar.setRange(0, 0)
-            self.status.setText(self.catalog.text("wiki_audit.loading"))
             self.page_status.set_state("working")
             self.page_status.set_busy()
             self.page_status.show_message(self.catalog.text("wiki_audit.loading"), timeout_ms=0)
         else:
             self.page_status.set_state("ready")
             self.page_status.clear_progress()
+            if not self._session_error:
+                self.page_status.clear_message()
 
     def _progress(
         self, completed: int, total: int, tag: str, generation: int | None = None
     ) -> None:
         if generation is not None and generation != self._scan_generation:
             return
-        self.progress_bar.setRange(0, max(total, 1))
-        self.progress_bar.setValue(completed)
         self.page_status.set_progress(completed, total)
-        self.status.setText(
-            self.catalog.text("wiki_audit.progress", completed=completed, total=total, tag=tag)
+        self.page_status.show_message(
+            self.catalog.text("wiki_audit.progress", completed=completed, total=total, tag=tag),
+            timeout_ms=0,
         )
-        self.page_status.show_message(self.status.text(), timeout_ms=0)
 
     def _completed(self, result: object, generation: int | None = None) -> None:
         if generation is not None and generation != self._scan_generation:
             return
         if isinstance(result, AuditResult):
             self.result = result
-            self.reference.setText(str(result.post_id))
             self.apply_filters()
-            self.page_status.show_message(self.status.text(), timeout_ms=0)
 
     def _failed(self, error, generation: int | None = None) -> None:
         if generation is not None and generation != self._scan_generation:
@@ -447,14 +554,17 @@ class WikiAuditPage(QWidget):
             f"operation={self._dapi_operation or 'unknown'} "
             f"authenticated={str(client.authenticated).lower()}"
         )
-        self.status.setText(self.catalog.text("wiki_audit.error", error=message))
-        self.page_status.show_message(self.status.text(), timeout_ms=0,
-                                      global_message=True, level="ERROR")
+        self._session_error = True
+        self._show_status(self.catalog.text("wiki_audit.error", error=message))
+        self.page_status.show_message(self.status.text(), timeout_ms=0, level="ERROR")
 
-    def _scan_finished(self, worker: AuditWorker) -> None:
+    def _scan_finished(self, worker: QThread) -> None:
+        self._workers.discard(worker)
         if self.worker is worker:
             self.worker = None
-        self._set_busy(False)
+            if not self._closing:
+                self._set_busy(False)
+        worker.deleteLater()
 
     def _visible_rows(self) -> list[AuditTag]:
         if self.result is None:
@@ -549,7 +659,7 @@ class WikiAuditPage(QWidget):
         self.table.setSortingEnabled(True)
         if self.result is not None:
             total, present, missing, errors, suspicious = summarize(self.result.tags)
-            self.status.setText(
+            self._show_status(
                 self.catalog.text(
                     "wiki_audit.summary",
                     total=total,
@@ -595,7 +705,7 @@ class WikiAuditPage(QWidget):
     def retranslate(self) -> None:
         text = self.catalog.text
         self.title.setText(text("nav.wiki_audit"))
-        self.reference.setPlaceholderText(text("wiki_audit.reference_placeholder"))
+        self._update_source_hint()
         self.load_button.setText(text("wiki_audit.load"))
         self.random_button.setText(text("wiki_audit.random"))
         self.refresh_button.setText(text("wiki_audit.refresh"))

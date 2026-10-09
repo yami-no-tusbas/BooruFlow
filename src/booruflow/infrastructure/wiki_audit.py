@@ -7,7 +7,7 @@ import re
 import urllib.parse
 import urllib.request
 from collections.abc import Callable, Iterable
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, CancelledError, ThreadPoolExecutor, wait
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from html.parser import HTMLParser
@@ -15,6 +15,7 @@ from pathlib import Path
 from typing import ClassVar
 
 from booruflow.infrastructure.gelbooru_client import DEFAULT_USER_AGENT, GelbooruDapiClient
+from booruflow.infrastructure.gelbooru_normalization import post_tags
 from booruflow.infrastructure.tag_browser import TagRow, enrich_tag_rows, exact_tags
 from booruflow.infrastructure.wiki_page_cache import WikiPageCache, WikiPageRecord
 from booruflow.infrastructure.wiki_tag_importer import (
@@ -75,7 +76,7 @@ class AuditTag:
 
 @dataclass(frozen=True, slots=True)
 class AuditResult:
-    post_id: int
+    post_id: int | None
     post_url: str
     tags: tuple[AuditTag, ...]
 
@@ -362,11 +363,31 @@ def parse_post_reference(value: str) -> int:
         raise ValueError("Enter a Gelbooru post ID or post URL") from exc
 
 
+def clean_audit_tags(names: Iterable[str]) -> tuple[str, ...]:
+    """Trim Unicode names without decoding already-normalized local/wire tags again."""
+    unique: dict[str, str] = {}
+    for name in names:
+        value = str(name).strip()
+        if value:
+            unique.setdefault(value.casefold(), value)
+    return tuple(unique.values())
+
+
+def parse_audit_reference(value: str) -> int | tuple[str, ...]:
+    """Keep numeric/URL post loading; comma and newline input represents tag names."""
+    value = value.strip()
+    if not value:
+        raise ValueError("Enter a Gelbooru post ID, post URL or tags")
+    if value.isdigit() or value.startswith(("https://", "http://")):
+        return parse_post_reference(value)
+    names = clean_audit_tags(re.split(r"[,\r\n]+", value))
+    if not names:
+        raise ValueError("Enter a Gelbooru post ID, post URL or tags")
+    return names
+
+
 def _post_tags(post: dict) -> list[str]:
-    value = post.get("tags", "")
-    if isinstance(value, list):
-        return list(dict.fromkeys(str(tag).strip() for tag in value if str(tag).strip()))
-    return list(dict.fromkeys(str(value).split()))
+    return post_tags(post)
 
 
 class GelbooruWikiAuditService:
@@ -435,9 +456,33 @@ class GelbooruWikiAuditService:
         *,
         force: bool = False,
         progress: Callable[[int, int, str], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
     ) -> AuditResult:
+        if cancelled and cancelled():
+            raise CancelledError()
         post = self.dapi_client.fetch_post(post_id)
-        names = _post_tags(post)
+        result = self.audit_tags(
+            _post_tags(post), force=force, progress=progress, cancelled=cancelled
+        )
+        return replace(
+            result, post_id=post_id,
+            post_url=f"{GELBOORU_URL}?page=post&s=view&id={post_id}",
+        )
+
+    def audit_tags(
+        self,
+        tags: Iterable[str],
+        *,
+        force: bool = False,
+        progress: Callable[[int, int, str], None] | None = None,
+        cancelled: Callable[[], bool] | None = None,
+    ) -> AuditResult:
+        def check_cancelled() -> None:
+            if cancelled and cancelled():
+                raise CancelledError()
+
+        check_cancelled()
+        names = list(clean_audit_tags(tags))
         local = exact_tags(self.tag_database, names)
         local = enrich_tag_rows(self.tag_database, self.alias_database, local)
         by_name = {row.name.casefold(): row for row in local}
@@ -454,30 +499,47 @@ class GelbooruWikiAuditService:
         completed = len(cached_names)
         if progress:
             progress(completed, len(names), "")
-        with ThreadPoolExecutor(max_workers=self.workers) as executor:
-            futures = {
-                executor.submit(
-                    self.wiki_status,
-                    name,
-                    force=True,
+        check_cancelled()
+        executor = ThreadPoolExecutor(max_workers=self.workers)
+        remaining = iter(pending)
+        futures = {}
+
+        def submit_next() -> None:
+            check_cancelled()
+            name = next(remaining, None)
+            if name is not None:
+                future = executor.submit(
+                    self.wiki_status, name, force=True,
                     previous=cached_pages.get(name.casefold()),
-                ): name
-                for name in pending
-            }
-            for future in as_completed(futures):
-                name = futures[future]
-                try:
-                    statuses[name] = future.result()
-                except Exception as exc:  # noqa: BLE001 - preserve per-row network failures
-                    statuses[name] = WikiStatus(
-                        name,
-                        False,
-                        error=str(exc),
-                        error_kind="parse" if isinstance(exc, WikiPageParseError) else "network",
-                    )
-                completed += 1
-                if progress:
-                    progress(completed, len(names), name)
+                )
+                futures[future] = name
+
+        try:
+            for _ in range(self.workers):
+                submit_next()
+            while futures:
+                check_cancelled()
+                done, _ = wait(futures, timeout=0.1, return_when=FIRST_COMPLETED)
+                for future in done:
+                    check_cancelled()
+                    name = futures.pop(future)
+                    try:
+                        statuses[name] = future.result()
+                    except Exception as exc:  # noqa: BLE001 - preserve per-row network failures
+                        statuses[name] = WikiStatus(
+                            name, False, error=str(exc),
+                            error_kind="parse" if isinstance(exc, WikiPageParseError) else "network",
+                        )
+                    completed += 1
+                    if progress:
+                        progress(completed, len(names), name)
+                    submit_next()
+        finally:
+            # In-flight HTTP calls retain their transport timeout, but obsolete
+            # sessions never queue the rest of a large selection. Drain HTTP
+            # calls inside this background worker before allowing Qt shutdown.
+            executor.shutdown(wait=True, cancel_futures=True)
+        check_cancelled()
         rows: list[AuditTag] = []
         for name in names:
             tag: TagRow | None = by_name.get(name.casefold())
@@ -490,7 +552,7 @@ class GelbooruWikiAuditService:
                 wiki=statuses[name],
             ))
         rows.sort(key=lambda row: (-row.post_count, row.name.casefold()))
-        return AuditResult(post_id, f"{GELBOORU_URL}?page=post&s=view&id={post_id}", tuple(rows))
+        return AuditResult(None, "", tuple(rows))
 
 
 def summarize(rows: Iterable[AuditTag]) -> tuple[int, int, int, int, int]:

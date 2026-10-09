@@ -1,0 +1,177 @@
+{
+  "format_version": 1,
+  "pack": {
+    "id": "booruflow-footwear-handwear",
+    "name": "BooruFlow — Footwear & handwear"
+  },
+  "profiles": [
+    {
+      "trigger": "boots",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "shape_style",
+          "label": {
+            "en": "Shape / style",
+            "fr": "Forme / style"
+          },
+          "tags": [
+            "thigh_boots",
+            "knee_boots",
+            "ankle_boots",
+            "high_heel_boots",
+            "lace-up_boots",
+            "platform_boots",
+            "cowboy_boots",
+            "rubber_boots",
+            "armored_boots",
+            "fur-trimmed_boots"
+          ]
+        },
+        {
+          "id": "color",
+          "label": {
+            "en": "Color",
+            "fr": "Couleur"
+          },
+          "tags": [
+            "black_boots",
+            "white_boots",
+            "brown_boots",
+            "red_boots",
+            "blue_boots",
+            "pink_boots",
+            "purple_boots",
+            "green_boots",
+            "grey_boots",
+            "yellow_boots"
+          ]
+        },
+        {
+          "id": "material",
+          "label": {
+            "en": "Material",
+            "fr": "Matière"
+          },
+          "tags": [
+            "leather_boots",
+            "armored_boots"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "gloves",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "shape_style",
+          "label": {
+            "en": "Shape / style",
+            "fr": "Forme / style"
+          },
+          "tags": [
+            "elbow_gloves",
+            "fingerless_gloves",
+            "partially_fingerless_gloves",
+            "half_gloves",
+            "paw_gloves",
+            "boxing_gloves",
+            "fishnet_gloves",
+            "latex_gloves",
+            "lace_gloves",
+            "fur-trimmed_gloves",
+            "leather_gloves"
+          ]
+        },
+        {
+          "id": "color",
+          "label": {
+            "en": "Color",
+            "fr": "Couleur"
+          },
+          "tags": [
+            "black_gloves",
+            "white_gloves",
+            "red_gloves",
+            "brown_gloves",
+            "blue_gloves",
+            "purple_gloves",
+            "pink_gloves",
+            "grey_gloves",
+            "yellow_gloves",
+            "green_gloves"
+          ]
+        },
+        {
+          "id": "details",
+          "label": {
+            "en": "Details",
+            "fr": "Détails"
+          },
+          "tags": [
+            "asymmetrical_gloves",
+            "mismatched_gloves",
+            "two-tone_gloves",
+            "print_gloves",
+            "frilled_gloves"
+          ]
+        }
+      ]
+    },
+    {
+      "trigger": "socks",
+      "top_count": 5,
+      "min_post_count": 25,
+      "groups": [
+        {
+          "id": "shape_style",
+          "label": {
+            "en": "Shape / style",
+            "fr": "Forme / style"
+          },
+          "tags": [
+            "loose_socks",
+            "bobby_socks",
+            "ankle_socks",
+            "ribbed_socks",
+            "fishnet_socks"
+          ]
+        },
+        {
+          "id": "color_pattern",
+          "label": {
+            "en": "Color / pattern",
+            "fr": "Couleur / motif"
+          },
+          "tags": [
+            "white_socks",
+            "black_socks",
+            "striped_socks",
+            "blue_socks",
+            "grey_socks",
+            "red_socks",
+            "pink_socks",
+            "brown_socks",
+            "green_socks",
+            "purple_socks",
+            "yellow_socks"
+          ]
+        },
+        {
+          "id": "details",
+          "label": {
+            "en": "Details",
+            "fr": "Détails"
+          },
+          "tags": [
+            "frilled_socks",
+            "torn_socks"
+          ]
+        }
+      ]
+    }
+  ]
+}

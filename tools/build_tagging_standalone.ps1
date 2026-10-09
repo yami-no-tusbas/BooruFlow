@@ -13,6 +13,7 @@ if (-not (Test-Path -LiteralPath $python)) {
     --windowed `
     --name "Gelbooru-Tagging-Helper" `
     --add-data "resources/i18n;resources/i18n" `
+    --add-data "resources/curated_tag_profiles;resources/curated_tag_profiles" `
     "src/booruflow/presentation/pyside6/tagging_standalone.py"
 
 if ($LASTEXITCODE -ne 0) {
